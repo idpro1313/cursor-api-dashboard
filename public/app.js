@@ -8,12 +8,11 @@ const ADMIN_ENDPOINTS = [
   { path: '/teams/daily-usage-data', method: 'POST', label: 'Daily Usage Data', useDates: true, bodyEpoch: true },
   { path: '/teams/spend', method: 'POST', label: 'Spending Data' },
   { path: '/teams/filtered-usage-events', method: 'POST', label: 'Usage Events', useDates: true, bodyEpoch: true, paginated: true },
-  { path: '/teams/groups', method: 'GET', label: 'Billing Groups' },
-  { path: '/settings/repo-blocklists/repos', method: 'GET', label: 'Repo Blocklists' },
 ];
 
 let fetchAbortController = null;
 let lastErrors = [];
+let apiKeyConfigured = false;
 
 function setDates() {
   const end = new Date();
@@ -87,10 +86,14 @@ function buildParams(ep, startDate, endDate, page = 1, pageSize = 100) {
 }
 
 async function proxy(path, method, params = {}, signal = null) {
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if (!apiKey) throw new Error('Введите API key');
-  sessionStorage.setItem('cursor_api_key', apiKey);
-  const opts = { headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' } };
+  const headers = { 'Content-Type': 'application/json' };
+  if (!apiKeyConfigured) {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) throw new Error('Введите API key');
+    sessionStorage.setItem('cursor_api_key', apiKey);
+    headers['X-API-Key'] = apiKey;
+  }
+  const opts = { headers };
   if (signal) opts.signal = signal;
   let r;
   if (method === 'POST') {
@@ -143,10 +146,47 @@ function slug(s) {
   return s.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase() || 'data';
 }
 
-function init() {
-  const saved = sessionStorage.getItem('cursor_api_key');
-  if (saved) document.getElementById('apiKey').value = saved;
+function applyApiKeyConfig(configured) {
+  apiKeyConfigured = !!configured;
+  const row = document.getElementById('apiKeyRow');
+  const note = document.getElementById('apiKeyFromFileNote');
+  const btnSave = document.getElementById('btnSaveApiKey');
+  if (row) row.style.display = configured ? 'none' : 'flex';
+  if (note) note.style.display = configured ? 'block' : 'none';
+  if (btnSave) btnSave.style.display = configured ? 'none' : 'inline-block';
+}
+
+async function init() {
   setDates();
+  try {
+    const r = await fetch('/api/config');
+    const data = await r.json();
+    applyApiKeyConfig(data.apiKeyConfigured);
+  } catch (_) {
+    applyApiKeyConfig(false);
+  }
+  if (!apiKeyConfigured) {
+    const saved = sessionStorage.getItem('cursor_api_key');
+    if (saved) document.getElementById('apiKey').value = saved;
+  }
+
+  document.getElementById('btnSaveApiKey').addEventListener('click', async () => {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) { alert('Введите API key'); return; }
+    try {
+      const r = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      applyApiKeyConfig(true);
+      alert('Ключ сохранён в data/api-key.txt. Больше вводить не нужно.');
+    } catch (e) {
+      alert(e.message || 'Ошибка сохранения');
+    }
+  });
 
   const grid = document.getElementById('endpointsGrid');
   ADMIN_ENDPOINTS.forEach((ep, idx) => {
@@ -201,10 +241,12 @@ async function loadCoverage() {
 }
 
 async function runSync() {
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if (!apiKey) {
-    alert('Введите API key');
-    return;
+  if (!apiKeyConfigured) {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) {
+      alert('Введите API key');
+      return;
+    }
   }
   const startDate = document.getElementById('syncStartDate').value;
   if (!startDate) {
@@ -220,10 +262,12 @@ async function runSync() {
   resultEl.style.display = 'none';
   btnSync.disabled = true;
   progressText.textContent = 'Синхронизация с Cursor API...';
+  const headers = { 'Content-Type': 'application/json' };
+  if (!apiKeyConfigured) headers['X-API-Key'] = document.getElementById('apiKey').value.trim();
   try {
     const r = await fetch('/api/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      headers,
       body: JSON.stringify({ startDate, endDate }),
     });
     const data = await r.json();
@@ -238,6 +282,7 @@ async function runSync() {
     resultEl.className = 'sync-result ok';
     resultEl.innerHTML = `
       ${escapeHtml(data.message)}<br>
+      ${data.skipped && data.skipped.length ? '<br>Пропущено (функция не включена): ' + data.skipped.map(s => escapeHtml(s.endpoint)).join(', ') : ''}
       ${data.errors && data.errors.length ? '<br>Ошибки по эндпоинтам: ' + data.errors.map(e => escapeHtml(e.endpoint + ': ' + e.error)).join('; ') : ''}
     `;
     loadCoverage();
@@ -270,11 +315,13 @@ function downloadAllResults() {
 }
 
 async function runFetch() {
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if (!apiKey) {
-    addError('Настройки', 'Введите API key');
-    alert('Введите API key');
-    return;
+  if (!apiKeyConfigured) {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) {
+      addError('Настройки', 'Введите API key');
+      alert('Введите API key');
+      return;
+    }
   }
   const startDate = document.getElementById('startDate').value;
   const endDate = document.getElementById('endDate').value;
@@ -350,10 +397,17 @@ async function runFetch() {
       btnDownload.onclick = () => downloadJson(slug(label) + '.json', data);
       actions.appendChild(btnDownload);
     } catch (err) {
-      addError(label, err.message);
-      section.querySelector('.content').innerHTML = '<pre class="error">' + escapeHtml(err.message) + '</pre>';
-      section.querySelector('.meta').textContent = 'Ошибка: ' + err.message;
-      section.querySelector('.meta').classList.add('error');
+      const isNotEnabled = /not enabled|feature is not enabled/i.test(err.message);
+      if (isNotEnabled) {
+        section.querySelector('.content').innerHTML = '<pre class="meta skipped">Функция не включена для вашей команды (Billing Groups / Repo Blocklists доступны только при включённой опции в настройках команды).</pre>';
+        section.querySelector('.meta').textContent = 'Пропущено: функция не включена для команды.';
+        section.querySelector('.meta').classList.add('skipped');
+      } else {
+        addError(label, err.message);
+        section.querySelector('.content').innerHTML = '<pre class="error">' + escapeHtml(err.message) + '</pre>';
+        section.querySelector('.meta').textContent = 'Ошибка: ' + err.message;
+        section.querySelector('.meta').classList.add('error');
+      }
       if (err.name === 'AbortError') break;
     }
     done++;

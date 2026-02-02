@@ -1,12 +1,34 @@
 /**
  * Прокси для Cursor Admin API и сохранение данных в локальную БД.
- * API key: заголовок X-API-Key или переменная CURSOR_API_KEY.
+ * API key: заголовок X-API-Key, переменная CURSOR_API_KEY или файл data/api-key.txt.
  * Документация: https://cursor.com/docs/account/teams/admin-api
  */
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const db = require('./db');
+
+const DATA_DIR = path.join(__dirname, 'data');
+const API_KEY_FILE = path.join(DATA_DIR, 'api-key.txt');
+
+function getApiKeyFromFile() {
+  try {
+    if (fs.existsSync(API_KEY_FILE)) {
+      const key = fs.readFileSync(API_KEY_FILE, 'utf8').trim();
+      if (key) return key;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function isApiKeyConfigured() {
+  return !!(process.env.CURSOR_API_KEY || getApiKeyFromFile());
+}
+
+function getApiKey(req) {
+  return req.headers['x-api-key'] || process.env.CURSOR_API_KEY || getApiKeyFromFile();
+}
 
 const app = express();
 const CURSOR_API = 'https://api.cursor.com';
@@ -27,8 +49,6 @@ const SYNC_ENDPOINTS = [
   { path: '/teams/daily-usage-data', method: 'POST', syncType: 'daterange', bodyEpoch: true },
   { path: '/teams/spend', method: 'POST', syncType: 'snapshot' },
   { path: '/teams/filtered-usage-events', method: 'POST', syncType: 'daterange', paginated: true },
-  { path: '/teams/groups', method: 'GET', syncType: 'snapshot' },
-  { path: '/settings/repo-blocklists/repos', method: 'GET', syncType: 'snapshot' },
 ];
 
 // CORS: по умолчанию все origins; для продакшена задайте CORS_ORIGIN (например http://localhost:3333)
@@ -173,16 +193,25 @@ function parseResponseToDays(endpoint, response, chunkEndDate) {
     out.push({ date: chunkEndDate, payload: response });
     return out;
   }
-  if (endpoint === '/teams/groups' && response.groups) {
-    out.push({ date: chunkEndDate, payload: response });
-    return out;
-  }
-  if (endpoint === '/settings/repo-blocklists/repos' && response.repos) {
-    out.push({ date: chunkEndDate, payload: response });
-    return out;
-  }
   return out;
 }
+
+// Конфигурация API key (файл data/api-key.txt)
+app.get('/api/config', (req, res) => {
+  res.json({ apiKeyConfigured: isApiKeyConfigured() });
+});
+
+app.post('/api/config', (req, res) => {
+  const apiKey = (req.body && req.body.apiKey) ? String(req.body.apiKey).trim() : '';
+  if (!apiKey) return res.status(400).json({ error: 'Требуется apiKey в теле запроса.' });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(API_KEY_FILE, apiKey, 'utf8');
+    res.json({ ok: true, message: 'Ключ сохранён в data/api-key.txt' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Ошибка записи файла' });
+  }
+});
 
 function doProxy(apiKey, apiPath, method, query, body, res) {
   const url = new URL(apiPath, CURSOR_API);
@@ -215,8 +244,8 @@ function doProxy(apiKey, apiPath, method, query, body, res) {
 app.get('/api/proxy', async (req, res) => {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
-  const apiKey = req.headers['x-api-key'] || process.env.CURSOR_API_KEY;
-  if (!apiKey) return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
+  const apiKey = getApiKey(req);
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
   const apiPath = req.query.path;
   if (!apiPath || !isPathAllowed(apiPath)) {
     return res.status(400).json({ error: 'Query param path required, допустимы /teams/... и /settings/...' });
@@ -233,8 +262,8 @@ app.get('/api/proxy', async (req, res) => {
 app.post('/api/proxy', async (req, res) => {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
-  const apiKey = req.headers['x-api-key'] || process.env.CURSOR_API_KEY;
-  if (!apiKey) return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
+  const apiKey = getApiKey(req);
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
   const { path: apiPath, ...body } = req.body || {};
   if (!apiPath || !isPathAllowed(apiPath)) {
     return res.status(400).json({ error: 'Body path required, допустимы /teams/... и /settings/...' });
@@ -249,8 +278,8 @@ function dateToEpochMs(dateStr) {
 }
 
 app.post('/api/sync', async (req, res) => {
-  const apiKey = req.headers['x-api-key'] || process.env.CURSOR_API_KEY;
-  if (!apiKey) return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
+  const apiKey = getApiKey(req);
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
   const { startDate, endDate } = req.body || {};
   const validation = validateDateRangeForSync(startDate, endDate);
   if (!validation.ok) return res.status(400).json({ error: validation.error });
@@ -258,7 +287,11 @@ app.post('/api/sync', async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const end = endDate || today;
   const chunks = dateChunks(startDate, end);
-  const results = { ok: [], errors: [], saved: 0 };
+  const results = { ok: [], errors: [], skipped: [], saved: 0 };
+
+  function isFeatureNotEnabled(msg) {
+    return msg && /not enabled|feature is not enabled/i.test(String(msg));
+  }
 
   for (const ep of SYNC_ENDPOINTS) {
     try {
@@ -334,15 +367,22 @@ app.post('/api/sync', async (req, res) => {
       results.saved += savedForEp;
       results.ok.push(ep.path);
     } catch (e) {
-      results.errors.push({ endpoint: ep.path, error: e.message });
+      if (isFeatureNotEnabled(e.message)) {
+        results.skipped.push({ endpoint: ep.path, reason: 'Функция не включена для команды' });
+        results.ok.push(ep.path);
+      } else {
+        results.errors.push({ endpoint: ep.path, error: e.message });
+      }
     }
   }
 
+  const skippedNote = results.skipped.length ? ` Пропущено (функция не включена): ${results.skipped.length}.` : '';
   res.json({
-    message: `Сохранено записей по дням: ${results.saved}. Успешно: ${results.ok.length}, ошибок: ${results.errors.length}.`,
+    message: `Сохранено записей по дням: ${results.saved}. Успешно: ${results.ok.length}, ошибок: ${results.errors.length}.${skippedNote}`,
     saved: results.saved,
     ok: results.ok,
     errors: results.errors,
+    skipped: results.skipped,
   });
 });
 

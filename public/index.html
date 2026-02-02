@@ -12,11 +12,18 @@
 
   <div class="panel">
     <h2>Настройки</h2>
-    <div class="row">
+    <div id="apiKeyRow" class="row">
       <div class="field">
         <label>API Key (Cursor Team)</label>
         <input type="password" id="apiKey" placeholder="Вставьте API key" autocomplete="off">
       </div>
+      <div class="field" style="align-self: flex-end;">
+        <button type="button" class="btn btn-secondary" id="btnSaveApiKey">Сохранить ключ в файл</button>
+      </div>
+    </div>
+    <div id="apiKeyFromFileNote" class="meta" style="display: none; margin-bottom: 12px;">
+      Используется ключ из файла <code>data/api-key.txt</code>. Ввод не требуется.
+    </div>
       <div class="field">
         <label>Начало периода (startDate)</label>
         <input type="date" id="startDate">
@@ -38,7 +45,7 @@
 
   <div class="panel">
     <h2>Сохранение в локальную БД</h2>
-    <p class="meta">Загружает данные по <a href="https://cursor.com/docs/account/teams/admin-api#endpoints" target="_blank" rel="noopener">эндпоинтам Admin API</a> (members, audit-logs, daily-usage-data, spend, filtered-usage-events, groups, repo-blocklists) с указанной даты по сегодня и сохраняет в SQLite. При повторной загрузке данные по уже загруженным дням обновляются без дублирования.</p>
+    <p class="meta">Загружает данные по эндпоинтам Admin API (members, audit-logs, daily-usage-data, spend, filtered-usage-events) с указанной даты по сегодня и сохраняет в SQLite. При повторной загрузке данные по уже загруженным дням обновляются без дублирования.</p>
     <div class="row">
       <div class="field">
         <label>Начальная дата (с какой даты загружать)</label>
@@ -53,6 +60,7 @@
       <span id="syncProgressText">Синхронизация...</span>
     </div>
     <div id="syncResult" class="sync-result" style="display: none;"></div>
+    <p style="margin-top: 12px;"><a href="data.html" class="btn btn-secondary">Просмотр данных в БД →</a></p>
     <div class="section coverage-section" style="margin-top: 16px;">
       <h3 style="font-size: 1rem; margin: 0 0 8px; color: var(--muted);">Покрытие БД (что уже сохранено)</h3>
       <div id="coverageList" class="meta">Загрузка...</div>
@@ -62,7 +70,7 @@
 
   <div class="panel">
     <h2>Эндпоинты Admin API</h2>
-    <p class="meta">Чтение: участники команды, аудит-логи, ежедневное использование, траты, события использования, биллинг-группы, блоклисты репозиториев.</p>
+    <p class="meta">Чтение: участники команды, аудит-логи, ежедневное использование, траты, события использования.</p>
     <div class="endpoints-grid" id="endpointsGrid"></div>
   </div>
 

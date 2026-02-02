@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Данные в БД — Cursor Admin API</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="data-page-header">
+    <h1>Данные в локальной БД</h1>
+    <p class="muted">Просмотр загруженной аналитики по эндпоинтам и датам.</p>
+    <a href="index.html" class="btn btn-secondary">← Назад к дашборду</a>
+  </header>
+
+  <div class="panel">
+    <h2>Покрытие БД</h2>
+    <p class="meta">Какие эндпоинты и за какие даты есть данные.</p>
+    <div id="coverageContainer">
+      <span class="muted">Загрузка...</span>
+    </div>
+    <button class="btn btn-secondary" id="btnRefreshCoverage" style="margin-top: 10px;">Обновить</button>
+  </div>
+
+  <div class="panel">
+    <h2>Фильтры</h2>
+    <div class="row">
+      <div class="field">
+        <label>Эндпоинт</label>
+        <select id="filterEndpoint">
+          <option value="">— Все —</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>С даты</label>
+        <input type="date" id="filterStartDate">
+      </div>
+      <div class="field">
+        <label>По дату</label>
+        <input type="date" id="filterEndDate">
+      </div>
+      <div class="field" style="align-self: flex-end;">
+        <button class="btn" id="btnLoad">Показать данные</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="resultsPanel" style="display: none;">
+    <h2>Данные</h2>
+    <div id="resultsSummary" class="meta" style="margin-bottom: 12px;"></div>
+    <div id="resultsContainer"></div>
+  </div>
+
+  <script src="data.js"></script>
+</body>
+</html>

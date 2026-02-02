@@ -4,7 +4,8 @@
 
 ## Требования
 
-- API key команды Cursor. Создать: [cursor.com/settings](https://cursor.com/settings).
+- API key команды Cursor. Создать: [cursor.com/settings](https://cursor.com/settings).  
+  Можно один раз ввести ключ на сайте и нажать **«Сохранить ключ в файл»** — он сохранится в `data/api-key.txt`, и вводить его снова не нужно. Либо создать файл `data/api-key.txt` вручную и вписать туда ключ одной строкой.
 
 ## Запуск в Docker (рекомендуется)
 
@@ -69,4 +70,4 @@ docker run -p 3333:3333 -v cursor-analytics-data:/app/data cursor-api-dashboard
 
 ## Эндпоинты Admin API
 
-**Чтение (GET/POST):** Team Members, Audit Logs, Daily Usage Data, Spending Data, Usage Events, Billing Groups, Repo Blocklists. Документация: https://cursor.com/docs/account/teams/admin-api
+**Чтение (GET/POST):** Team Members, Audit Logs, Daily Usage Data, Spending Data, Usage Events. Документация: https://cursor.com/docs/account/teams/admin-api
