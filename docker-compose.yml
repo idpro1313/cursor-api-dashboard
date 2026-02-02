@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3333:3333"
+    environment:
+      - PORT=3333
+      # Опционально: API key через переменную (без ввода на сайте)
+      # - CURSOR_API_KEY=your_key_here
