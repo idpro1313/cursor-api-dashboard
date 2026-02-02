@@ -1,7 +1,7 @@
 /**
- * Прокси для Cursor Analytics API и сохранение аналитики в локальную БД.
+ * Прокси для Cursor Admin API и сохранение данных в локальную БД.
  * API key: заголовок X-API-Key или переменная CURSOR_API_KEY.
- * Документация: https://cursor.com/docs/account/teams/analytics-api
+ * Документация: https://cursor.com/docs/account/teams/admin-api
  */
 const express = require('express');
 const cors = require('cors');
@@ -13,28 +13,22 @@ const CURSOR_API = 'https://api.cursor.com';
 const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS) || 60000;
 const MAX_DAYS = 30;
 
-// Все эндпоинты Analytics API для синхронизации в БД (без дублирования по дням)
+/** Допустимые префиксы путей для прокси (Admin API). */
+const ALLOWED_PATH_PREFIXES = ['/teams/', '/settings/'];
+
+function isPathAllowed(apiPath) {
+  return ALLOWED_PATH_PREFIXES.some((p) => apiPath.startsWith(p));
+}
+
+// Эндпоинты Admin API для синхронизации в БД (без дублирования по дням)
 const SYNC_ENDPOINTS = [
-  { path: '/analytics/team/agent-edits', paginated: false },
-  { path: '/analytics/team/tabs', paginated: false },
-  { path: '/analytics/team/dau', paginated: false },
-  { path: '/analytics/team/client-versions', paginated: false },
-  { path: '/analytics/team/models', paginated: false },
-  { path: '/analytics/team/top-file-extensions', paginated: false },
-  { path: '/analytics/team/mcp', paginated: false },
-  { path: '/analytics/team/commands', paginated: false },
-  { path: '/analytics/team/plans', paginated: false },
-  { path: '/analytics/team/ask-mode', paginated: false },
-  { path: '/analytics/team/leaderboard', paginated: false },
-  { path: '/analytics/by-user/agent-edits', paginated: true },
-  { path: '/analytics/by-user/tabs', paginated: true },
-  { path: '/analytics/by-user/models', paginated: true },
-  { path: '/analytics/by-user/top-file-extensions', paginated: true },
-  { path: '/analytics/by-user/client-versions', paginated: true },
-  { path: '/analytics/by-user/mcp', paginated: true },
-  { path: '/analytics/by-user/commands', paginated: true },
-  { path: '/analytics/by-user/plans', paginated: true },
-  { path: '/analytics/by-user/ask-mode', paginated: true },
+  { path: '/teams/members', method: 'GET', syncType: 'snapshot' },
+  { path: '/teams/audit-logs', method: 'GET', syncType: 'daterange', paginated: true },
+  { path: '/teams/daily-usage-data', method: 'POST', syncType: 'daterange', bodyEpoch: true },
+  { path: '/teams/spend', method: 'POST', syncType: 'snapshot' },
+  { path: '/teams/filtered-usage-events', method: 'POST', syncType: 'daterange', paginated: true },
+  { path: '/teams/groups', method: 'GET', syncType: 'snapshot' },
+  { path: '/settings/repo-blocklists/repos', method: 'GET', syncType: 'snapshot' },
 ];
 
 // CORS: по умолчанию все origins; для продакшена задайте CORS_ORIGIN (например http://localhost:3333)
@@ -106,121 +100,157 @@ function dateChunks(startDate, endDate) {
   return chunks;
 }
 
-/** Запрос к Cursor API с Basic Auth (для синхронизации). */
-async function cursorFetch(apiKey, apiPath, params = {}) {
+/** Запрос к Cursor Admin API с Basic Auth (для синхронизации). */
+async function cursorFetch(apiKey, apiPath, options = {}) {
+  const { method = 'GET', query = {}, body } = options;
   const url = new URL(apiPath, CURSOR_API);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
+  Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   const auth = Buffer.from(apiKey + ':', 'utf8').toString('base64');
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
-  const r = await fetch(url.toString(), {
-    headers: { Authorization: 'Basic ' + auth },
+  const opts = {
+    method,
+    headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/json' },
     signal: controller.signal,
-  });
+  };
+  if (body && method === 'POST') opts.body = JSON.stringify(body);
+  const r = await fetch(url.toString(), opts);
   clearTimeout(timeoutId);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || data.message || r.statusText);
   return data;
 }
 
-/** Разобрать ответ API по дням для сохранения в БД (без дублирования по дате). */
+/** Timestamp (ms или строка) -> YYYY-MM-DD */
+function toDateKey(ts) {
+  if (ts == null) return null;
+  const ms = typeof ts === 'string' ? new Date(ts).getTime() : Number(ts);
+  if (isNaN(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Разобрать ответ Admin API по дням для сохранения в БД (без дублирования по дате). */
 function parseResponseToDays(endpoint, response, chunkEndDate) {
   const out = [];
-  const data = response.data;
-  if (Array.isArray(data)) {
+  if (endpoint === '/teams/audit-logs' && Array.isArray(response.events)) {
     const byDate = {};
-    for (const r of data) {
-      const d = r.event_date || r.date;
+    for (const e of response.events) {
+      const d = toDateKey(e.timestamp);
+      if (!d) continue;
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(e);
+    }
+    for (const [date, arr] of Object.entries(byDate)) out.push({ date, payload: { events: arr, params: response.params } });
+    return out;
+  }
+  if (endpoint === '/teams/daily-usage-data' && Array.isArray(response.data)) {
+    const byDate = {};
+    for (const r of response.data) {
+      const d = toDateKey(r.date);
       if (!d) continue;
       if (!byDate[d]) byDate[d] = [];
       byDate[d].push(r);
     }
-    for (const [date, arr] of Object.entries(byDate)) out.push({ date, payload: arr });
+    for (const [date, arr] of Object.entries(byDate)) out.push({ date, payload: { data: arr, period: response.period } });
     return out;
   }
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    const isLeaderboard = data.tab_leaderboard != null || data.agent_leaderboard != null;
-    if (isLeaderboard) {
-      out.push({ date: chunkEndDate, payload: { data, params: response.params } });
-      return out;
-    }
+  if (endpoint === '/teams/filtered-usage-events' && Array.isArray(response.usageEvents)) {
     const byDate = {};
-    for (const email of Object.keys(data)) {
-      const list = data[email];
-      if (!Array.isArray(list)) continue;
-      for (const r of list) {
-        const d = r.event_date || r.date;
-        if (!d) continue;
-        if (!byDate[d]) byDate[d] = {};
-        if (!byDate[d][email]) byDate[d][email] = [];
-        byDate[d][email].push(r);
-      }
+    for (const e of response.usageEvents) {
+      const d = toDateKey(e.timestamp);
+      if (!d) continue;
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(e);
     }
-    for (const [date, payload] of Object.entries(byDate)) out.push({ date, payload });
+    for (const [date, arr] of Object.entries(byDate)) out.push({ date, payload: { usageEvents: arr, period: response.period } });
+    return out;
+  }
+  if (endpoint === '/teams/members' && response.teamMembers) {
+    out.push({ date: chunkEndDate, payload: response });
+    return out;
+  }
+  if (endpoint === '/teams/spend' && response.teamMemberSpend) {
+    out.push({ date: chunkEndDate, payload: response });
+    return out;
+  }
+  if (endpoint === '/teams/groups' && response.groups) {
+    out.push({ date: chunkEndDate, payload: response });
+    return out;
+  }
+  if (endpoint === '/settings/repo-blocklists/repos' && response.repos) {
+    out.push({ date: chunkEndDate, payload: response });
     return out;
   }
   return out;
 }
 
-app.get('/api/proxy', async (req, res) => {
-  const ip = getClientIp(req);
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
-  }
-
-  const apiKey = req.headers['x-api-key'] || process.env.CURSOR_API_KEY;
-  if (!apiKey) {
-    return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
-  }
-
-  const apiPath = req.query.path;
-  if (!apiPath || !apiPath.startsWith('/analytics/')) {
-    return res.status(400).json({ error: 'Query param path required, e.g. path=/analytics/team/dau' });
-  }
-
-  const startDate = req.query.startDate;
-  const endDate = req.query.endDate;
-  if (startDate || endDate) {
-    const validation = validateDateRange(startDate, endDate);
-    if (!validation.ok) return res.status(400).json({ error: validation.error });
-  }
-
+function doProxy(apiKey, apiPath, method, query, body, res) {
   const url = new URL(apiPath, CURSOR_API);
-  Object.keys(req.query).forEach(k => {
-    if (k !== 'path') url.searchParams.set(k, req.query[k]);
-  });
-
+  Object.entries(query || {}).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   const auth = Buffer.from(apiKey + ':', 'utf8').toString('base64');
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+  const opts = {
+    method: method || 'GET',
+    headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/json' },
+    signal: controller.signal,
+  };
+  if (body && opts.method === 'POST') opts.body = JSON.stringify(body);
+  return fetch(url.toString(), opts).then(
+    (r) => {
+      clearTimeout(timeoutId);
+      return r.json().catch(() => ({})).then((data) => {
+        if (!r.ok) return res.status(r.status).json(data || { error: r.statusText });
+        res.json(data);
+      });
+    },
+    (e) => {
+      clearTimeout(timeoutId);
+      if (e.name === 'AbortError') return res.status(504).json({ error: 'Таймаут запроса к Cursor API.' });
+      res.status(502).json({ error: e.message || 'Proxy request failed' });
+    }
+  );
+}
 
-  try {
-    const r = await fetch(url.toString(), {
-      headers: { Authorization: 'Basic ' + auth },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      return res.status(r.status).json(data || { error: r.statusText });
-    }
-    res.json(data);
-  } catch (e) {
-    clearTimeout(timeoutId);
-    if (e.name === 'AbortError') {
-      return res.status(504).json({ error: 'Таймаут запроса к Cursor API.' });
-    }
-    res.status(502).json({ error: e.message || 'Proxy request failed' });
+app.get('/api/proxy', async (req, res) => {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
+  const apiKey = req.headers['x-api-key'] || process.env.CURSOR_API_KEY;
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
+  const apiPath = req.query.path;
+  if (!apiPath || !isPathAllowed(apiPath)) {
+    return res.status(400).json({ error: 'Query param path required, допустимы /teams/... и /settings/...' });
   }
+  const query = { ...req.query };
+  delete query.path;
+  if (req.query.startDate && req.query.endDate) {
+    const validation = validateDateRange(req.query.startDate, req.query.endDate);
+    if (!validation.ok) return res.status(400).json({ error: validation.error });
+  }
+  return doProxy(apiKey, apiPath, 'GET', query, null, res);
 });
 
-// --- Синхронизация аналитики в локальную БД (без дублирования по дням) ---
+app.post('/api/proxy', async (req, res) => {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
+  const apiKey = req.headers['x-api-key'] || process.env.CURSOR_API_KEY;
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
+  const { path: apiPath, ...body } = req.body || {};
+  if (!apiPath || !isPathAllowed(apiPath)) {
+    return res.status(400).json({ error: 'Body path required, допустимы /teams/... и /settings/...' });
+  }
+  return doProxy(apiKey, apiPath, 'POST', {}, body, res);
+});
+
+// --- Синхронизация Admin API в локальную БД (без дублирования по дням) ---
+
+function dateToEpochMs(dateStr) {
+  return new Date(dateStr + 'T00:00:00Z').getTime();
+}
 
 app.post('/api/sync', async (req, res) => {
   const apiKey = req.headers['x-api-key'] || process.env.CURSOR_API_KEY;
-  if (!apiKey) {
-    return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
-  }
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Set X-API-Key header or CURSOR_API_KEY env.' });
   const { startDate, endDate } = req.body || {};
   const validation = validateDateRangeForSync(startDate, endDate);
   if (!validation.ok) return res.status(400).json({ error: validation.error });
@@ -233,34 +263,72 @@ app.post('/api/sync', async (req, res) => {
   for (const ep of SYNC_ENDPOINTS) {
     try {
       let savedForEp = 0;
-      for (const { startDate: chunkStart, endDate: chunkEnd } of chunks) {
-        let response;
-        if (ep.paginated) {
-          let allData = {};
-          let page = 1;
-          const pageSize = 500;
-          let hasNext = true;
-          while (hasNext) {
-            response = await cursorFetch(apiKey, ep.path, {
-              startDate: chunkStart,
-              endDate: chunkEnd,
-              page,
-              pageSize,
-            });
-            if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
-              Object.assign(allData, response.data);
-            }
-            hasNext = response.pagination?.hasNextPage === true;
-            page++;
-          }
-          response = { data: allData, params: response.params };
-        } else {
-          response = await cursorFetch(apiKey, ep.path, { startDate: chunkStart, endDate: chunkEnd });
-        }
+      if (ep.syncType === 'snapshot') {
+        const chunkEnd = today;
+        const response = await cursorFetch(apiKey, ep.path, {
+          method: ep.method,
+          query: ep.method === 'GET' ? {} : undefined,
+          body: ep.method === 'POST' ? {} : undefined,
+        });
         const rows = parseResponseToDays(ep.path, response, chunkEnd);
         for (const { date, payload } of rows) {
           db.upsertAnalytics(ep.path, date, payload);
           savedForEp++;
+        }
+      } else {
+        for (const { startDate: chunkStart, endDate: chunkEnd } of chunks) {
+          let response;
+          if (ep.path === '/teams/audit-logs') {
+            const allEvents = [];
+            let page = 1;
+            const pageSize = 100;
+            let hasNext = true;
+            while (hasNext) {
+              response = await cursorFetch(apiKey, ep.path, {
+                method: 'GET',
+                query: { startTime: chunkStart, endTime: chunkEnd, page, pageSize },
+              });
+              if (Array.isArray(response.events)) allEvents.push(...response.events);
+              hasNext = response.pagination?.hasNextPage === true;
+              page++;
+            }
+            response = { events: allEvents, params: response.params };
+          } else if (ep.path === '/teams/daily-usage-data') {
+            response = await cursorFetch(apiKey, ep.path, {
+              method: 'POST',
+              body: {
+                startDate: dateToEpochMs(chunkStart),
+                endDate: dateToEpochMs(chunkEnd),
+              },
+            });
+          } else if (ep.path === '/teams/filtered-usage-events') {
+            const allEvents = [];
+            let page = 1;
+            const pageSize = 100;
+            let hasNext = true;
+            while (hasNext) {
+              response = await cursorFetch(apiKey, ep.path, {
+                method: 'POST',
+                body: {
+                  startDate: dateToEpochMs(chunkStart),
+                  endDate: dateToEpochMs(chunkEnd),
+                  page,
+                  pageSize,
+                },
+              });
+              if (Array.isArray(response.usageEvents)) allEvents.push(...response.usageEvents);
+              hasNext = response.pagination?.hasNextPage === true;
+              page++;
+            }
+            response = { usageEvents: allEvents, period: response.period };
+          } else {
+            continue;
+          }
+          const rows = parseResponseToDays(ep.path, response, chunkEnd);
+          for (const { date, payload } of rows) {
+            db.upsertAnalytics(ep.path, date, payload);
+            savedForEp++;
+          }
         }
       }
       results.saved += savedForEp;

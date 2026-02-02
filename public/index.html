@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cursor Analytics API — загрузка аналитики</title>
+  <title>Cursor Admin API — дашборд</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>Cursor Analytics API — загрузка аналитики</h1>
-  <p class="muted">Данные забираются через <a href="https://cursor.com/docs/account/teams/analytics-api" target="_blank" rel="noopener">Cursor Analytics API</a>. Нужен API key из <a href="https://cursor.com/settings" target="_blank" rel="noopener">настроек команды</a>. API доступен только для enterprise-команд.</p>
+  <h1>Cursor Admin API — дашборд</h1>
+  <p class="muted">Данные забираются через <a href="https://cursor.com/docs/account/teams/admin-api" target="_blank" rel="noopener">Cursor Admin API</a>. Нужен API key из <a href="https://cursor.com/settings" target="_blank" rel="noopener">настроек команды</a>.</p>
 
   <div class="panel">
     <h2>Настройки</h2>
@@ -38,7 +38,7 @@
 
   <div class="panel">
     <h2>Сохранение в локальную БД</h2>
-    <p class="meta">Загружает всю аналитику по <a href="https://cursor.com/docs/account/teams/analytics-api#available-endpoints" target="_blank" rel="noopener">всем эндпоинтам</a> с указанной даты по сегодня и сохраняет в SQLite. При повторной загрузке данные по уже загруженным дням обновляются без дублирования.</p>
+    <p class="meta">Загружает данные по <a href="https://cursor.com/docs/account/teams/admin-api#endpoints" target="_blank" rel="noopener">эндпоинтам Admin API</a> (members, audit-logs, daily-usage-data, spend, filtered-usage-events, groups, repo-blocklists) с указанной даты по сегодня и сохраняет в SQLite. При повторной загрузке данные по уже загруженным дням обновляются без дублирования.</p>
     <div class="row">
       <div class="field">
         <label>Начальная дата (с какой даты загружать)</label>
@@ -61,8 +61,8 @@
   </div>
 
   <div class="panel">
-    <h2>Эндпоинты (максимальная глубина)</h2>
-    <p class="meta">Team — сводка по команде. By-user — по пользователям с пагинацией (до 500 на страницу).</p>
+    <h2>Эндпоинты Admin API</h2>
+    <p class="meta">Чтение: участники команды, аудит-логи, ежедневное использование, траты, события использования, биллинг-группы, блоклисты репозиториев.</p>
     <div class="endpoints-grid" id="endpointsGrid"></div>
   </div>
 

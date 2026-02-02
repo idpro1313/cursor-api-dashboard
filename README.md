@@ -1,10 +1,10 @@
-# Cursor Analytics API — дашборд загрузки аналитики
+# Cursor Admin API — дашборд
 
-Сайт забирает данные по [Cursor Analytics API](https://cursor.com/docs/account/teams/analytics-api) на максимальную глубину: все team-эндпоинты и все by-user эндпоинты с пагинацией.
+Сайт забирает данные по [Cursor Admin API](https://cursor.com/docs/account/teams/admin-api): участники команды, аудит-логи, ежедневное использование, траты, события использования, биллинг-группы, блоклисты репозиториев.
 
 ## Требования
 
-- API key команды Cursor (Enterprise). Создать: [cursor.com/settings](https://cursor.com/settings).
+- API key команды Cursor. Создать: [cursor.com/settings](https://cursor.com/settings).
 
 ## Запуск в Docker (рекомендуется)
 
@@ -37,17 +37,17 @@ npm start
 ## Использование
 
 1. Вставьте **API key** (из настроек команды Cursor).
-2. Укажите период **startDate** и **endDate** (макс. 30 дней по лимитам API).
+2. Укажите период **startDate** и **endDate** (для эндпоинтов с датами; макс. 30 дней по лимитам API).
 3. Отметьте нужные эндпоинты или нажмите «Выбрать все».
 4. Нажмите **«Загрузить выбранные эндпоинты»**.
 
-Результаты выводятся по каждому эндпоинту в свёрнутых блоках (JSON). Для by-user эндпоинтов данные подгружаются постранично (до 500 пользователей на страницу), пока есть следующая страница.
+Результаты выводятся по каждому эндпоинту в свёрнутых блоках (JSON). Для audit-logs и usage events данные подгружаются постранично.
 
 **Дополнительно:** во время загрузки отображается прогресс «N из M» и кнопка **«Остановить»**; ошибки показываются в блоке «Последние ошибки»; у каждого результата есть **«Скачать JSON»**, а **«Скачать всё (JSON)»** сохраняет один файл со всеми выбранными эндпоинтами.
 
 ### Сохранение в локальную БД
 
-В разделе **«Сохранение в локальную БД»** можно одной кнопкой загрузить **всю** аналитику по [всем эндпоинтам API](https://cursor.com/docs/account/teams/analytics-api#available-endpoints) с указанной даты по сегодня и сохранить в SQLite (файл `data/analytics.db`). При повторной загрузке данные по уже загруженным дням **обновляются без дублирования** (один ряд на эндпоинт и день). Покрытие БД (какие эндпоинты и за какие даты сохранены) отображается в том же разделе.
+В разделе **«Сохранение в локальную БД»** можно одной кнопкой загрузить данные по [эндпоинтам Admin API](https://cursor.com/docs/account/teams/admin-api#endpoints) (members, audit-logs, daily-usage-data, spend, filtered-usage-events, groups, repo-blocklists) с указанной даты по сегодня и сохранить в SQLite (файл `data/analytics.db`). При повторной загрузке данные по уже загруженным дням **обновляются без дублирования** (один ряд на эндпоинт и день). Покрытие БД (какие эндпоинты и за какие даты сохранены) отображается в том же разделе.
 
 - **API для чтения:** `GET /api/analytics?endpoint=...&startDate=...&endDate=...` — выборка из БД.
 - **Покрытие:** `GET /api/analytics/coverage` — список эндпоинтов и диапазонов дат.
@@ -67,10 +67,6 @@ docker run -p 3333:3333 -v cursor-analytics-data:/app/data cursor-api-dashboard
 | `PROXY_TIMEOUT_MS` | Таймаут запроса к Cursor API в мс (по умолчанию 60000). |
 | `RATE_LIMIT_MAX` | Макс. запросов с одного IP в минуту (по умолчанию 120). |
 
-## Эндпоинты
+## Эндпоинты Admin API
 
-**Team (сводка по команде):** Agent Edits, Tab Usage, DAU, Client Versions, Model Usage, Top File Extensions, MCP, Commands, Plans, Ask Mode, Leaderboard.
-
-**By-user (по пользователям с пагинацией):** Agent Edits, Tabs, Models, Top File Extensions, Client Versions, MCP, Commands, Plans, Ask Mode.
-
-Документация API: https://cursor.com/docs/account/teams/analytics-api
+**Чтение (GET/POST):** Team Members, Audit Logs, Daily Usage Data, Spending Data, Usage Events, Billing Groups, Repo Blocklists. Документация: https://cursor.com/docs/account/teams/admin-api

@@ -1,7 +1,7 @@
 {
   "name": "cursor-api-dashboard",
   "version": "1.0.0",
-  "description": "Dashboard for Cursor Analytics API",
+  "description": "Dashboard for Cursor Admin API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

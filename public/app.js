@@ -1,29 +1,15 @@
 /**
- * Cursor Analytics API Dashboard — клиентская логика
+ * Cursor Admin API Dashboard — клиентская логика
+ * Документация: https://cursor.com/docs/account/teams/admin-api
  */
-const TEAM_ENDPOINTS = [
-  { path: '/analytics/team/agent-edits', label: 'Team: Agent Edits' },
-  { path: '/analytics/team/tabs', label: 'Team: Tab Usage' },
-  { path: '/analytics/team/dau', label: 'Team: Daily Active Users' },
-  { path: '/analytics/team/client-versions', label: 'Team: Client Versions' },
-  { path: '/analytics/team/models', label: 'Team: Model Usage' },
-  { path: '/analytics/team/top-file-extensions', label: 'Team: Top File Extensions' },
-  { path: '/analytics/team/mcp', label: 'Team: MCP Adoption' },
-  { path: '/analytics/team/commands', label: 'Team: Commands Adoption' },
-  { path: '/analytics/team/plans', label: 'Team: Plans Adoption' },
-  { path: '/analytics/team/ask-mode', label: 'Team: Ask Mode Adoption' },
-  { path: '/analytics/team/leaderboard', label: 'Team: Leaderboard' },
-];
-const BY_USER_ENDPOINTS = [
-  { path: '/analytics/by-user/agent-edits', label: 'By-user: Agent Edits', paginated: true },
-  { path: '/analytics/by-user/tabs', label: 'By-user: Tabs', paginated: true },
-  { path: '/analytics/by-user/models', label: 'By-user: Models', paginated: true },
-  { path: '/analytics/by-user/top-file-extensions', label: 'By-user: Top File Extensions', paginated: true },
-  { path: '/analytics/by-user/client-versions', label: 'By-user: Client Versions', paginated: true },
-  { path: '/analytics/by-user/mcp', label: 'By-user: MCP', paginated: true },
-  { path: '/analytics/by-user/commands', label: 'By-user: Commands', paginated: true },
-  { path: '/analytics/by-user/plans', label: 'By-user: Plans', paginated: true },
-  { path: '/analytics/by-user/ask-mode', label: 'By-user: Ask Mode', paginated: true },
+const ADMIN_ENDPOINTS = [
+  { path: '/teams/members', method: 'GET', label: 'Team Members' },
+  { path: '/teams/audit-logs', method: 'GET', label: 'Audit Logs', useDates: true, dateParamNames: ['startTime', 'endTime'], paginated: true },
+  { path: '/teams/daily-usage-data', method: 'POST', label: 'Daily Usage Data', useDates: true, bodyEpoch: true },
+  { path: '/teams/spend', method: 'POST', label: 'Spending Data' },
+  { path: '/teams/filtered-usage-events', method: 'POST', label: 'Usage Events', useDates: true, bodyEpoch: true, paginated: true },
+  { path: '/teams/groups', method: 'GET', label: 'Billing Groups' },
+  { path: '/settings/repo-blocklists/repos', method: 'GET', label: 'Repo Blocklists' },
 ];
 
 let fetchAbortController = null;
@@ -75,33 +61,73 @@ function updateProgress(text, showSpinner = false) {
   if (spinnerEl) spinnerEl.style.display = showSpinner ? 'block' : 'none';
 }
 
-async function proxy(path, params = {}, signal = null) {
+function dateToEpochMs(dateStr) {
+  return new Date(dateStr + 'T00:00:00Z').getTime();
+}
+function endOfDayEpochMs(dateStr) {
+  return new Date(dateStr + 'T23:59:59.999Z').getTime();
+}
+
+function buildParams(ep, startDate, endDate, page = 1, pageSize = 100) {
+  const params = {};
+  if (ep.useDates && startDate && endDate) {
+    if (ep.dateParamNames) {
+      params[ep.dateParamNames[0]] = startDate;
+      params[ep.dateParamNames[1]] = endDate;
+    } else if (ep.bodyEpoch) {
+      params.startDate = dateToEpochMs(startDate);
+      params.endDate = endOfDayEpochMs(endDate);
+    }
+  }
+  if (ep.paginated) {
+    params.page = page;
+    params.pageSize = pageSize;
+  }
+  return params;
+}
+
+async function proxy(path, method, params = {}, signal = null) {
   const apiKey = document.getElementById('apiKey').value.trim();
   if (!apiKey) throw new Error('Введите API key');
   sessionStorage.setItem('cursor_api_key', apiKey);
-  const q = new URLSearchParams({ path, ...params });
-  const opts = { headers: { 'X-API-Key': apiKey } };
+  const opts = { headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' } };
   if (signal) opts.signal = signal;
-  const r = await fetch('/api/proxy?' + q, opts);
+  let r;
+  if (method === 'POST') {
+    opts.method = 'POST';
+    opts.body = JSON.stringify({ path, ...params });
+    r = await fetch('/api/proxy', opts);
+  } else {
+    const q = new URLSearchParams({ path, ...params });
+    r = await fetch('/api/proxy?' + q, opts);
+  }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || data.message || r.statusText);
   return data;
 }
 
-async function fetchPaginated(path, startDate, endDate, signal) {
-  let allData = {};
+async function fetchPaginated(ep, startDate, endDate, signal) {
+  let allEvents = [];
   let page = 1;
-  const pageSize = 500;
+  const pageSize = 100;
   let hasNext = true;
   while (hasNext) {
-    const res = await proxy(path, { startDate, endDate, page, pageSize: String(pageSize) }, signal);
-    if (res.data && typeof res.data === 'object' && !Array.isArray(res.data)) {
-      Object.assign(allData, res.data);
+    const params = buildParams(ep, startDate, endDate, page, pageSize);
+    const res = await proxy(ep.path, ep.method, params, signal);
+    if (ep.path === '/teams/audit-logs' && Array.isArray(res.events)) {
+      allEvents = allEvents.concat(res.events);
+      hasNext = res.pagination?.hasNextPage === true;
+    } else if (ep.path === '/teams/filtered-usage-events' && Array.isArray(res.usageEvents)) {
+      allEvents = allEvents.concat(res.usageEvents);
+      hasNext = res.pagination?.hasNextPage === true;
+    } else {
+      hasNext = false;
     }
-    hasNext = res.pagination?.hasNextPage === true;
     page++;
   }
-  return { data: allData, pagination: { totalPages: page - 1 } };
+  if (ep.path === '/teams/audit-logs') return { events: allEvents, params: {} };
+  if (ep.path === '/teams/filtered-usage-events') return { usageEvents: allEvents, period: {} };
+  return { events: allEvents };
 }
 
 function downloadJson(filename, data) {
@@ -123,9 +149,9 @@ function init() {
   setDates();
 
   const grid = document.getElementById('endpointsGrid');
-  [...TEAM_ENDPOINTS, ...BY_USER_ENDPOINTS].forEach((ep) => {
+  ADMIN_ENDPOINTS.forEach((ep, idx) => {
     const label = document.createElement('label');
-    label.innerHTML = `<input type="checkbox" class="ep-check" data-path="${escapeHtml(ep.path)}" data-paginated="${!!ep.paginated}"> ${escapeHtml(ep.label)}`;
+    label.innerHTML = `<input type="checkbox" class="ep-check" data-idx="${idx}"> ${escapeHtml(ep.label)}`;
     grid.appendChild(label);
   });
 
@@ -252,16 +278,19 @@ async function runFetch() {
   }
   const startDate = document.getElementById('startDate').value;
   const endDate = document.getElementById('endDate').value;
-  if (!startDate || !endDate) {
-    addError('Настройки', 'Укажите период');
-    alert('Укажите период');
-    return;
-  }
-
   const checked = [...document.querySelectorAll('.ep-check:checked')];
   if (!checked.length) {
     addError('Эндпоинты', 'Выберите хотя бы один эндпоинт');
     alert('Выберите хотя бы один эндпоинт');
+    return;
+  }
+  const needsDates = checked.some((c) => {
+    const ep = ADMIN_ENDPOINTS[parseInt(c.dataset.idx, 10)];
+    return ep && ep.useDates;
+  });
+  if (needsDates && (!startDate || !endDate)) {
+    addError('Настройки', 'Укажите период (для выбранных эндпоинтов с датами)');
+    alert('Укажите период');
     return;
   }
 
@@ -284,9 +313,8 @@ async function runFetch() {
   for (let i = 0; i < checked.length; i++) {
     if (signal.aborted) break;
 
-    const path = checked[i].dataset.path;
-    const paginated = checked[i].dataset.paginated === 'true';
-    const label = checked[i].parentElement.textContent.trim();
+    const ep = ADMIN_ENDPOINTS[parseInt(checked[i].dataset.idx, 10)];
+    const label = ep ? ep.label : checked[i].parentElement.textContent.trim();
     updateProgress(`Загрузка ${i + 1} из ${total}: ${label}...`, true);
 
     const section = document.createElement('details');
@@ -302,16 +330,18 @@ async function runFetch() {
 
     try {
       let data;
-      if (paginated) {
-        data = await fetchPaginated(path, startDate, endDate, signal);
+      if (ep.paginated && ep.useDates) {
+        data = await fetchPaginated(ep, startDate, endDate, signal);
       } else {
-        data = await proxy(path, { startDate, endDate }, signal);
+        const params = buildParams(ep, startDate, endDate);
+        data = await proxy(ep.path, ep.method, params, signal);
       }
       const jsonStr = JSON.stringify(data, null, 2);
       section.setAttribute('data-result-json', jsonStr);
       section.querySelector('.content').innerHTML = '<pre>' + escapeHtml(jsonStr) + '</pre>';
-      section.querySelector('.meta').textContent = 'OK. ' + (data.pagination ? `Страниц: ${data.pagination.totalPages}.` : '') + (data.params ? ` Параметры: ${JSON.stringify(data.params)}` : '');
-      section.querySelector('.meta').classList.add('ok');
+      const meta = section.querySelector('.meta');
+      meta.textContent = 'OK.' + (data.events ? ` Событий: ${data.events.length}.` : '') + (data.usageEvents ? ` Событий: ${data.usageEvents.length}.` : '') + (data.pagination ? ` Страниц: ${data.pagination.totalPages || data.pagination.numPages}.` : '');
+      meta.classList.add('ok');
 
       const actions = section.querySelector('.actions');
       const btnDownload = document.createElement('button');
