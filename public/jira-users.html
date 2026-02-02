@@ -16,10 +16,10 @@
 
   <div class="panel">
     <h2>Загрузить CSV</h2>
-    <p class="meta">Первая строка — заголовки столбцов. При загрузке все текущие записи удаляются и заменяются данными из файла.</p>
+    <p class="meta">Формат — экспорт из Jira (<code>export.csv</code>): первая строка — заголовки (например: Internal Object ID, Key, Наименование, «Пользователь, которому выдан доступ», Проект, Внешний почтовый адрес, Статус и т.д.). Поля в кавычках с запятыми поддерживаются. При загрузке все текущие записи удаляются и заменяются данными из файла.</p>
     <div class="row">
       <div class="field">
-        <label>Файл CSV</label>
+        <label>Файл CSV (export.csv)</label>
         <input type="file" id="csvFile" accept=".csv,text/csv">
       </div>
       <div class="field" style="align-self: flex-end;">
