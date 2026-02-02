@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Дашборд по пользователям — Cursor Admin API</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="data-page-header">
+    <h1>Дашборд по пользователям</h1>
+    <p class="muted">Список пользователей из Jira и активность использования Cursor по неделям (данные из Daily Usage в БД).</p>
+    <a href="index.html" class="btn btn-secondary">← Назад к дашборду</a>
+    <a href="jira-users.html" class="btn btn-secondary" style="margin-left: 8px;">Пользователи Jira</a>
+    <a href="data.html" class="btn btn-secondary" style="margin-left: 8px;">Данные в БД</a>
+  </header>
+
+  <div class="panel">
+    <h2>Период и метрика</h2>
+    <p class="meta">Укажите диапазон дат. В таблице — активность по неделям (понедельник–воскресенье). Сопоставление с Jira по полю «Внешний почтовый адрес» или «Email».</p>
+    <div class="row">
+      <div class="field">
+        <label>Начало периода</label>
+        <input type="date" id="startDate">
+      </div>
+      <div class="field">
+        <label>Конец периода</label>
+        <input type="date" id="endDate">
+      </div>
+      <div class="field">
+        <label>Метрика в ячейке</label>
+        <select id="metric">
+          <option value="activeDays">Дней с активностью</option>
+          <option value="requests">Запросы (composer+chat+agent)</option>
+          <option value="lines">Строки (+/−)</option>
+        </select>
+      </div>
+      <div class="field" style="align-self: flex-end;">
+        <button class="btn" id="btnLoad">Загрузить</button>
+      </div>
+    </div>
+    <div id="loadStatus" class="meta" style="margin-top: 8px;"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Пользователи и активность по неделям</h2>
+    <div id="tableContainer">
+      <span class="muted">Укажите период и нажмите «Загрузить».</span>
+    </div>
+    <div id="tableSummary" class="meta" style="margin-top: 10px;"></div>
+  </div>
+
+  <script src="users-dashboard.js"></script>
+</body>
+</html>

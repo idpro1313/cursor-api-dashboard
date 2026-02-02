@@ -443,6 +443,95 @@ app.get('/api/analytics/coverage', (req, res) => {
   }
 });
 
+// --- Дашборд пользователей: Jira + активность Cursor по неделям ---
+
+/** Понедельник недели (ISO) для даты YYYY-MM-DD */
+function getWeekMonday(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Найти ключ с email в объекте Jira (приоритет: известные имена, затем значение с @) */
+function getEmailFromJiraRow(row, allKeys) {
+  const emailKeys = ['Внешний почтовый адрес', 'Email', 'email', 'E-mail', 'e-mail', 'Почта'];
+  for (const k of emailKeys) {
+    if (row[k] != null && String(row[k]).includes('@')) return String(row[k]).trim().toLowerCase();
+  }
+  for (const k of allKeys || Object.keys(row)) {
+    const v = row[k];
+    if (v != null && String(v).includes('@')) return String(v).trim().toLowerCase();
+  }
+  return null;
+}
+
+app.get('/api/users/activity-by-week', (req, res) => {
+  try {
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Нужны параметры startDate и endDate (YYYY-MM-DD).' });
+    }
+    const jiraRows = db.getJiraUsers();
+    const jiraUsers = jiraRows.map((r) => r.data);
+    const allKeys = jiraUsers.length ? getAllKeysFromRows(jiraUsers) : [];
+    const analyticsRows = db.getAnalytics({
+      endpoint: '/teams/daily-usage-data',
+      startDate,
+      endDate,
+    });
+    const emailByWeek = new Map();
+    const weekSet = new Set();
+    for (const row of analyticsRows) {
+      const payload = row.payload || {};
+      const data = payload.data;
+      if (!Array.isArray(data)) continue;
+      for (const r of data) {
+        const email = (r.email || r.user_email || '').toString().trim().toLowerCase();
+        if (!email) continue;
+        const dateStr = typeof r.date === 'number' ? new Date(r.date).toISOString().slice(0, 10) : (r.date || row.date || '').toString().slice(0, 10);
+        if (!dateStr || dateStr.length < 10) continue;
+        const week = getWeekMonday(dateStr);
+        weekSet.add(week);
+        const key = email + '\n' + week;
+        let rec = emailByWeek.get(key);
+        if (!rec) {
+          rec = { week, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0 };
+          emailByWeek.set(key, rec);
+        }
+        rec.activeDays += 1;
+        rec.requests += Number(r.composer_requests || 0) + Number(r.chat_requests || 0) + Number(r.agent_requests || 0);
+        rec.linesAdded += Number(r.total_lines_added || 0) + Number(r.accepted_lines_added || 0);
+        rec.linesDeleted += Number(r.total_lines_deleted || 0) + Number(r.accepted_lines_deleted || 0);
+      }
+    }
+    const weeks = Array.from(weekSet).sort();
+    const users = [];
+    for (const jira of jiraUsers) {
+      const email = getEmailFromJiraRow(jira, allKeys);
+      const displayName = jira['Пользователь, которому выдан доступ'] || jira['Display Name'] || jira['Username'] || jira['Name'] || email || '—';
+      const weeklyActivity = weeks.map((week) => {
+        const rec = email ? emailByWeek.get(email + '\n' + week) : null;
+        return rec ? { week, ...rec } : { week, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0 };
+      });
+      users.push({ jira, email, displayName: String(displayName), weeklyActivity });
+    }
+    res.json({ users, weeks });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+function getAllKeysFromRows(rows) {
+  const set = new Set();
+  for (const r of rows) {
+    if (r && typeof r === 'object') Object.keys(r).forEach((k) => set.add(k));
+  }
+  return Array.from(set);
+}
+
 // --- Пользователи Jira (обогащение из CSV, при загрузке — полная замена) ---
 
 function parseCSVLine(line) {
