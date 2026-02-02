@@ -24,19 +24,6 @@
     <div id="apiKeyFromFileNote" class="meta" style="display: none; margin-bottom: 12px;">
       Используется ключ из файла <code>data/api-key.txt</code>. Ввод не требуется.
     </div>
-      <div class="field">
-        <label>Начало периода (startDate)</label>
-        <input type="date" id="startDate">
-      </div>
-      <div class="field">
-        <label>Конец периода (endDate)</label>
-        <input type="date" id="endDate">
-      </div>
-      <div class="field" style="align-self: flex-end;">
-        <button class="btn" id="btnFetch">Загрузить выбранные эндпоинты</button>
-        <button class="btn btn-danger" id="btnStop" style="display: none;">Остановить</button>
-      </div>
-    </div>
     <div class="row">
       <button class="btn btn-secondary" id="btnSelectAll">Выбрать все</button>
       <button class="btn btn-secondary" id="btnSelectNone">Снять выбор</button>
@@ -70,21 +57,8 @@
 
   <div class="panel">
     <h2>Эндпоинты Admin API</h2>
-    <p class="meta">Чтение: участники команды, аудит-логи, ежедневное использование, траты, события использования.</p>
+    <p class="meta">Чтение: участники команды, аудит-логи, ежедневное использование, траты, события использования. <strong>Team Members</strong> и <strong>Spending Data</strong> — снимок на текущий момент, не за выбранный период.</p>
     <div class="endpoints-grid" id="endpointsGrid"></div>
-  </div>
-
-  <div class="panel" id="resultsPanel" style="display: none;">
-    <h2>Результаты</h2>
-    <div class="progress-row">
-      <div class="spinner" id="progressSpinner" style="display: none;"></div>
-      <div class="progress" id="progress"></div>
-    </div>
-    <div class="row" style="margin-top: 10px;">
-      <button class="btn btn-secondary" id="btnDownloadAll">Скачать всё (JSON)</button>
-    </div>
-    <div id="errorsBlock" class="errors-panel" style="display: none;"></div>
-    <div id="results" style="margin-top: 16px;"></div>
   </div>
 
   <script src="app.js"></script>

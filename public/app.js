@@ -3,24 +3,15 @@
  * Документация: https://cursor.com/docs/account/teams/admin-api
  */
 const ADMIN_ENDPOINTS = [
-  { path: '/teams/members', method: 'GET', label: 'Team Members' },
+  { path: '/teams/members', method: 'GET', label: 'Team Members', snapshotOnly: true },
   { path: '/teams/audit-logs', method: 'GET', label: 'Audit Logs', useDates: true, dateParamNames: ['startTime', 'endTime'], paginated: true },
   { path: '/teams/daily-usage-data', method: 'POST', label: 'Daily Usage Data', useDates: true, bodyEpoch: true },
-  { path: '/teams/spend', method: 'POST', label: 'Spending Data' },
+  { path: '/teams/spend', method: 'POST', label: 'Spending Data', snapshotOnly: true },
   { path: '/teams/filtered-usage-events', method: 'POST', label: 'Usage Events', useDates: true, bodyEpoch: true, paginated: true },
 ];
 
-let fetchAbortController = null;
 let lastErrors = [];
 let apiKeyConfigured = false;
-
-function setDates() {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - 30);
-  document.getElementById('endDate').value = end.toISOString().slice(0, 10);
-  document.getElementById('startDate').value = start.toISOString().slice(0, 10);
-}
 
 function addError(label, message) {
   lastErrors.push({ label, message });
@@ -53,99 +44,6 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-function updateProgress(text, showSpinner = false) {
-  const progressEl = document.getElementById('progress');
-  const spinnerEl = document.getElementById('progressSpinner');
-  if (progressEl) progressEl.textContent = text;
-  if (spinnerEl) spinnerEl.style.display = showSpinner ? 'block' : 'none';
-}
-
-function dateToEpochMs(dateStr) {
-  return new Date(dateStr + 'T00:00:00Z').getTime();
-}
-function endOfDayEpochMs(dateStr) {
-  return new Date(dateStr + 'T23:59:59.999Z').getTime();
-}
-
-function buildParams(ep, startDate, endDate, page = 1, pageSize = 100) {
-  const params = {};
-  if (ep.useDates && startDate && endDate) {
-    if (ep.dateParamNames) {
-      params[ep.dateParamNames[0]] = startDate;
-      params[ep.dateParamNames[1]] = endDate;
-    } else if (ep.bodyEpoch) {
-      params.startDate = dateToEpochMs(startDate);
-      params.endDate = endOfDayEpochMs(endDate);
-    }
-  }
-  if (ep.paginated) {
-    params.page = page;
-    params.pageSize = pageSize;
-  }
-  return params;
-}
-
-async function proxy(path, method, params = {}, signal = null) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (!apiKeyConfigured) {
-    const apiKey = document.getElementById('apiKey').value.trim();
-    if (!apiKey) throw new Error('Введите API key');
-    sessionStorage.setItem('cursor_api_key', apiKey);
-    headers['X-API-Key'] = apiKey;
-  }
-  const opts = { headers };
-  if (signal) opts.signal = signal;
-  let r;
-  if (method === 'POST') {
-    opts.method = 'POST';
-    opts.body = JSON.stringify({ path, ...params });
-    r = await fetch('/api/proxy', opts);
-  } else {
-    const q = new URLSearchParams({ path, ...params });
-    r = await fetch('/api/proxy?' + q, opts);
-  }
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || data.message || r.statusText);
-  return data;
-}
-
-async function fetchPaginated(ep, startDate, endDate, signal) {
-  let allEvents = [];
-  let page = 1;
-  const pageSize = 100;
-  let hasNext = true;
-  while (hasNext) {
-    const params = buildParams(ep, startDate, endDate, page, pageSize);
-    const res = await proxy(ep.path, ep.method, params, signal);
-    if (ep.path === '/teams/audit-logs' && Array.isArray(res.events)) {
-      allEvents = allEvents.concat(res.events);
-      hasNext = res.pagination?.hasNextPage === true;
-    } else if (ep.path === '/teams/filtered-usage-events' && Array.isArray(res.usageEvents)) {
-      allEvents = allEvents.concat(res.usageEvents);
-      hasNext = res.pagination?.hasNextPage === true;
-    } else {
-      hasNext = false;
-    }
-    page++;
-  }
-  if (ep.path === '/teams/audit-logs') return { events: allEvents, params: {} };
-  if (ep.path === '/teams/filtered-usage-events') return { usageEvents: allEvents, period: {} };
-  return { events: allEvents };
-}
-
-function downloadJson(filename, data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function slug(s) {
-  return s.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase() || 'data';
-}
-
 function applyApiKeyConfig(configured) {
   apiKeyConfigured = !!configured;
   const row = document.getElementById('apiKeyRow');
@@ -157,7 +55,6 @@ function applyApiKeyConfig(configured) {
 }
 
 async function init() {
-  setDates();
   try {
     const r = await fetch('/api/config');
     const data = await r.json();
@@ -197,12 +94,6 @@ async function init() {
 
   document.getElementById('btnSelectAll').onclick = () => document.querySelectorAll('.ep-check').forEach(c => c.checked = true);
   document.getElementById('btnSelectNone').onclick = () => document.querySelectorAll('.ep-check').forEach(c => c.checked = false);
-
-  document.getElementById('btnFetch').addEventListener('click', runFetch);
-  document.getElementById('btnStop').addEventListener('click', () => {
-    if (fetchAbortController) fetchAbortController.abort();
-  });
-  document.getElementById('btnDownloadAll').addEventListener('click', downloadAllResults);
 
   const syncStart = document.getElementById('syncStartDate');
   if (syncStart) {
@@ -293,130 +184,6 @@ async function runSync() {
     resultEl.className = 'sync-result error';
     resultEl.textContent = e.message || 'Ошибка сети';
   }
-}
-
-function downloadAllResults() {
-  const sections = document.querySelectorAll('#results .section[data-result-json]');
-  if (!sections.length) {
-    alert('Нет загруженных результатов для скачивания.');
-    return;
-  }
-  const all = {};
-  sections.forEach((section) => {
-    const label = section.getAttribute('data-label') || 'item';
-    try {
-      const data = JSON.parse(section.getAttribute('data-result-json'));
-      all[slug(label)] = data;
-    } catch (_) {}
-  });
-  const start = document.getElementById('startDate').value || 'start';
-  const end = document.getElementById('endDate').value || 'end';
-  downloadJson(`cursor-analytics-${start}-${end}.json`, all);
-}
-
-async function runFetch() {
-  if (!apiKeyConfigured) {
-    const apiKey = document.getElementById('apiKey').value.trim();
-    if (!apiKey) {
-      addError('Настройки', 'Введите API key');
-      alert('Введите API key');
-      return;
-    }
-  }
-  const startDate = document.getElementById('startDate').value;
-  const endDate = document.getElementById('endDate').value;
-  const checked = [...document.querySelectorAll('.ep-check:checked')];
-  if (!checked.length) {
-    addError('Эндпоинты', 'Выберите хотя бы один эндпоинт');
-    alert('Выберите хотя бы один эндпоинт');
-    return;
-  }
-  const needsDates = checked.some((c) => {
-    const ep = ADMIN_ENDPOINTS[parseInt(c.dataset.idx, 10)];
-    return ep && ep.useDates;
-  });
-  if (needsDates && (!startDate || !endDate)) {
-    addError('Настройки', 'Укажите период (для выбранных эндпоинтов с датами)');
-    alert('Укажите период');
-    return;
-  }
-
-  clearErrors();
-  const resultsPanel = document.getElementById('resultsPanel');
-  const resultsDiv = document.getElementById('results');
-  resultsPanel.style.display = 'block';
-  resultsDiv.innerHTML = '';
-
-  const btnFetch = document.getElementById('btnFetch');
-  const btnStop = document.getElementById('btnStop');
-  btnFetch.disabled = true;
-  btnStop.style.display = 'inline-block';
-  fetchAbortController = new AbortController();
-  const signal = fetchAbortController.signal;
-
-  const total = checked.length;
-  let done = 0;
-
-  for (let i = 0; i < checked.length; i++) {
-    if (signal.aborted) break;
-
-    const ep = ADMIN_ENDPOINTS[parseInt(checked[i].dataset.idx, 10)];
-    const label = ep ? ep.label : checked[i].parentElement.textContent.trim();
-    updateProgress(`Загрузка ${i + 1} из ${total}: ${label}...`, true);
-
-    const section = document.createElement('details');
-    section.className = 'section';
-    section.setAttribute('data-label', label);
-    section.innerHTML = `
-      <summary>${escapeHtml(label)}</summary>
-      <div class="content"></div>
-      <div class="meta"></div>
-      <div class="actions"></div>
-    `;
-    resultsDiv.appendChild(section);
-
-    try {
-      let data;
-      if (ep.paginated && ep.useDates) {
-        data = await fetchPaginated(ep, startDate, endDate, signal);
-      } else {
-        const params = buildParams(ep, startDate, endDate);
-        data = await proxy(ep.path, ep.method, params, signal);
-      }
-      const jsonStr = JSON.stringify(data, null, 2);
-      section.setAttribute('data-result-json', jsonStr);
-      section.querySelector('.content').innerHTML = '<pre>' + escapeHtml(jsonStr) + '</pre>';
-      const meta = section.querySelector('.meta');
-      meta.textContent = 'OK.' + (data.events ? ` Событий: ${data.events.length}.` : '') + (data.usageEvents ? ` Событий: ${data.usageEvents.length}.` : '') + (data.pagination ? ` Страниц: ${data.pagination.totalPages || data.pagination.numPages}.` : '');
-      meta.classList.add('ok');
-
-      const actions = section.querySelector('.actions');
-      const btnDownload = document.createElement('button');
-      btnDownload.className = 'btn btn-secondary';
-      btnDownload.textContent = 'Скачать JSON';
-      btnDownload.onclick = () => downloadJson(slug(label) + '.json', data);
-      actions.appendChild(btnDownload);
-    } catch (err) {
-      const isNotEnabled = /not enabled|feature is not enabled/i.test(err.message);
-      if (isNotEnabled) {
-        section.querySelector('.content').innerHTML = '<pre class="meta skipped">Функция не включена для вашей команды (Billing Groups / Repo Blocklists доступны только при включённой опции в настройках команды).</pre>';
-        section.querySelector('.meta').textContent = 'Пропущено: функция не включена для команды.';
-        section.querySelector('.meta').classList.add('skipped');
-      } else {
-        addError(label, err.message);
-        section.querySelector('.content').innerHTML = '<pre class="error">' + escapeHtml(err.message) + '</pre>';
-        section.querySelector('.meta').textContent = 'Ошибка: ' + err.message;
-        section.querySelector('.meta').classList.add('error');
-      }
-      if (err.name === 'AbortError') break;
-    }
-    done++;
-  }
-
-  updateProgress(signal.aborted ? `Остановлено. Загружено ${done} из ${total}.` : `Готово. Загружено эндпоинтов: ${total}.`, false);
-  btnFetch.disabled = false;
-  btnStop.style.display = 'none';
-  fetchAbortController = null;
 }
 
 if (document.readyState === 'loading') {
