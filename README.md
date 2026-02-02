@@ -53,16 +53,17 @@ npm start
 - **API для чтения:** `GET /api/analytics?endpoint=...&startDate=...&endDate=...` — выборка из БД.
 - **Покрытие:** `GET /api/analytics/coverage` — список эндпоинтов и диапазонов дат.
 
-При запуске в Docker для сохранения БД между перезапусками смонтируйте каталог данных:
+В Docker каталог с БД и `api-key.txt` хранится **вне контейнера**: по умолчанию используется том `cursor-data`, смонтированный в `/data`. При пересоздании контейнера данные сохраняются. При необходимости можно задать свой каталог на хосте:
 
 ```bash
-docker run -p 3333:3333 -v cursor-analytics-data:/app/data cursor-api-dashboard
+docker run -p 3333:3333 -e DATA_DIR=/data -v /путь/на/хосте/data:/data cursor-api-dashboard
 ```
 
 ## Переменные окружения (опционально)
 
 | Переменная | Описание |
 |------------|----------|
+| `DATA_DIR` | Каталог для БД и api-key.txt (по умолчанию `./data`; в Docker по умолчанию `/data` с томом). |
 | `CURSOR_API_KEY` | API key команды (если не вводить на сайте). |
 | `CORS_ORIGIN` | Разрешённые origins через запятую (например `http://localhost:3333`). По умолчанию — все. |
 | `PROXY_TIMEOUT_MS` | Таймаут запроса к Cursor API в мс (по умолчанию 60000). |

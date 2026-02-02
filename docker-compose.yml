@@ -5,5 +5,10 @@ services:
       - "3333:3333"
     environment:
       - PORT=3333
+      - DATA_DIR=/data
       # Опционально: API key через переменную (без ввода на сайте)
       # - CURSOR_API_KEY=your_key_here
+    volumes:
+      - cursor-data:/data
+volumes:
+  cursor-data:

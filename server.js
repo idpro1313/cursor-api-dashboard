@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./db');
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const API_KEY_FILE = path.join(DATA_DIR, 'api-key.txt');
 
 function getApiKeyFromFile() {
