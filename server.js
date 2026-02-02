@@ -57,7 +57,40 @@ app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map(s => s.trim()) } :
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Простой rate limit: N запросов с одного IP в минуту (не логируем заголовки — API key не попадает в логи)
+// Лимиты Cursor Admin API (запросов в минуту): большинство — 20, /teams/user-spend-limit — 60
+const CURSOR_API_LIMIT_DEFAULT = 20;
+const CURSOR_API_LIMIT_USER_SPEND = 60;
+const CURSOR_RATE_WINDOW_MS = 60 * 1000;
+const cursorRateBuckets = { default: [], userSpendLimit: [] };
+
+function getCursorLimitBucket(apiPath) {
+  return (apiPath || '').includes('/teams/user-spend-limit') ? 'userSpendLimit' : 'default';
+}
+
+function getCursorLimit(bucket) {
+  return bucket === 'userSpendLimit' ? CURSOR_API_LIMIT_USER_SPEND : CURSOR_API_LIMIT_DEFAULT;
+}
+
+/** Ждать, пока не освободится слот в лимите Cursor API, затем занять слот. */
+async function waitCursorRateLimit(apiPath) {
+  const bucket = getCursorLimitBucket(apiPath);
+  const limit = getCursorLimit(bucket);
+  let timestamps = cursorRateBuckets[bucket];
+  const now = Date.now();
+  const windowStart = now - CURSOR_RATE_WINDOW_MS;
+  timestamps = timestamps.filter((t) => t > windowStart);
+  while (timestamps.length >= limit) {
+    const oldest = Math.min(...timestamps);
+    const waitMs = oldest + CURSOR_RATE_WINDOW_MS - now + 50;
+    await new Promise((r) => setTimeout(r, Math.max(50, waitMs)));
+    const n = Date.now();
+    timestamps = timestamps.filter((t) => t > n - CURSOR_RATE_WINDOW_MS);
+  }
+  timestamps.push(Date.now());
+  cursorRateBuckets[bucket] = timestamps;
+}
+
+// Простой rate limit нашего сервера: N запросов с одного IP в минуту (не логируем заголовки — API key не попадает в логи)
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 120;
 const rateLimitMap = new Map();
@@ -120,8 +153,9 @@ function dateChunks(startDate, endDate) {
   return chunks;
 }
 
-/** Запрос к Cursor Admin API с Basic Auth (для синхронизации). */
+/** Запрос к Cursor Admin API с Basic Auth (для синхронизации). Соблюдает лимиты Cursor (20/60 запр/мин). */
 async function cursorFetch(apiKey, apiPath, options = {}) {
+  await waitCursorRateLimit(apiPath);
   const { method = 'GET', query = {}, body } = options;
   const url = new URL(apiPath, CURSOR_API);
   Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, String(v)));
@@ -213,7 +247,8 @@ app.post('/api/config', (req, res) => {
   }
 });
 
-function doProxy(apiKey, apiPath, method, query, body, res) {
+async function doProxy(apiKey, apiPath, method, query, body, res) {
+  await waitCursorRateLimit(apiPath);
   const url = new URL(apiPath, CURSOR_API);
   Object.entries(query || {}).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   const auth = Buffer.from(apiKey + ':', 'utf8').toString('base64');
@@ -256,7 +291,7 @@ app.get('/api/proxy', async (req, res) => {
     const validation = validateDateRange(req.query.startDate, req.query.endDate);
     if (!validation.ok) return res.status(400).json({ error: validation.error });
   }
-  return doProxy(apiKey, apiPath, 'GET', query, null, res);
+  return doProxy(apiKey, apiPath, 'GET', query, null, res).catch((e) => res.status(500).json({ error: e.message }));
 });
 
 app.post('/api/proxy', async (req, res) => {
@@ -268,7 +303,7 @@ app.post('/api/proxy', async (req, res) => {
   if (!apiPath || !isPathAllowed(apiPath)) {
     return res.status(400).json({ error: 'Body path required, допустимы /teams/... и /settings/...' });
   }
-  return doProxy(apiKey, apiPath, 'POST', {}, body, res);
+  return doProxy(apiKey, apiPath, 'POST', {}, body, res).catch((e) => res.status(500).json({ error: e.message }));
 });
 
 // --- Синхронизация Admin API в локальную БД (без дублирования по дням) ---
