@@ -408,6 +408,71 @@ app.get('/api/analytics/coverage', (req, res) => {
   }
 });
 
+// --- Пользователи Jira (обогащение из CSV, при загрузке — полная замена) ---
+
+function parseCSVLine(line) {
+  const result = [];
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === '"') {
+      let end = i + 1;
+      while (end < line.length) {
+        if (line[end] === '"' && line[end + 1] !== '"') break;
+        if (line[end] === '"' && line[end + 1] === '"') end++;
+        end++;
+      }
+      result.push(line.slice(i + 1, end).replace(/""/g, '"').trim());
+      i = end + 1;
+      if (line[i] === ',') i++;
+    } else {
+      const comma = line.indexOf(',', i);
+      const end = comma === -1 ? line.length : comma;
+      result.push(line.slice(i, end).trim());
+      i = comma === -1 ? line.length : comma + 1;
+    }
+  }
+  return result;
+}
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return [];
+  const headers = parseCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseCSVLine(lines[i]);
+    const obj = {};
+    headers.forEach((h, j) => {
+      obj[h] = values[j] != null ? String(values[j]) : '';
+    });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+app.get('/api/jira-users', (req, res) => {
+  try {
+    const users = db.getJiraUsers();
+    res.json({ users: users.map((u) => u.data) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/jira-users/upload', (req, res) => {
+  const csv = req.body && req.body.csv ? String(req.body.csv) : '';
+  if (!csv.trim()) {
+    return res.status(400).json({ error: 'Требуется поле csv в теле запроса (содержимое CSV).' });
+  }
+  try {
+    const rows = parseCSV(csv);
+    db.replaceJiraUsers(rows);
+    res.json({ ok: true, count: rows.length, message: `Загружено ${rows.length} записей. Предыдущие данные заменены.` });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Ошибка разбора CSV' });
+  }
+});
+
 // Периодическая очистка старых записей rate limit
 setInterval(() => {
   const now = Date.now();

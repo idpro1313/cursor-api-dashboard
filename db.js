@@ -25,6 +25,12 @@ function getDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_analytics_endpoint ON analytics(endpoint);
     CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics(date);
+
+    CREATE TABLE IF NOT EXISTS jira_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
   return db;
 }
@@ -84,9 +90,40 @@ function getCoverage() {
   return stmt.all();
 }
 
+function getJiraUsers() {
+  const d = getDb();
+  const stmt = d.prepare('SELECT id, data, updated_at FROM jira_users ORDER BY id');
+  const rows = stmt.all();
+  return rows.map((r) => {
+    let data;
+    try {
+      data = JSON.parse(r.data);
+    } catch (_) {
+      data = r.data;
+    }
+    return { id: r.id, data, updated_at: r.updated_at };
+  });
+}
+
+function replaceJiraUsers(rows) {
+  const d = getDb();
+  d.exec('DELETE FROM jira_users');
+  if (!rows || rows.length === 0) return 0;
+  const stmt = d.prepare('INSERT INTO jira_users (data) VALUES (?)');
+  const run = d.transaction((list) => {
+    for (const row of list) {
+      stmt.run(JSON.stringify(row));
+    }
+  });
+  run(rows);
+  return rows.length;
+}
+
 module.exports = {
   getDb,
   upsertAnalytics,
   getAnalytics,
   getCoverage,
+  getJiraUsers,
+  replaceJiraUsers,
 };

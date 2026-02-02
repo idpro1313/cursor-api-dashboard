@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Пользователи Jira — Cursor Admin API</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="data-page-header">
+    <h1>Пользователи Jira</h1>
+    <p class="muted">Данные по пользователям из Jira. Обогащение загрузкой CSV — при загрузке нового списка предыдущие данные полностью заменяются.</p>
+    <a href="index.html" class="btn btn-secondary">← Назад к дашборду</a>
+    <a href="data.html" class="btn btn-secondary" style="margin-left: 8px;">Данные в БД</a>
+  </header>
+
+  <div class="panel">
+    <h2>Загрузить CSV</h2>
+    <p class="meta">Первая строка — заголовки столбцов. При загрузке все текущие записи удаляются и заменяются данными из файла.</p>
+    <div class="row">
+      <div class="field">
+        <label>Файл CSV</label>
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+      </div>
+      <div class="field" style="align-self: flex-end;">
+        <button class="btn" id="btnUpload">Загрузить CSV (затрёт текущие данные)</button>
+      </div>
+    </div>
+    <div id="uploadResult" class="sync-result" style="display: none; margin-top: 12px;"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Текущий список</h2>
+    <div id="usersSummary" class="meta" style="margin-bottom: 10px;"></div>
+    <div id="usersContainer">
+      <span class="muted">Загрузка...</span>
+    </div>
+    <button class="btn btn-secondary" id="btnRefresh" style="margin-top: 10px;">Обновить</button>
+  </div>
+
+  <script src="jira-users.js"></script>
+</body>
+</html>
