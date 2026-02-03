@@ -281,6 +281,10 @@ a:hover { text-decoration: underline; }
 .inactive-cursor-table th.sort-active { color: var(--accent); }
 .cost-by-project-table-wrap { overflow-x: auto; }
 .cost-by-project-table th.project-name { max-width: 200px; }
+.inactive-cursor-block .table-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.inactive-cursor-block .table-actions .btn { flex-shrink: 0; }
+.inactive-cursor-block .copy-feedback { font-size: 0.85rem; color: var(--muted); }
+.inactive-cursor-block .copy-feedback.visible { color: var(--accent); }
 .table-wrap { overflow-x: auto; margin: 8px 0; max-height: 420px; overflow-y: auto; }
 
 .data-card {

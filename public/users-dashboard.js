@@ -149,6 +149,11 @@ function sortInactiveCursorList(list, key, dir) {
       vb = Number(vb) || 0;
       return asc ? va - vb : vb - va;
     }
+    if (key === 'jiraConnectedAt') {
+      va = (va || '').toString();
+      vb = (vb || '').toString();
+      return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
     va = (va != null ? String(va) : '').toLowerCase();
     vb = (vb != null ? String(vb) : '').toLowerCase();
     const cmp = va.localeCompare(vb, 'ru');
@@ -161,6 +166,7 @@ const INACTIVE_CURSOR_COLUMNS = [
   { key: 'displayName', label: 'Пользователь' },
   { key: 'email', label: 'Email' },
   { key: 'jiraProject', label: 'Проект' },
+  { key: 'jiraConnectedAt', label: 'Дата подключения' },
   { key: 'lastActivityMonth', label: 'Последняя активность' },
   { key: 'totalRequestsInPeriod', label: 'Запросов за период' },
   { key: 'teamSpendCents', label: 'Spend API' },
@@ -181,10 +187,11 @@ function renderInactiveCursorList(list, sortState) {
     const name = escapeHtml(u.displayName || u.email || '—');
     const email = escapeHtml(u.email || '');
     const project = u.jiraProject ? escapeHtml(u.jiraProject) : '—';
+    const connectedAt = u.jiraConnectedAt ? formatJiraDate(u.jiraConnectedAt) : '—';
     const lastActive = u.lastActivityMonth ? formatMonthShort(u.lastActivityMonth) : 'нет активности';
     const req = u.totalRequestsInPeriod != null ? u.totalRequestsInPeriod : 0;
     const spend = u.teamSpendCents > 0 ? `$${formatCostCents(u.teamSpendCents)}` : '—';
-    return `<tr><td>${name}</td><td class="muted">${email}</td><td>${project}</td><td>${lastActive}</td><td>${req}</td><td>${spend}</td></tr>`;
+    return `<tr><td>${name}</td><td class="muted">${email}</td><td>${project}</td><td>${connectedAt}</td><td>${lastActive}</td><td>${req}</td><td>${spend}</td></tr>`;
   }).join('');
   const ths = INACTIVE_CURSOR_COLUMNS.map((col) => {
     const isActive = col.key === key;
@@ -192,13 +199,52 @@ function renderInactiveCursorList(list, sortState) {
     return `<th class="sortable ${isActive ? 'sort-active' : ''}" data-sort="${col.key}" title="Сортировать">${escapeHtml(col.label)}${arrow}</th>`;
   }).join('');
   return `
-    <div class="table-wrap" id="inactiveCursorTableWrap">
-      <table class="data-table inactive-cursor-table">
-        <thead><tr>${ths}</tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+    <div class="inactive-cursor-block">
+      <div class="table-actions">
+        <button type="button" class="btn btn-secondary" id="inactiveCursorCopyBtn" title="Скопировать таблицу (с заголовками) в буфер обмена">Скопировать таблицу в буфер</button>
+        <span class="copy-feedback" id="inactiveCursorCopyFeedback" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap" id="inactiveCursorTableWrap">
+        <table class="data-table inactive-cursor-table">
+          <thead><tr>${ths}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>
   `;
+}
+
+function copyInactiveCursorTableToClipboard() {
+  const sorted = sortInactiveCursorList(inactiveCursorList, inactiveCursorSort.key, inactiveCursorSort.dir);
+  const headerRow = INACTIVE_CURSOR_COLUMNS.map((c) => c.label).join('\t');
+  const dataRows = sorted.map((u) => {
+    const name = (u.displayName || u.email || '').replace(/\t/g, ' ');
+    const email = (u.email || '').replace(/\t/g, ' ');
+    const project = (u.jiraProject || '').replace(/\t/g, ' ');
+    const connectedAt = u.jiraConnectedAt ? formatJiraDate(u.jiraConnectedAt) : '';
+    const lastActive = u.lastActivityMonth ? formatMonthShort(u.lastActivityMonth) : 'нет активности';
+    const req = u.totalRequestsInPeriod != null ? u.totalRequestsInPeriod : 0;
+    const spend = u.teamSpendCents > 0 ? `$${formatCostCents(u.teamSpendCents)}` : '';
+    return [name, email, project, connectedAt, lastActive, req, spend].join('\t');
+  });
+  const tsv = [headerRow, ...dataRows].join('\n');
+  navigator.clipboard.writeText(tsv).then(() => {
+    const el = document.getElementById('inactiveCursorCopyFeedback');
+    if (el) {
+      el.textContent = 'Скопировано';
+      el.classList.add('visible');
+      setTimeout(() => {
+        el.textContent = '';
+        el.classList.remove('visible');
+      }, 2000);
+    }
+  }).catch(() => {
+    const el = document.getElementById('inactiveCursorCopyFeedback');
+    if (el) {
+      el.textContent = 'Ошибка копирования';
+      el.classList.add('visible');
+    }
+  });
 }
 
 function setupInactiveCursorSort() {
@@ -215,6 +261,11 @@ function setupInactiveCursorSort() {
       setupInactiveCursorSort();
     }
   });
+  const copyBtn = document.getElementById('inactiveCursorCopyBtn');
+  if (copyBtn) {
+    copyBtn.replaceWith(copyBtn.cloneNode(true));
+    document.getElementById('inactiveCursorCopyBtn').addEventListener('click', copyInactiveCursorTableToClipboard);
+  }
 }
 
 /** Блок: затраты по проекту помесячно */
