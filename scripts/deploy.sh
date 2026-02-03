@@ -39,8 +39,15 @@ if [ ! -d "$DATA_DIR" ]; then
   sudo chown "$(id -u):$(id -g)" "$DATA_DIR" 2>/dev/null || true
 fi
 
-echo "--- Пересборка и перезапуск контейнера ---"
-$DCC build --no-cache
+# Без --no-cache Docker переиспользует кэш слоёв: при изменении только кода (server.js, public/*)
+# пересоберётся только последний слой, npm install не перезапускается.
+# Для полной пересборки (после смены package.json или Dockerfile): FULL_REBUILD=1 ./scripts/deploy.sh
+echo "--- Сборка и перезапуск контейнера ---"
+if [ "${FULL_REBUILD}" = "1" ]; then
+  $DCC build --no-cache
+else
+  $DCC build
+fi
 $DCC up -d
 
 echo "--- Готово ---"

@@ -1,3 +1,5 @@
+# Порядок слоёв для кэширования: при изменении только кода пересобираются
+# только слои ниже изменённых файлов (npm install не перезапускается).
 FROM node:20-alpine
 
 WORKDIR /app
@@ -8,6 +10,7 @@ RUN apk add --no-cache python3 make g++ sqlite-dev
 COPY package.json ./
 RUN npm install --omit=dev
 
+# Код приложения (отдельные слои — точечная инвалидация кэша)
 COPY server.js db.js ./
 COPY public ./public
 
