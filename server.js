@@ -708,6 +708,33 @@ function getEmailFromJiraRow(row, allKeys) {
   return null;
 }
 
+/** Значение статуса из строки Jira → 'active' | 'archived'. Учитываются Статус, Status, Состояние. */
+function getJiraStatusFromRow(row) {
+  const statusKeys = ['Статус', 'Status', 'Состояние', 'State'];
+  let raw = '';
+  for (const k of statusKeys) {
+    if (row[k] != null && String(row[k]).trim() !== '') {
+      raw = String(row[k]).trim().toLowerCase();
+      break;
+    }
+  }
+  if (!raw) return 'active';
+  const archivedTerms = ['архив', 'archived', 'неактив', 'inactive', 'отключ', 'disabled', 'закрыт', 'closed'];
+  return archivedTerms.some((t) => raw.includes(t)) ? 'archived' : 'active';
+}
+
+/** Дата из строки Jira для сортировки (последняя запись = самый поздний статус). Возвращает timestamp или id. */
+function getJiraRowOrderKey(row, id) {
+  const dateKeys = ['Дата', 'Date', 'Created', 'Создан', 'Обновлён', 'Updated', 'Дата изменения', 'Дата выдачи'];
+  for (const k of dateKeys) {
+    const v = row[k];
+    if (v == null || String(v).trim() === '') continue;
+    const d = new Date(String(v).trim());
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+  return id;
+}
+
 /** Агрегация активности по пользователям и месяцам (Daily Usage Data + опционально applies/accepts из API). */
 app.get('/api/users/activity-by-month', (req, res) => {
   try {
@@ -760,15 +787,27 @@ app.get('/api/users/activity-by-month', (req, res) => {
     const months = Array.from(monthSet).sort();
     const users = [];
     const jiraEmails = new Set();
-    for (const jira of jiraUsers) {
+    // По каждому email из Jira берём самую позднюю запись (по дате из строки или по id) — по ней показываем статус
+    const emailToLatestJira = new Map();
+    for (let i = 0; i < jiraRows.length; i++) {
+      const { id, data: jira } = jiraRows[i];
       const email = getEmailFromJiraRow(jira, allKeys);
-      if (email) jiraEmails.add(email);
+      if (!email) continue;
+      jiraEmails.add(email);
+      const orderKey = getJiraRowOrderKey(jira, id);
+      const existing = emailToLatestJira.get(email);
+      if (!existing || orderKey > existing.orderKey) {
+        emailToLatestJira.set(email, { jira, id, orderKey });
+      }
+    }
+    for (const [email, { jira }] of emailToLatestJira) {
       const displayName = jira['Пользователь, которому выдан доступ'] || jira['Display Name'] || jira['Username'] || jira['Name'] || email || '—';
+      const jiraStatus = getJiraStatusFromRow(jira);
       const monthlyActivity = months.map((month) => {
-        const rec = email ? emailByMonth.get(email + '\n' + month) : null;
+        const rec = emailByMonth.get(email + '\n' + month);
         return rec ? { month, ...rec } : { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
       });
-      users.push({ jira, email, displayName: String(displayName), monthlyActivity });
+      users.push({ jira, email, displayName: String(displayName), jiraStatus, monthlyActivity });
     }
     const cursorOnlyEmails = new Set();
     for (const key of emailByMonth.keys()) {
@@ -780,7 +819,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const rec = emailByMonth.get(email + '\n' + month);
         return rec ? { month, ...rec } : { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
       });
-      users.push({ jira: {}, email, displayName: email, monthlyActivity });
+      users.push({ jira: {}, email, displayName: email, jiraStatus: null, monthlyActivity });
     }
     res.json({ users, months });
   } catch (e) {

@@ -3,73 +3,83 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cursor Admin API — дашборд</title>
+  <title>Статистика использования Cursor — дашборд</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>Cursor Admin API — дашборд</h1>
-  <p class="muted">Данные забираются через <a href="https://cursor.com/docs/account/teams/admin-api" target="_blank" rel="noopener">Cursor Admin API</a>. Нужен API key из <a href="https://cursor.com/settings" target="_blank" rel="noopener">настроек команды</a>. <a href="data.html">Данные в БД</a> · <a href="jira-users.html">Пользователи Jira</a> · <a href="users-dashboard.html">Дашборд по пользователям</a></p>
+  <header class="site-header">
+    <div class="site-wrap">
+      <h1>Статистика Cursor</h1>
+      <nav class="nav-links">
+        <a href="index.html" class="current">Дашборд</a>
+        <a href="admin.html">Настройки и загрузка</a>
+        <a href="data.html">Данные в БД</a>
+        <a href="jira-users.html">Пользователи Jira</a>
+      </nav>
+    </div>
+  </header>
+  <main class="site-wrap">
+    <p class="muted" style="margin-top: 0;">Активность по пользователям и месяцам. Данные из БД (Daily Usage). При загрузке CSV из Jira отображаются имена и статус.</p>
 
   <div class="panel">
-    <h2>Настройки</h2>
-    <p id="apiKeyHint" class="meta" style="display: none; margin-bottom: 10px;">Для выгрузки данных введите API key и нажмите «Сохранить ключ в БД».</p>
-    <div id="apiKeyRow" class="row">
-      <div class="field">
-        <label>API Key (Cursor Team)</label>
-        <input type="password" id="apiKey" placeholder="Вставьте API key" autocomplete="off">
-      </div>
-      <div class="field" style="align-self: flex-end;">
-        <button type="button" class="btn btn-secondary" id="btnSaveApiKey">Сохранить ключ в БД</button>
-      </div>
-    </div>
-    <div id="apiKeySavedNote" class="meta" style="display: none; margin-bottom: 12px;">
-      Ключ сохранён в БД. <button type="button" class="btn-link" id="btnChangeApiKey">Изменить ключ</button>
-    </div>
-    <div id="apiKeyError" class="meta error" style="display: none; margin-top: 8px;"></div>
-  </div>
-
-  <div class="panel">
-    <h2>Сохранение в локальную БД</h2>
-    <p class="meta">Загружает данные по эндпоинтам Admin API с указанной даты по вчера (текущий день не загружается). Уже загруженные дни не запрашиваются повторно — подтягиваются только новые. Начальная дата по умолчанию — 01.09.2025.</p>
+    <h2>Период и отображение</h2>
+    <p class="meta">По умолчанию подставляется период, по которому есть данные Daily Usage в БД. Активность считается по месяцам.</p>
     <div class="row">
       <div class="field">
-        <label>Начальная дата (с какой даты загружать)</label>
-        <input type="date" id="syncStartDate">
+        <label>Начало периода</label>
+        <input type="date" id="startDate">
+      </div>
+      <div class="field">
+        <label>Конец периода</label>
+        <input type="date" id="endDate">
+      </div>
+      <div class="field">
+        <label>Вид</label>
+        <select id="viewMode">
+          <option value="cards">Карточки пользователей</option>
+          <option value="heatmap">Тепловая карта</option>
+          <option value="table">Таблица по месяцам</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Сортировка</label>
+        <select id="sortBy">
+          <option value="requests">По запросам (убыв.)</option>
+          <option value="activeDays">По дням с активностью</option>
+          <option value="lines">По изменённым строкам</option>
+          <option value="name">По имени</option>
+        </select>
       </div>
       <div class="field" style="align-self: flex-end;">
-        <button class="btn" id="btnSync">Загрузить и сохранить в БД</button>
+        <button class="btn" id="btnLoad">Загрузить</button>
       </div>
     </div>
-    <div class="sync-progress-block" id="syncProgressRow" style="display: none;">
-      <div class="progress-row" style="align-items: center; gap: 12px;">
-        <div class="spinner" id="syncSpinner"></div>
-        <span id="syncProgressText">Подготовка...</span>
-      </div>
-      <div class="progress-bar-wrap" aria-hidden="true">
-        <div class="progress-bar-fill" id="syncProgressBar" style="width: 0%;"></div>
-      </div>
-      <div class="sync-plan" id="syncPlan" style="display: none; margin-top: 10px;"></div>
-      <div class="sync-log-wrap" id="syncLogWrap">
-        <div class="sync-log" id="syncLog" role="log" aria-live="polite"></div>
-      </div>
-      <div class="meta" id="syncProgressDetail" style="margin-top: 6px;"></div>
+    <div class="row">
+      <label class="filter-check">
+        <input type="checkbox" id="showOnlyActive" checked>
+        Показывать только тех, у кого есть активность за период
+      </label>
     </div>
-    <div id="syncResult" class="sync-result" style="display: none;"></div>
-    <p style="margin-top: 12px;"><a href="data.html" class="btn btn-secondary">Просмотр данных в БД →</a></p>
-    <div class="section coverage-section" style="margin-top: 16px;">
-      <h3 style="font-size: 1rem; margin: 0 0 8px; color: var(--muted);">Покрытие БД по всем эндпоинтам</h3>
-      <p class="meta" style="margin-bottom: 8px;">Какие эндпоинты и за какие даты уже сохранены (загружаются все: Team Members, Audit Logs, Daily Usage Data, Spending Data, Usage Events).</p>
-      <div id="coverageList" class="meta">Загрузка...</div>
-      <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-        <button class="btn btn-secondary" id="btnRefreshCoverage">Обновить</button>
-        <button class="btn btn-danger" id="btnClearDb" type="button">Полная очистка БД</button>
-        <label class="clear-db-option" style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted);">
-          <input type="checkbox" id="clearDbIncludeSettings"> удалить и настройки (API key)
-        </label>
-      </div>
-    </div>
+    <div id="loadStatus" class="meta" style="margin-top: 8px;"></div>
   </div>
 
-  <script src="app.js"></script>
+  <div class="panel" id="summaryPanel" style="display: none;">
+    <h2>Сводка за период</h2>
+    <div class="stats-grid" id="summaryStats"></div>
+  </div>
+
+  <div class="panel" id="contentPanel" style="display: none;">
+    <h2 id="contentTitle">Активность по пользователям</h2>
+    <div id="tableContainer"></div>
+    <div id="heatmapContainer" class="dashboard-heatmap-wrap" style="display: none;"></div>
+    <div id="cardsContainer" style="display: none;"></div>
+    <div id="tableSummary" class="meta" style="margin-top: 10px;"></div>
+  </div>
+
+  <div class="panel" id="emptyState">
+    <p class="muted">Укажите период и нажмите «Загрузить». Убедитесь, что в БД загружены Daily Usage (<a href="admin.html">Настройки и загрузка</a>) и при необходимости — <a href="jira-users.html">пользователи Jira</a>.</p>
+  </div>
+  </main>
+  <script src="users-dashboard.js"></script>
 </body>
 </html>

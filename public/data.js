@@ -31,7 +31,7 @@ async function loadCoverage() {
     const opts = select.querySelectorAll('option');
     for (let i = opts.length - 1; i >= 1; i--) opts[i].remove();
     if (cov.length === 0) {
-      el.innerHTML = '<span class="muted">БД пуста. Загрузите данные на <a href="index.html">главной странице</a>.</span>';
+      el.innerHTML = '<span class="muted">БД пуста. Загрузите данные в разделе <a href="admin.html">Настройки и загрузка</a>.</span>';
       return;
     }
     el.innerHTML = `

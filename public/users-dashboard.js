@@ -58,6 +58,14 @@ function getIntensity(value, maxValue) {
   return Math.min(1, value / maxValue);
 }
 
+/** Бейдж статуса из Jira: Активный / Архивный (по данным Jira, самый поздний статус). */
+function formatJiraStatusBadge(user) {
+  if (user.jiraStatus == null) return '';
+  const label = user.jiraStatus === 'archived' ? 'Архивный' : 'Активный';
+  const cls = user.jiraStatus === 'archived' ? 'jira-status jira-status-archived' : 'jira-status jira-status-active';
+  return `<span class="${cls}" title="Статус в Jira">${escapeHtml(label)}</span>`;
+}
+
 function renderSummary(data, preparedUsers) {
   const allUsers = data.users || [];
   let totalRequests = 0, totalLinesAdded = 0, totalLinesDeleted = 0, activeUserCount = 0;
@@ -161,6 +169,7 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
   const monthHeaders = months.map((m) => `<th class="heatmap-th">${escapeHtml(formatMonthLabel(m))}</th>`).join('');
   const rows = grid.map(({ user, values }) => {
     const name = escapeHtml(user.displayName || user.email || '—');
+    const statusBadge = formatJiraStatusBadge(user);
     const cells = values.map((v) => {
       const intensity = getIntensity(v, maxVal);
       const title = v > 0 ? `Месяц: ${v}` : '';
@@ -200,7 +209,7 @@ function renderTable(preparedUsers, months, viewMetric) {
       return `<td class="table-cell-intensity" style="--intensity:${intensity}" title="${escapeHtml(title)}">${text}</td>`;
     }).join('');
     return `<tr>
-      <td class="table-user-cell">${name}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}</div></td>
+      <td class="table-user-cell">${name} ${statusBadge}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}</div></td>
       ${cells}
     </tr>`;
   }).join('');
@@ -219,14 +228,29 @@ function renderTable(preparedUsers, months, viewMetric) {
   `;
 }
 
-function setDefaultDates() {
+const DAILY_USAGE_ENDPOINT = '/teams/daily-usage-data';
+
+/** По умолчанию подставить период по данным в БД (Daily Usage); если пусто — последние 90 дней. */
+async function setDefaultDates() {
+  const elEnd = document.getElementById('endDate');
+  const elStart = document.getElementById('startDate');
+  if (!elEnd || !elStart) return;
+  try {
+    const r = await fetch('/api/analytics/coverage');
+    const data = await r.json();
+    const coverage = data.coverage || [];
+    const daily = coverage.find((c) => c.endpoint === DAILY_USAGE_ENDPOINT);
+    if (daily && daily.min_date && daily.max_date) {
+      elStart.value = daily.min_date;
+      elEnd.value = daily.max_date;
+      return;
+    }
+  } catch (_) {}
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - 90);
-  const elEnd = document.getElementById('endDate');
-  const elStart = document.getElementById('startDate');
-  if (elEnd && !elEnd.value) elEnd.value = end.toISOString().slice(0, 10);
-  if (elStart && !elStart.value) elStart.value = start.toISOString().slice(0, 10);
+  if (!elStart.value) elStart.value = start.toISOString().slice(0, 10);
+  if (!elEnd.value) elEnd.value = end.toISOString().slice(0, 10);
 }
 
 async function load() {
@@ -271,7 +295,7 @@ async function load() {
       return;
     }
     if (!months.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные на <a href="index.html">главной</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные в БД</a>.</p>';
+      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные в разделе <a href="admin.html">Настройки и загрузка</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные в БД</a>.</p>';
       emptyState.style.display = 'none';
       contentPanel.style.display = 'block';
       statusEl.textContent = '';
@@ -315,7 +339,9 @@ async function load() {
 }
 
 function init() {
-  setDefaultDates();
+  setDefaultDates().then(() => {
+    if (document.getElementById('startDate').value && document.getElementById('endDate').value) load();
+  });
   document.getElementById('btnLoad').addEventListener('click', load);
   const refresh = () => {
     if (document.getElementById('startDate').value && document.getElementById('endDate').value) load();

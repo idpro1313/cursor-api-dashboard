@@ -7,13 +7,20 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="data-page-header">
-    <h1>Пользователи Jira</h1>
-    <p class="muted">Данные по пользователям из Jira. Обогащение загрузкой CSV — при загрузке нового списка предыдущие данные полностью заменяются.</p>
-    <a href="index.html" class="btn btn-secondary">← Назад к дашборду</a>
-    <a href="data.html" class="btn btn-secondary" style="margin-left: 8px;">Данные в БД</a>
-    <a href="users-dashboard.html" class="btn btn-secondary" style="margin-left: 8px;">Дашборд по пользователям</a>
+  <header class="site-header">
+    <div class="site-wrap">
+      <h1>Статистика Cursor</h1>
+      <nav class="nav-links">
+        <a href="index.html">Дашборд</a>
+        <a href="admin.html">Настройки и загрузка</a>
+        <a href="data.html">Данные в БД</a>
+        <a href="jira-users.html" class="current">Пользователи Jira</a>
+      </nav>
+    </div>
   </header>
+  <main class="site-wrap">
+  <h2 style="margin-top: 0;">Пользователи Jira</h2>
+  <p class="muted">Данные по пользователям из Jira. Обогащение загрузкой CSV — при загрузке нового списка предыдущие данные полностью заменяются.</p>
 
   <div class="panel">
     <h2>Загрузить CSV</h2>
@@ -38,7 +45,7 @@
     </div>
     <button class="btn btn-secondary" id="btnRefresh" style="margin-top: 10px;">Обновить</button>
   </div>
-
+  </main>
   <script src="jira-users.js"></script>
 </body>
 </html>

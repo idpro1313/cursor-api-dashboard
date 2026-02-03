@@ -3,77 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Дашборд по пользователям — Cursor Admin API</title>
-  <link rel="stylesheet" href="styles.css">
+  <title>Перенаправление...</title>
+  <meta http-equiv="refresh" content="0;url=index.html">
+  <script>location.replace('index.html');</script>
 </head>
 <body>
-  <header class="data-page-header">
-    <h1>Статистика использования Cursor</h1>
-    <p class="muted">Кто и как использует Cursor: активность по пользователям и месяцам. Данные берутся из БД (эндпоинт Daily Usage). Если загружен CSV из Jira — отображаются имена из Jira; иначе показываются все пользователи по email из Cursor. <a href="data.html">Просмотр данных в БД</a>.</p>
-    <a href="index.html" class="btn btn-secondary">← Назад к дашборду</a>
-    <a href="jira-users.html" class="btn btn-secondary" style="margin-left: 8px;">Пользователи Jira</a>
-    <a href="data.html" class="btn btn-secondary" style="margin-left: 8px;">Данные в БД</a>
-  </header>
-
-  <div class="panel">
-    <h2>Период и отображение</h2>
-    <p class="meta">Укажите диапазон дат. Активность считается по неделям (пн–вс).</p>
-    <div class="row">
-      <div class="field">
-        <label>Начало периода</label>
-        <input type="date" id="startDate">
-      </div>
-      <div class="field">
-        <label>Конец периода</label>
-        <input type="date" id="endDate">
-      </div>
-      <div class="field">
-        <label>Вид</label>
-        <select id="viewMode">
-          <option value="cards">Карточки пользователей</option>
-          <option value="heatmap">Тепловая карта</option>
-          <option value="table">Таблица по месяцам</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Сортировка</label>
-        <select id="sortBy">
-          <option value="requests">По запросам (убыв.)</option>
-          <option value="activeDays">По дням с активностью</option>
-          <option value="lines">По изменённым строкам</option>
-          <option value="name">По имени</option>
-        </select>
-      </div>
-      <div class="field" style="align-self: flex-end;">
-        <button class="btn" id="btnLoad">Загрузить</button>
-      </div>
-    </div>
-    <div class="row">
-      <label class="filter-check">
-        <input type="checkbox" id="showOnlyActive" checked>
-        Показывать только тех, у кого есть активность за период
-      </label>
-    </div>
-    <div id="loadStatus" class="meta" style="margin-top: 8px;"></div>
-  </div>
-
-  <div class="panel" id="summaryPanel" style="display: none;">
-    <h2>Сводка за период</h2>
-    <div class="stats-grid" id="summaryStats"></div>
-  </div>
-
-  <div class="panel" id="contentPanel" style="display: none;">
-    <h2 id="contentTitle">Активность по пользователям</h2>
-    <div id="tableContainer"></div>
-    <div id="heatmapContainer" class="dashboard-heatmap-wrap" style="display: none;"></div>
-    <div id="cardsContainer" style="display: none;"></div>
-    <div id="tableSummary" class="meta" style="margin-top: 10px;"></div>
-  </div>
-
-  <div class="panel" id="emptyState">
-    <p class="muted">Укажите период и нажмите «Загрузить». Убедитесь, что в БД загружены Daily Usage и при необходимости — <a href="jira-users.html">пользователи Jira</a>.</p>
-  </div>
-
-  <script src="users-dashboard.js"></script>
+  <p>Перенаправление на <a href="index.html">дашборд</a>...</p>
 </body>
 </html>
