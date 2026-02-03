@@ -89,6 +89,19 @@ async function init() {
     if (saved) document.getElementById('apiKey').value = saved;
   }
 
+  document.getElementById('btnClearApiData')?.addEventListener('click', async () => {
+    if (!confirm('Очистить только данные API (аналитика по эндпоинтам)? Данные Jira и настройки не затронуты. Действие нельзя отменить.')) return;
+    try {
+      const r = await fetch('/api/clear-analytics', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      alert(data.message || 'Данные API очищены.');
+      loadCoverage();
+    } catch (e) {
+      alert(e.message || 'Ошибка очистки');
+    }
+  });
+
   document.getElementById('btnClearDb')?.addEventListener('click', async () => {
     const includeSettings = document.getElementById('clearDbIncludeSettings')?.checked;
     const msg = includeSettings

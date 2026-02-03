@@ -28,6 +28,7 @@ function getUserTotals(user) {
   const activity = user.monthlyActivity || user.weeklyActivity || [];
   let requests = 0, activeDays = 0, linesAdded = 0, linesDeleted = 0, applies = 0, accepts = 0;
   let usageEventsCount = 0, usageCostCents = 0, usageRequestsCosts = 0;
+  let usageInputTokens = 0, usageOutputTokens = 0, usageCacheWriteTokens = 0, usageCacheReadTokens = 0, usageTokenCents = 0;
   const usageCostByModel = {};
   for (const a of activity) {
     requests += a.requests || 0;
@@ -39,12 +40,17 @@ function getUserTotals(user) {
     usageEventsCount += a.usageEventsCount || 0;
     usageCostCents += a.usageCostCents || 0;
     usageRequestsCosts += a.usageRequestsCosts || 0;
+    usageInputTokens += a.usageInputTokens || 0;
+    usageOutputTokens += a.usageOutputTokens || 0;
+    usageCacheWriteTokens += a.usageCacheWriteTokens || 0;
+    usageCacheReadTokens += a.usageCacheReadTokens || 0;
+    usageTokenCents += a.usageTokenCents || 0;
     const byModel = a.usageCostByModel || {};
     for (const [model, cents] of Object.entries(byModel)) {
       usageCostByModel[model] = (usageCostByModel[model] || 0) + cents;
     }
   }
-  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts, usageCostByModel };
+  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts, usageInputTokens, usageOutputTokens, usageCacheWriteTokens, usageCacheReadTokens, usageTokenCents, usageCostByModel };
 }
 
 /** Фильтр и сортировка пользователей */
@@ -109,12 +115,17 @@ function renderSummary(data, preparedUsers) {
   let totalUsageEvents = 0, totalUsageCostCents = 0;
   const withActivity = (data.users || []).map((u) => ({ ...u, totals: u.totals || getUserTotals(u) }))
     .filter((u) => (u.totals.requests || 0) > 0 || (u.totals.activeDays || 0) > 0 || (u.totals.linesTotal || 0) > 0 || (u.totals.usageEventsCount || 0) > 0);
+  let totalInputTokens = 0, totalOutputTokens = 0, totalCacheWrite = 0, totalCacheRead = 0;
   for (const u of withActivity) {
     totalRequests += u.totals.requests || 0;
     totalLinesAdded += u.totals.linesAdded || 0;
     totalLinesDeleted += u.totals.linesDeleted || 0;
     totalUsageEvents += u.totals.usageEventsCount || 0;
     totalUsageCostCents += u.totals.usageCostCents || 0;
+    totalInputTokens += u.totals.usageInputTokens || 0;
+    totalOutputTokens += u.totals.usageOutputTokens || 0;
+    totalCacheWrite += u.totals.usageCacheWriteTokens || 0;
+    totalCacheRead += u.totals.usageCacheReadTokens || 0;
     activeUserCount++;
   }
   const top = withActivity.length ? withActivity.sort((a, b) => (b.totals.requests || 0) - (a.totals.requests || 0))[0] : null;
@@ -214,6 +225,7 @@ function renderCards(preparedUsers, months, viewMetric) {
     }).join('');
     const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
     const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
+    const tokenStats = (t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0) ? ` <span class="user-card-stat" title="input / output / cache write / cache read">токены: in ${(t.usageInputTokens || 0).toLocaleString('ru-RU')}, out ${(t.usageOutputTokens || 0).toLocaleString('ru-RU')}, cW ${(t.usageCacheWriteTokens || 0).toLocaleString('ru-RU')}, cR ${(t.usageCacheReadTokens || 0).toLocaleString('ru-RU')}</span>` : '';
     const teamSpendStat = (u.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(u.teamSpendCents)}</span>` : '';
     const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${escapeHtml(model)}: $${formatCostCents(cents)}`).join(', ') : '';
     const costByModelStats = byModel ? ` <span class="user-card-stat user-card-cost-by-model" title="Стоимость в $ по моделям">${byModel}</span>` : '';
@@ -227,7 +239,7 @@ function renderCards(preparedUsers, months, viewMetric) {
           <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
           <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
           <span class="user-card-stat stat-add">+${t.linesAdded}</span>
-          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}${teamSpendStat}${costByModelStats}
+          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}${tokenStats}${teamSpendStat}${costByModelStats}
         </div>
         <div class="user-card-weeks" title="Активность по месяцам">${monthCells}</div>
       </div>
@@ -303,7 +315,7 @@ function renderTable(preparedUsers, months, viewMetric) {
     const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${model}: $${formatCostCents(cents)}`).join('; ') : '';
     const costByModelLine = byModel ? `<div class="table-user-cost-by-model" title="Стоимость по моделям">${escapeHtml(byModel)}</div>` : '';
     return `<tr>
-      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}${teamSpendLine}</div>${costByModelLine}</td>
+      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}${tokenTotals}${teamSpendLine}</div>${costByModelLine}</td>
       ${cells}
     </tr>`;
   }).join('');

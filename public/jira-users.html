@@ -44,7 +44,10 @@
     <div id="usersContainer">
       <span class="muted">Загрузка...</span>
     </div>
-    <button class="btn btn-secondary" id="btnRefresh" style="margin-top: 10px;">Обновить</button>
+    <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
+      <button class="btn btn-secondary" id="btnRefresh">Обновить</button>
+      <button class="btn btn-danger" id="btnClearJira" type="button">Очистить данные Jira</button>
+    </div>
   </div>
   </main>
   <script src="jira-users.js"></script>

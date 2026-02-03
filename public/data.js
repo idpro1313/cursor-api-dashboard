@@ -101,15 +101,36 @@ function extractArray(payload) {
   if (!payload || typeof payload !== 'object') return null;
   if (Array.isArray(payload)) return payload;
   for (const key of ['events', 'data', 'usageEvents', 'teamMembers', 'teamMemberSpend']) {
-    if (Array.isArray(payload[key])) return payload[key];
+    if (Array.isArray(payload[key])) return { key, arr: payload[key] };
   }
   return null;
 }
 
+/** Для Usage Events: разворачиваем tokenUsage в отдельные поля (inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, totalCents). */
+function flattenUsageEvents(arr) {
+  if (!Array.isArray(arr)) return arr;
+  return arr.map((e) => {
+    const { tokenUsage: tu, ...rest } = e;
+    const t = tu || {};
+    return {
+      ...rest,
+      inputTokens: t.inputTokens,
+      outputTokens: t.outputTokens,
+      cacheWriteTokens: t.cacheWriteTokens,
+      cacheReadTokens: t.cacheReadTokens,
+      totalCents: t.totalCents,
+    };
+  });
+}
+
 function renderPayload(row) {
   const { endpoint, date, payload } = row;
-  const arr = extractArray(payload);
-  if (arr) return renderTableFromArray(arr);
+  const extracted = extractArray(payload);
+  if (extracted) {
+    const { key, arr } = extracted;
+    const tableArr = key === 'usageEvents' ? flattenUsageEvents(arr) : arr;
+    return renderTableFromArray(tableArr);
+  }
   return '<pre class="payload-json">' + escapeHtml(JSON.stringify(payload, null, 2)) + '</pre>';
 }
 
