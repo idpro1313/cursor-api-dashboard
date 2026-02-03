@@ -8,24 +8,27 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-function formatWeekLabel(weekStr) {
-  const d = new Date(weekStr + 'T12:00:00');
-  const end = new Date(d);
-  end.setDate(end.getDate() + 6);
-  const fmt = (x) => x.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-  return fmt(d) + '–' + fmt(end);
+/** Подпись месяца: "янв 2025" */
+function formatMonthLabel(monthStr) {
+  if (!monthStr || monthStr.length < 7) return monthStr || '—';
+  const [y, m] = monthStr.split('-').map(Number);
+  const d = new Date(y, (m || 1) - 1, 1);
+  return d.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
 }
 
 /** Считаем итоги по пользователю за весь период */
 function getUserTotals(user) {
-  let requests = 0, activeDays = 0, linesAdded = 0, linesDeleted = 0;
-  for (const a of user.weeklyActivity || []) {
+  const activity = user.monthlyActivity || user.weeklyActivity || [];
+  let requests = 0, activeDays = 0, linesAdded = 0, linesDeleted = 0, applies = 0, accepts = 0;
+  for (const a of activity) {
     requests += a.requests || 0;
     activeDays += a.activeDays || 0;
     linesAdded += a.linesAdded || 0;
     linesDeleted += a.linesDeleted || 0;
+    applies += a.applies || 0;
+    accepts += a.accepts || 0;
   }
-  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted };
+  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts };
 }
 
 /** Фильтр и сортировка пользователей */
@@ -96,12 +99,14 @@ function renderSummary(data, preparedUsers) {
   `;
 }
 
-/** Карточки пользователей: имя, метрики, полоска недель */
-function renderCards(preparedUsers, weeks, viewMetric) {
-  if (!weeks.length) return '<p class="muted">Нет недель в периоде.</p>';
+/** Карточки пользователей: имя, метрики, полоска месяцев */
+function renderCards(preparedUsers, months, viewMetric) {
+  if (!months.length) return '<p class="muted">Нет месяцев в периоде.</p>';
+  const activityKey = preparedUsers.length && preparedUsers[0].monthlyActivity ? 'monthlyActivity' : 'weeklyActivity';
+  const monthKey = activityKey === 'monthlyActivity' ? 'month' : 'week';
   let maxVal = 0;
   for (const u of preparedUsers) {
-    for (const a of u.weeklyActivity || []) {
+    for (const a of u[activityKey] || []) {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       if (v > maxVal) maxVal = v;
     }
@@ -110,13 +115,15 @@ function renderCards(preparedUsers, weeks, viewMetric) {
     const name = escapeHtml(u.displayName || u.email || '—');
     const email = u.email ? `<span class="user-card-email">${escapeHtml(u.email)}</span>` : '';
     const t = u.totals || getUserTotals(u);
-    const weekCells = (u.weeklyActivity || []).map((a) => {
+    const act = u[activityKey] || [];
+    const monthCells = act.map((a) => {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       const intensity = getIntensity(v, maxVal);
-      const pct = Math.round(intensity * 100);
-      const title = `${formatWeekLabel(a.week)}: дн. ${a.activeDays}, запросов ${a.requests}, строк +${a.linesAdded}/−${a.linesDeleted}`;
+      const label = monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey];
+      const title = `${label}: дн. ${a.activeDays}, запросов ${a.requests}, строк +${a.linesAdded}/−${a.linesDeleted}`;
       return `<span class="week-cell" style="--intensity:${intensity}" title="${escapeHtml(title)}">${v > 0 ? v : ''}</span>`;
     }).join('');
+    const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
     return `
       <div class="user-card">
         <div class="user-card-header">
@@ -127,53 +134,56 @@ function renderCards(preparedUsers, weeks, viewMetric) {
           <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
           <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
           <span class="user-card-stat stat-add">+${t.linesAdded}</span>
-          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>
+          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}
         </div>
-        <div class="user-card-weeks" title="Активность по неделям">${weekCells}</div>
+        <div class="user-card-weeks" title="Активность по месяцам">${monthCells}</div>
       </div>
     `;
   }).join('');
   return `<div class="users-cards-grid">${cards}</div>`;
 }
 
-/** Тепловая карта: строки = пользователи, столбцы = недели */
-function renderHeatmap(preparedUsers, weeks, viewMetric) {
-  if (!weeks.length) return '<p class="muted">Нет недель в периоде.</p>';
+/** Тепловая карта: строки = пользователи, столбцы = месяцы */
+function renderHeatmap(preparedUsers, months, viewMetric) {
+  if (!months.length) return '<p class="muted">Нет месяцев в периоде.</p>';
+  const activityKey = preparedUsers.length && preparedUsers[0].monthlyActivity ? 'monthlyActivity' : 'weeklyActivity';
   let maxVal = 0;
   const grid = [];
   for (const u of preparedUsers) {
     const row = [];
-    for (const a of u.weeklyActivity || []) {
+    for (const a of u[activityKey] || []) {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       row.push(v);
       if (v > maxVal) maxVal = v;
     }
     grid.push({ user: u, values: row });
   }
-  const weekHeaders = weeks.map((w) => `<th class="heatmap-th">${escapeHtml(formatWeekLabel(w))}</th>`).join('');
+  const monthHeaders = months.map((m) => `<th class="heatmap-th">${escapeHtml(formatMonthLabel(m))}</th>`).join('');
   const rows = grid.map(({ user, values }) => {
     const name = escapeHtml(user.displayName || user.email || '—');
     const cells = values.map((v) => {
       const intensity = getIntensity(v, maxVal);
-      const title = v > 0 ? `Неделя: ${v}` : '';
+      const title = v > 0 ? `Месяц: ${v}` : '';
       return `<td class="heatmap-td" style="--intensity:${intensity}" title="${title}">${v > 0 ? v : ''}</td>`;
     }).join('');
     return `<tr><th class="heatmap-th-name">${name}</th>${cells}</tr>`;
   }).join('');
   return `
     <table class="dashboard-heatmap">
-      <thead><tr><th>Пользователь</th>${weekHeaders}</tr></thead>
+      <thead><tr><th>Пользователь</th>${monthHeaders}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
 }
 
-/** Таблица по неделям (как раньше, но с цветом ячеек и итогами) */
-function renderTable(preparedUsers, weeks, viewMetric) {
-  const weekHeaders = weeks.map((w) => `<th title="${w}">${escapeHtml(formatWeekLabel(w))}</th>`).join('');
+/** Таблица по месяцам с цветом ячеек и итогами */
+function renderTable(preparedUsers, months, viewMetric) {
+  const activityKey = preparedUsers.length && preparedUsers[0].monthlyActivity ? 'monthlyActivity' : 'weeklyActivity';
+  const monthKey = activityKey === 'monthlyActivity' ? 'month' : 'week';
+  const monthHeaders = months.map((m) => `<th title="${m}">${escapeHtml(formatMonthLabel(m))}</th>`).join('');
   let maxVal = 0;
   for (const u of preparedUsers) {
-    for (const a of u.weeklyActivity || []) {
+    for (const a of u[activityKey] || []) {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       if (v > maxVal) maxVal = v;
     }
@@ -182,7 +192,7 @@ function renderTable(preparedUsers, weeks, viewMetric) {
     const name = escapeHtml(u.displayName || u.email || '—');
     const email = u.email ? `<br><span class="muted" style="font-size:0.8em">${escapeHtml(u.email)}</span>` : '';
     const t = u.totals || getUserTotals(u);
-    const cells = (u.weeklyActivity || []).map((a) => {
+    const cells = (u[activityKey] || []).map((a) => {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       const intensity = getIntensity(v, maxVal);
       const title = `${a.activeDays} дн., запросов: ${a.requests}, +${a.linesAdded}/−${a.linesDeleted}`;
@@ -200,7 +210,7 @@ function renderTable(preparedUsers, weeks, viewMetric) {
         <thead>
           <tr>
             <th>Пользователь</th>
-            ${weekHeaders}
+            ${monthHeaders}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -212,7 +222,7 @@ function renderTable(preparedUsers, weeks, viewMetric) {
 function setDefaultDates() {
   const end = new Date();
   const start = new Date();
-  start.setDate(start.getDate() - 60);
+  start.setDate(start.getDate() - 90);
   const elEnd = document.getElementById('endDate');
   const elStart = document.getElementById('startDate');
   if (elEnd && !elEnd.value) elEnd.value = end.toISOString().slice(0, 10);
@@ -246,12 +256,12 @@ async function load() {
   contentPanel.style.display = 'none';
   emptyState.style.display = 'block';
   try {
-    const r = await fetch('/api/users/activity-by-week?' + new URLSearchParams({ startDate, endDate }));
+    const r = await fetch('/api/users/activity-by-month?' + new URLSearchParams({ startDate, endDate }));
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
 
     const users = data.users || [];
-    const weeks = data.weeks || [];
+    const months = data.months || [];
     if (!users.length) {
       tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» на <a href="index.html">главной</a>). Опционально можно загрузить <a href="jira-users.html">пользователей Jira</a> для отображения имён вместо email.</p>';
       emptyState.style.display = 'none';
@@ -282,17 +292,17 @@ async function load() {
     cardsContainer.innerHTML = '';
 
     if (viewMode === 'cards') {
-      cardsContainer.innerHTML = renderCards(preparedUsers, weeks, viewMetric);
+      cardsContainer.innerHTML = renderCards(preparedUsers, months, viewMetric);
       cardsContainer.style.display = 'block';
     } else if (viewMode === 'heatmap') {
-      heatmapContainer.innerHTML = renderHeatmap(preparedUsers, weeks, viewMetric);
+      heatmapContainer.innerHTML = renderHeatmap(preparedUsers, months, viewMetric);
       heatmapContainer.style.display = 'block';
     } else {
-      tableContainer.innerHTML = renderTable(preparedUsers, weeks, viewMetric);
+      tableContainer.innerHTML = renderTable(preparedUsers, months, viewMetric);
       tableContainer.style.display = 'block';
     }
 
-    tableSummary.textContent = `Пользователей: ${preparedUsers.length}, недель: ${weeks.length}.`;
+    tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
     statusEl.textContent = '';
   } catch (e) {
     statusEl.textContent = e.message || 'Ошибка загрузки';

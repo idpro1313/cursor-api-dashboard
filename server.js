@@ -528,13 +528,10 @@ app.get('/api/analytics/coverage', (req, res) => {
 
 // --- Дашборд пользователей: Jira + активность Cursor по неделям ---
 
-/** Понедельник недели (ISO) для даты YYYY-MM-DD */
-function getWeekMonday(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00Z');
-  const day = d.getUTCDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setUTCDate(d.getUTCDate() + diff);
-  return d.toISOString().slice(0, 10);
+/** Ключ месяца YYYY-MM для даты YYYY-MM-DD */
+function getMonthKey(dateStr) {
+  if (!dateStr || String(dateStr).length < 7) return null;
+  return String(dateStr).slice(0, 7);
 }
 
 /** Найти ключ с email в объекте Jira (приоритет: известные имена, затем значение с @) */
@@ -550,7 +547,8 @@ function getEmailFromJiraRow(row, allKeys) {
   return null;
 }
 
-app.get('/api/users/activity-by-week', (req, res) => {
+/** Агрегация активности по пользователям и месяцам (Daily Usage Data + опционально applies/accepts из API). */
+app.get('/api/users/activity-by-month', (req, res) => {
   try {
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
@@ -565,8 +563,8 @@ app.get('/api/users/activity-by-week', (req, res) => {
       startDate,
       endDate,
     });
-    const emailByWeek = new Map();
-    const weekSet = new Set();
+    const emailByMonth = new Map();
+    const monthSet = new Set();
     for (const row of analyticsRows) {
       const payload = row.payload || {};
       const data = payload.data;
@@ -581,47 +579,49 @@ app.get('/api/users/activity-by-week', (req, res) => {
         }
         if (!dateStr || dateStr.length < 10) dateStr = row.date || '';
         if (!dateStr || dateStr.length < 10) continue;
-        const week = getWeekMonday(dateStr);
-        weekSet.add(week);
-        const key = email + '\n' + week;
-        let rec = emailByWeek.get(key);
+        const month = getMonthKey(dateStr);
+        if (!month) continue;
+        monthSet.add(month);
+        const key = email + '\n' + month;
+        let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { week, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0 };
-          emailByWeek.set(key, rec);
+          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
+          emailByMonth.set(key, rec);
         }
         rec.activeDays += 1;
         rec.requests += Number(r.composer_requests ?? r.composerRequests ?? 0) + Number(r.chat_requests ?? r.chatRequests ?? 0) + Number(r.agent_requests ?? r.agentRequests ?? 0);
         rec.linesAdded += Number(r.total_lines_added ?? r.totalLinesAdded ?? 0) + Number(r.accepted_lines_added ?? r.acceptedLinesAdded ?? 0);
         rec.linesDeleted += Number(r.total_lines_deleted ?? r.totalLinesDeleted ?? 0) + Number(r.accepted_lines_deleted ?? r.acceptedLinesDeleted ?? 0);
+        rec.applies += Number(r.total_applies ?? r.totalApplies ?? 0);
+        rec.accepts += Number(r.total_accepts ?? r.totalAccepts ?? 0);
       }
     }
-    const weeks = Array.from(weekSet).sort();
+    const months = Array.from(monthSet).sort();
     const users = [];
     const jiraEmails = new Set();
     for (const jira of jiraUsers) {
       const email = getEmailFromJiraRow(jira, allKeys);
       if (email) jiraEmails.add(email);
       const displayName = jira['Пользователь, которому выдан доступ'] || jira['Display Name'] || jira['Username'] || jira['Name'] || email || '—';
-      const weeklyActivity = weeks.map((week) => {
-        const rec = email ? emailByWeek.get(email + '\n' + week) : null;
-        return rec ? { week, ...rec } : { week, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0 };
+      const monthlyActivity = months.map((month) => {
+        const rec = email ? emailByMonth.get(email + '\n' + month) : null;
+        return rec ? { month, ...rec } : { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
       });
-      users.push({ jira, email, displayName: String(displayName), weeklyActivity });
+      users.push({ jira, email, displayName: String(displayName), monthlyActivity });
     }
-    // Пользователи только из Cursor (нет в Jira): показываем статистику по данным из БД
     const cursorOnlyEmails = new Set();
-    for (const key of emailByWeek.keys()) {
+    for (const key of emailByMonth.keys()) {
       const email = key.split('\n')[0];
       if (email && !jiraEmails.has(email)) cursorOnlyEmails.add(email);
     }
     for (const email of cursorOnlyEmails) {
-      const weeklyActivity = weeks.map((week) => {
-        const rec = emailByWeek.get(email + '\n' + week);
-        return rec ? { week, ...rec } : { week, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0 };
+      const monthlyActivity = months.map((month) => {
+        const rec = emailByMonth.get(email + '\n' + month);
+        return rec ? { month, ...rec } : { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
       });
-      users.push({ jira: {}, email, displayName: email, weeklyActivity });
+      users.push({ jira: {}, email, displayName: email, monthlyActivity });
     }
-    res.json({ users, weeks });
+    res.json({ users, months });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
