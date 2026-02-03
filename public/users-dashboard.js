@@ -398,11 +398,88 @@ function renderSummary(data, preparedUsers) {
   `;
 }
 
-/** Карточки пользователей: имя, метрики, полоска месяцев */
-function renderCards(preparedUsers, months, viewMetric) {
+/** Данные для вида «карточки» (мастер–деталь): при клике обновляем только деталь. */
+let cardsViewData = { preparedUsers: [], months: [], viewMetric: 'requests', maxVal: 0 };
+let cardsSelectedIndex = 0;
+
+/** Общая сумма расходов пользователя в центах (Usage Events + Spend API). */
+function getUserTotalSpendCents(user) {
+  const t = user.totals || getUserTotals(user);
+  return (t.usageCostCents || 0) + (user.teamSpendCents || 0);
+}
+
+/** Компактная карточка в левой колонке: ФИО, статус, сумма в $. */
+function renderCompactUserCard(user, index, isSelected) {
+  const name = escapeHtml(user.displayName || user.email || '—');
+  const statusBadge = formatJiraStatusBadge(user);
+  const totalCents = getUserTotalSpendCents(user);
+  const totalStr = totalCents > 0 ? `$${formatCostCents(totalCents)}` : '—';
+  const active = isSelected ? ' user-card-compact-active' : '';
+  return `
+    <div class="user-card-compact${active}" data-index="${index}" role="button" tabindex="0">
+      <div class="user-card-compact-name">${name}</div>
+      <div class="user-card-compact-meta">${statusBadge} <span class="user-card-compact-total">${totalStr}</span></div>
+    </div>
+  `;
+}
+
+/** Одна полная карточка пользователя (правая колонка). */
+function renderUserCardDetail(user, months, viewMetric, maxVal) {
+  if (!user) return '<p class="muted">Выберите пользователя слева.</p>';
+  const activityKey = user.monthlyActivity ? 'monthlyActivity' : 'weeklyActivity';
+  const monthKey = activityKey === 'monthlyActivity' ? 'month' : 'week';
+  const name = escapeHtml(user.displayName || user.email || '—');
+  const email = user.email ? `<span class="user-card-email">${escapeHtml(user.email)}</span>` : '';
+  const statusAndDates = formatUserStatusAndDates(user);
+  const t = user.totals || getUserTotals(user);
+  const act = user[activityKey] || [];
+  const monthCells = act.map((a) => {
+    const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
+    const intensity = getIntensity(v, maxVal);
+    const label = monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey];
+    const usagePart = (a.usageEventsCount > 0 || a.usageCostCents > 0) ? `, событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
+    const title = `${label}: дн. ${a.activeDays}, запросов ${a.requests}, строк +${a.linesAdded}/−${a.linesDeleted}${usagePart}`;
+    return `<span class="week-cell" style="--intensity:${intensity}" title="${escapeHtml(title)}">${v > 0 ? v : ''}</span>`;
+  }).join('');
+  const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
+  const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
+  const hasTokens = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
+  const tokenStats = hasTokens ? `
+    <div class="user-card-tokens-wrap">
+      <table class="user-card-tokens-table" title="input / output / cache write / cache read (М — млн, К — тыс)">
+        <tbody>
+          <tr><td>in</td><td class="num">${formatTokensShort(t.usageInputTokens)}</td></tr>
+          <tr><td>out</td><td class="num">${formatTokensShort(t.usageOutputTokens)}</td></tr>
+          <tr><td>cW</td><td class="num">${formatTokensShort(t.usageCacheWriteTokens)}</td></tr>
+          <tr><td>cR</td><td class="num">${formatTokensShort(t.usageCacheReadTokens)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  ` : '';
+  const teamSpendStat = (user.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(user.teamSpendCents)}</span>` : '';
+  const byModelRows = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('') : '';
+  const costByModelStats = byModelRows ? `<div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div>` : '';
+  return `
+    <div class="user-card user-card-detail">
+      <div class="user-card-header">
+        <div class="user-card-name">${name} ${statusAndDates}</div>
+        ${email}
+      </div>
+      <div class="user-card-stats">
+        <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
+        <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
+        <span class="user-card-stat stat-add">+${t.linesAdded}</span>
+        <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}${tokenStats}${teamSpendStat}${costByModelStats}
+      </div>
+      <div class="user-card-weeks" title="Активность по месяцам">${monthCells}</div>
+    </div>
+  `;
+}
+
+/** Карточки: слева — стопка компактных (ФИО, статус, сумма $), справа — детали выбранного. */
+function renderCards(preparedUsers, months, viewMetric, selectedIndex) {
   if (!months.length) return '<p class="muted">Нет месяцев в периоде.</p>';
   const activityKey = preparedUsers.length && preparedUsers[0].monthlyActivity ? 'monthlyActivity' : 'weeklyActivity';
-  const monthKey = activityKey === 'monthlyActivity' ? 'month' : 'week';
   let maxVal = 0;
   for (const u of preparedUsers) {
     for (const a of u[activityKey] || []) {
@@ -410,55 +487,48 @@ function renderCards(preparedUsers, months, viewMetric) {
       if (v > maxVal) maxVal = v;
     }
   }
-  const cards = preparedUsers.map((u) => {
-    const name = escapeHtml(u.displayName || u.email || '—');
-    const email = u.email ? `<span class="user-card-email">${escapeHtml(u.email)}</span>` : '';
-    const statusAndDates = formatUserStatusAndDates(u);
-    const t = u.totals || getUserTotals(u);
-    const act = u[activityKey] || [];
-    const monthCells = act.map((a) => {
-      const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
-      const intensity = getIntensity(v, maxVal);
-      const label = monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey];
-      const usagePart = (a.usageEventsCount > 0 || a.usageCostCents > 0) ? `, событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
-      const title = `${label}: дн. ${a.activeDays}, запросов ${a.requests}, строк +${a.linesAdded}/−${a.linesDeleted}${usagePart}`;
-      return `<span class="week-cell" style="--intensity:${intensity}" title="${escapeHtml(title)}">${v > 0 ? v : ''}</span>`;
-    }).join('');
-    const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
-    const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
-    const hasTokens = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
-    const tokenStats = hasTokens ? `
-      <div class="user-card-tokens-wrap">
-        <table class="user-card-tokens-table" title="input / output / cache write / cache read (М — млн, К — тыс)">
-          <tbody>
-            <tr><td>in</td><td class="num">${formatTokensShort(t.usageInputTokens)}</td></tr>
-            <tr><td>out</td><td class="num">${formatTokensShort(t.usageOutputTokens)}</td></tr>
-            <tr><td>cW</td><td class="num">${formatTokensShort(t.usageCacheWriteTokens)}</td></tr>
-            <tr><td>cR</td><td class="num">${formatTokensShort(t.usageCacheReadTokens)}</td></tr>
-          </tbody>
-        </table>
+  cardsViewData = { preparedUsers, months, viewMetric, maxVal };
+  cardsSelectedIndex = selectedIndex == null ? 0 : Math.min(selectedIndex, preparedUsers.length - 1);
+  const sel = cardsSelectedIndex;
+  const leftCards = preparedUsers.map((u, i) => renderCompactUserCard(u, i, i === sel)).join('');
+  const selectedUser = preparedUsers[sel] || null;
+  const detailHtml = renderUserCardDetail(selectedUser, months, viewMetric, maxVal);
+  return `
+    <div class="cards-master-detail">
+      <div class="cards-master" aria-label="Список пользователей">
+        <div class="cards-master-list">${leftCards}</div>
       </div>
-    ` : '';
-    const teamSpendStat = (u.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(u.teamSpendCents)}</span>` : '';
-    const byModelRows = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('') : '';
-    const costByModelStats = byModelRows ? `<div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div>` : '';
-    return `
-      <div class="user-card">
-        <div class="user-card-header">
-          <div class="user-card-name">${name} ${statusAndDates}</div>
-          ${email}
-        </div>
-        <div class="user-card-stats">
-          <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
-          <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
-          <span class="user-card-stat stat-add">+${t.linesAdded}</span>
-          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}${tokenStats}${teamSpendStat}${costByModelStats}
-        </div>
-        <div class="user-card-weeks" title="Активность по месяцам">${monthCells}</div>
+      <div class="cards-detail" aria-label="Подробные данные пользователя">
+        <div id="cardsDetailContainer">${detailHtml}</div>
       </div>
-    `;
-  }).join('');
-  return `<div class="users-cards-grid">${cards}</div>`;
+    </div>
+  `;
+}
+
+function setupCardsSelection() {
+  const master = document.querySelector('.cards-master-list');
+  const detailContainer = document.getElementById('cardsDetailContainer');
+  if (!master || !detailContainer) return;
+  master.addEventListener('click', (e) => {
+    const card = e.target.closest('.user-card-compact[data-index]');
+    if (!card) return;
+    const index = parseInt(card.getAttribute('data-index'), 10);
+    if (isNaN(index)) return;
+    const { preparedUsers, months, viewMetric, maxVal } = cardsViewData;
+    if (!preparedUsers.length) return;
+    cardsSelectedIndex = Math.min(index, preparedUsers.length - 1);
+    master.querySelectorAll('.user-card-compact').forEach((el) => el.classList.remove('user-card-compact-active'));
+    card.classList.add('user-card-compact-active');
+    const user = preparedUsers[cardsSelectedIndex] || null;
+    detailContainer.innerHTML = renderUserCardDetail(user, months, viewMetric, maxVal);
+  });
+  master.querySelectorAll('.user-card-compact').forEach((el) => {
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      el.click();
+    });
+  });
 }
 
 /** Тепловая карта: строки = пользователи, столбцы = месяцы */
@@ -654,8 +724,9 @@ async function load() {
     cardsContainer.innerHTML = '';
 
     if (viewMode === 'cards') {
-      cardsContainer.innerHTML = renderCards(preparedUsers, months, viewMetric);
+      cardsContainer.innerHTML = renderCards(preparedUsers, months, viewMetric, 0);
       cardsContainer.style.display = 'block';
+      setupCardsSelection();
     } else if (viewMode === 'heatmap') {
       heatmapContainer.innerHTML = renderHeatmap(preparedUsers, months, viewMetric);
       heatmapContainer.style.display = 'block';
