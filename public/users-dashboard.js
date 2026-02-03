@@ -701,6 +701,7 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
     grid.push({ user: u, values: row });
   }
   const monthHeaders = months.map((m) => `<th class="heatmap-th">${escapeHtml(formatMonthLabel(m))}</th>`).join('');
+  const nameSortArrow = tableSortNameDir === 'desc' ? ' ↓' : ' ↑';
   const rows = grid.map(({ user, values }) => {
     const name = escapeHtml(user.displayName || user.email || '—');
     const statusAndDates = formatUserStatusAndDates(user);
