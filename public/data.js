@@ -23,7 +23,8 @@ function getEndpointLabel(path) {
 async function loadCoverage() {
   const el = document.getElementById('coverageContainer');
   try {
-    const r = await fetch('/api/analytics/coverage');
+    const r = await fetch('/api/analytics/coverage', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const cov = data.coverage || [];
@@ -176,7 +177,8 @@ async function loadData() {
   if (startDate) params.set('startDate', startDate);
   if (endDate) params.set('endDate', endDate);
   try {
-    const r = await fetch('/api/analytics?' + params);
+    const r = await fetch('/api/analytics?' + params, { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const rows = data.data || [];

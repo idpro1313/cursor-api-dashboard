@@ -16,7 +16,8 @@ function formatAuditDate(ts) {
 
 async function loadEventTypes() {
   try {
-    const r = await fetch('/api/audit-events?limit=1');
+    const r = await fetch('/api/audit-events?limit=1', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     const types = data.eventTypes || [];
     const select = document.getElementById('auditEventType');
@@ -51,7 +52,8 @@ async function loadAudit() {
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
     if (eventType) params.set('eventType', eventType);
-    const r = await fetch('/api/audit-events?' + params);
+    const r = await fetch('/api/audit-events?' + params, { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const events = data.events || [];
@@ -93,9 +95,10 @@ function init() {
   if (btn) btn.addEventListener('click', loadAudit);
   const coverageEl = document.getElementById('auditStartDate');
   if (coverageEl && !coverageEl.value) {
-    fetch('/api/analytics/coverage')
-      .then((r) => r.json())
+    fetch('/api/analytics/coverage', { credentials: 'same-origin' })
+      .then((r) => { if (r.status === 401) { window.location.href = '/login.html'; return null; } return r.json(); })
       .then((data) => {
+        if (!data) return;
         const cov = data.coverage || [];
         const audit = cov.find((c) => c.endpoint === '/teams/audit-logs');
         if (audit && audit.min_date && audit.max_date) {

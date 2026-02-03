@@ -15,6 +15,13 @@ function getEndpointLabel(path) {
   return ENDPOINT_LABELS[path] || path;
 }
 
+function fetchSettings(url, opts = {}) {
+  return fetch(url, { ...opts, credentials: 'same-origin' }).then((r) => {
+    if (r.status === 401) { window.location.href = '/login.html'; return null; }
+    return r;
+  });
+}
+
 let lastErrors = [];
 let apiKeyConfigured = false;
 
@@ -78,7 +85,8 @@ function applyApiKeyConfig(configured) {
 
 async function init() {
   try {
-    const r = await fetch('/api/config');
+    const r = await fetchSettings('/api/config');
+    if (!r) return;
     const data = await r.json();
     applyApiKeyConfig(data.apiKeyConfigured);
   } catch (_) {
@@ -92,7 +100,8 @@ async function init() {
   document.getElementById('btnClearApiData')?.addEventListener('click', async () => {
     if (!confirm('Очистить только данные API (аналитика по эндпоинтам)? Данные Jira и настройки не затронуты. Действие нельзя отменить.')) return;
     try {
-      const r = await fetch('/api/clear-analytics', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const r = await fetchSettings('/api/clear-analytics', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      if (!r) return;
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
       alert(data.message || 'Данные API очищены.');
@@ -109,11 +118,12 @@ async function init() {
       : 'Очистить аналитику и пользователей Jira? API key будет сохранён. Действие нельзя отменить.';
     if (!confirm(msg)) return;
     try {
-      const r = await fetch('/api/clear-db', {
+      const r = await fetchSettings('/api/clear-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clearSettings: includeSettings }),
       });
+      if (!r) return;
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
       alert(data.message || 'БД очищена.');
@@ -128,11 +138,12 @@ async function init() {
     const apiKey = document.getElementById('apiKey').value.trim();
     if (!apiKey) { alert('Введите API key'); return; }
     try {
-      const r = await fetch('/api/config', {
+      const r = await fetchSettings('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey }),
       });
+      if (!r) return;
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
       applyApiKeyConfig(true);
@@ -156,7 +167,8 @@ async function loadCoverage() {
   const el = document.getElementById('coverageList');
   if (!el) return;
   try {
-    const r = await fetch('/api/analytics/coverage');
+    const r = await fetchSettings('/api/analytics/coverage');
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const cov = data.coverage || [];
@@ -250,11 +262,12 @@ async function runSync() {
   if (!apiKeyConfigured) headers['X-API-Key'] = document.getElementById('apiKey').value.trim();
 
   try {
-    const r = await fetch('/api/sync-stream', {
+    const r = await fetchSettings('/api/sync-stream', {
       method: 'POST',
       headers,
       body: JSON.stringify({ startDate, endDate }),
     });
+    if (!r) return;
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       progressRow.style.display = 'none';

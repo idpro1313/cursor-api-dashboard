@@ -43,7 +43,8 @@ async function loadUsers() {
   const container = document.getElementById('usersContainer');
   const summary = document.getElementById('usersSummary');
   try {
-    const r = await fetch('/api/jira-users');
+    const r = await fetch('/api/jira-users', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const users = data.users || [];
@@ -60,7 +61,8 @@ function init() {
   document.getElementById('btnClearJira')?.addEventListener('click', async () => {
     if (!confirm('Очистить все данные Jira из БД? Данные API не затронуты. Действие нельзя отменить.')) return;
     try {
-      const r = await fetch('/api/clear-jira', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const r = await fetch('/api/clear-jira', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
+      if (r.status === 401) { window.location.href = '/login.html'; return; }
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
       alert(data.message || 'Данные Jira очищены.');
@@ -89,7 +91,9 @@ function init() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv: text }),
+        credentials: 'same-origin',
       });
+      if (r.status === 401) { window.location.href = '/login.html'; return; }
       const data = await r.json();
       resultEl.style.display = 'block';
       if (!r.ok) {

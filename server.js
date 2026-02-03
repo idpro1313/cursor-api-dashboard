@@ -7,6 +7,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const db = require('./db');
 
 /** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
@@ -68,9 +69,140 @@ const SYNC_ENDPOINTS = [
 const corsOrigin = process.env.CORS_ORIGIN;
 app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map(s => s.trim()) } : {}));
 app.use(express.json());
+// --- Авторизация настроек: логин/пароль из data/auth.json ---
+const AUTH_FILE = path.join(DATA_DIR, 'auth.json');
+const SESSION_COOKIE = 'cursor_settings_auth';
+const SESSION_SECRET_FILE = path.join(DATA_DIR, 'session_secret');
+const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 ч
+
+function getSessionSecret() {
+  try {
+    const p = SESSION_SECRET_FILE;
+    if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8').trim();
+    const secret = crypto.randomBytes(32).toString('hex');
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, secret, 'utf8');
+    return secret;
+  } catch (e) {
+    return process.env.SESSION_SECRET || 'default-secret-change-in-production';
+  }
+}
+
+function loadAuthCredentials() {
+  try {
+    if (fs.existsSync(AUTH_FILE)) {
+      const raw = fs.readFileSync(AUTH_FILE, 'utf8');
+      const data = JSON.parse(raw);
+      const login = (data.login || data.username || '').toString().trim();
+      const password = (data.password || '').toString();
+      if (login && password) return { login, password };
+    }
+  } catch (e) {}
+  const defaultLogin = 'admin';
+  const defaultPassword = 'admin';
+  try {
+    fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
+    fs.writeFileSync(AUTH_FILE, JSON.stringify({ login: defaultLogin, password: defaultPassword }, null, 2), 'utf8');
+  } catch (e) {}
+  return { login: defaultLogin, password: defaultPassword };
+}
+
+let authCredentials = null;
+function getAuthCredentials() {
+  if (!authCredentials) authCredentials = loadAuthCredentials();
+  return authCredentials;
+}
+
+function signSession(login) {
+  const secret = getSessionSecret();
+  const expiry = Date.now() + SESSION_MAX_AGE_MS;
+  const payload = login + '|' + expiry;
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return payload + '.' + sig;
+}
+
+function verifySession(token) {
+  if (!token || typeof token !== 'string') return null;
+  const secret = getSessionSecret();
+  const dot = token.lastIndexOf('.');
+  if (dot === -1) return null;
+  const payload = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  if (sig !== expected) return null;
+  const [login, expiry] = payload.split('|');
+  if (!login || !expiry || Date.now() > Number(expiry)) return null;
+  return login;
+}
+
+function requireSettingsAuth(req, res, next) {
+  const cookie = req.headers.cookie || '';
+  const match = cookie.match(new RegExp(SESSION_COOKIE + '=([^;]+)'));
+  const token = match ? decodeURIComponent(match[1].trim()) : null;
+  const login = verifySession(token);
+  if (login) {
+    req.settingsUser = login;
+    return next();
+  }
+  if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+    return res.status(401).json({ error: 'Требуется авторизация' });
+  }
+  res.redirect(302, '/login.html');
+}
+
 // Редирект со старой страницы дашборда на главную (страницу удалили)
 app.get('/users-dashboard.html', (req, res) => res.redirect(302, '/index.html'));
-app.use(express.static(path.join(__dirname, 'public')));
+
+app.post('/api/login', (req, res) => {
+  const login = (req.body && req.body.login) ? String(req.body.login).trim() : '';
+  const password = req.body && req.body.password ? String(req.body.password) : '';
+  const cred = getAuthCredentials();
+  if (!login || login !== cred.login || password !== cred.password) {
+    return res.status(401).json({ error: 'Неверный логин или пароль' });
+  }
+  const token = signSession(login);
+  const maxAgeSec = Math.floor(SESSION_MAX_AGE_MS / 1000);
+  res.setHeader('Set-Cookie', SESSION_COOKIE + '=' + encodeURIComponent(token) + '; Path=/; Max-Age=' + maxAgeSec + '; HttpOnly; SameSite=Lax');
+  res.json({ ok: true });
+});
+
+app.post('/api/logout', (req, res) => {
+  res.setHeader('Set-Cookie', SESSION_COOKIE + '=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax');
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/check', (req, res) => {
+  const cookie = req.headers.cookie || '';
+  const match = cookie.match(new RegExp(SESSION_COOKIE + '=([^;]+)'));
+  const token = match ? decodeURIComponent(match[1].trim()) : null;
+  const login = verifySession(token);
+  res.json({ authenticated: !!login });
+});
+
+// Защищённые страницы настроек: только после входа
+const SETTINGS_PAGES = ['admin.html', 'data.html', 'jira-users.html', 'audit.html', 'settings.html'];
+app.get(/^\/(admin|data|jira-users|audit|settings)\.html$/, requireSettingsAuth, (req, res, next) => {
+  const file = path.join(__dirname, 'public', req.path);
+  if (fs.existsSync(file)) {
+    res.sendFile(file);
+  } else {
+    next();
+  }
+});
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: false,
+  setHeaders: (res, pathname) => {
+    const base = path.basename(pathname);
+    if (SETTINGS_PAGES.includes(base)) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  },
+}));
 
 // Лимиты Cursor Admin API (запросов в минуту): большинство — 20, /teams/user-spend-limit — 60
 const CURSOR_API_LIMIT_DEFAULT = 20;
@@ -338,12 +470,12 @@ function parseResponseToDays(endpoint, response, chunkEndDate) {
   return out;
 }
 
-// Конфигурация API key (хранится в БД, таблица settings)
-app.get('/api/config', (req, res) => {
+// Конфигурация API key (хранится в БД, таблица settings) — только для авторизованных
+app.get('/api/config', requireSettingsAuth, (req, res) => {
   res.json({ apiKeyConfigured: isApiKeyConfigured() });
 });
 
-app.post('/api/config', (req, res) => {
+app.post('/api/config', requireSettingsAuth, (req, res) => {
   const apiKey = (req.body && req.body.apiKey) ? String(req.body.apiKey).trim() : '';
   if (!apiKey) return res.status(400).json({ error: 'Требуется apiKey в теле запроса.' });
   try {
@@ -675,7 +807,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
   };
 }
 
-app.post('/api/sync', async (req, res) => {
+app.post('/api/sync', requireSettingsAuth, async (req, res) => {
   const apiKey = getApiKey(req);
   if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
   const { startDate, endDate } = req.body || {};
@@ -690,7 +822,7 @@ app.post('/api/sync', async (req, res) => {
 });
 
 /** Синхронизация с потоковой отдачей прогресса (SSE). */
-app.post('/api/sync-stream', async (req, res) => {
+app.post('/api/sync-stream', requireSettingsAuth, async (req, res) => {
   const apiKey = getApiKey(req);
   if (!apiKey) {
     res.setHeader('Content-Type', 'application/json');
@@ -749,7 +881,7 @@ app.post('/api/sync-stream', async (req, res) => {
   }
 });
 
-app.get('/api/analytics', (req, res) => {
+app.get('/api/analytics', requireSettingsAuth, (req, res) => {
   try {
     const rows = db.getAnalytics({
       endpoint: req.query.endpoint || undefined,
@@ -762,7 +894,7 @@ app.get('/api/analytics', (req, res) => {
   }
 });
 
-app.get('/api/analytics/coverage', (req, res) => {
+app.get('/api/analytics/coverage', requireSettingsAuth, (req, res) => {
   try {
     const coverage = db.getCoverage();
     res.json({ coverage });
@@ -772,7 +904,7 @@ app.get('/api/analytics/coverage', (req, res) => {
 });
 
 /** Полная очистка БД: analytics и jira_users; при clearSettings: true — также settings (API key). */
-app.post('/api/clear-db', (req, res) => {
+app.post('/api/clear-db', requireSettingsAuth, (req, res) => {
   try {
     const clearSettings = !!(req.body && req.body.clearSettings);
     db.clearAllData(clearSettings);
@@ -788,7 +920,7 @@ app.post('/api/clear-db', (req, res) => {
 });
 
 /** Очистка только данных API (analytics). */
-app.post('/api/clear-analytics', (req, res) => {
+app.post('/api/clear-analytics', requireSettingsAuth, (req, res) => {
   try {
     db.clearAnalyticsOnly();
     res.json({ ok: true, message: 'Данные API (аналитика) очищены.' });
@@ -798,7 +930,7 @@ app.post('/api/clear-analytics', (req, res) => {
 });
 
 /** Очистка только данных Jira (jira_users). */
-app.post('/api/clear-jira', (req, res) => {
+app.post('/api/clear-jira', requireSettingsAuth, (req, res) => {
   try {
     db.clearJiraOnly();
     res.json({ ok: true, message: 'Данные Jira очищены.' });
@@ -1145,7 +1277,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
 });
 
 /** События Audit Logs для страницы аудита и блока на дашборде. */
-app.get('/api/audit-events', (req, res) => {
+app.get('/api/audit-events', requireSettingsAuth, (req, res) => {
   try {
     const startDate = req.query.startDate || undefined;
     const endDate = req.query.endDate || undefined;
@@ -1247,7 +1379,7 @@ app.get('/api/jira-users', (req, res) => {
   }
 });
 
-app.post('/api/jira-users/upload', (req, res) => {
+app.post('/api/jira-users/upload', requireSettingsAuth, (req, res) => {
   const csv = req.body && req.body.csv ? String(req.body.csv) : '';
   if (!csv.trim()) {
     return res.status(400).json({ error: 'Требуется поле csv в теле запроса (содержимое CSV).' });
@@ -1271,5 +1403,6 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3333;
 app.listen(PORT, () => {
+  getAuthCredentials(); // создать data/auth.json при первом запуске при необходимости
   console.log('Cursor API Dashboard: http://localhost:' + PORT);
 });
