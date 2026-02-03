@@ -41,6 +41,8 @@ const SYNC_ENDPOINTS = [
 const corsOrigin = process.env.CORS_ORIGIN;
 app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map(s => s.trim()) } : {}));
 app.use(express.json());
+// Редирект со старой страницы дашборда на главную (страницу удалили)
+app.get('/users-dashboard.html', (req, res) => res.redirect(302, '/index.html'));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Лимиты Cursor Admin API (запросов в минуту): большинство — 20, /teams/user-spend-limit — 60

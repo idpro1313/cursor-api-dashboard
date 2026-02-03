@@ -135,6 +135,7 @@ async function init() {
   }
   document.getElementById('btnSync').addEventListener('click', runSync);
   document.getElementById('btnRefreshCoverage').addEventListener('click', loadCoverage);
+  document.getElementById('btnChangeApiKey')?.addEventListener('click', () => showApiKeyForm());
   loadCoverage();
 }
 

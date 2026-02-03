@@ -48,8 +48,7 @@ cursor-api-dashboard/
 │   ├── data.js
 │   ├── jira-users.html # Загрузка CSV Jira
 │   ├── jira-users.js
-│   ├── users-dashboard.html  # Редирект на index.html (для старых ссылок)
-│   ├── users-dashboard.js    # Логика дашборда (используется на index.html)
+│   ├── users-dashboard.js    # Логика дашборда (подключается на index.html)
 │   └── styles.css
 ├── scripts/
 │   └── deploy.sh       # Скрипт деплоя (git pull + docker compose)
@@ -119,9 +118,30 @@ chmod +x scripts/deploy.sh
 - Загрузка CSV (экспорт из Jira): выбор файла и кнопка «Загрузить CSV». При загрузке текущие записи в таблице `jira_users` **полностью заменяются**.
 - Отображение текущего списка пользователей из БД. Сопоставление с Cursor по полям «Внешний почтовый адрес», «Email» и т.п.
 
-### 5.5 Редирект `users-dashboard.html`
+### 5.5 Редирект со старого URL дашборда
 
-- Старая страница дашборда перенаправляет на `index.html` для сохранения старых закладок.
+- Запрос к `/users-dashboard.html` обрабатывается сервером и возвращает редирект 302 на `/index.html` (файл страницы удалён).
+
+---
+
+## 5.6 Что загружается в БД и что отображается на дашборде
+
+| Эндпоинт (загрузка) | Где отображается | Примечание |
+|--------------------|------------------|------------|
+| **Daily Usage Data** | Дашборд (index) | Запросы, дни активности, строки ±, applies/accepts по пользователям и месяцам. |
+| **Usage Events** (filtered-usage-events) | Дашборд (index) | События, стоимость в $, разбивка по моделям. |
+| **Пользователи Jira** (CSV) | Дашборд (index), страница Jira | Имена, статус активный/архивный, проект, даты подключения/отключения. |
+| **Team Members** | Только «Данные в БД» (data.html) | Сырые данные; на дашборде не используются. |
+| **Audit Logs** | Только «Данные в БД» | Сырые данные; на дашборде не используются. |
+| **Spending Data** | Только «Данные в БД» | Сырые данные; на дашборде не используются. |
+
+Всё загруженное можно просмотреть на странице **«Данные в БД»** (фильтр по эндпоинту и датам). На **главном дашборде** для аналитики используются только Daily Usage, Usage Events и Jira (при наличии).
+
+### 5.7 Что можно добавить в аналитику
+
+- **Spending Data** — вывести на дашборд траты по пользователям из `/teams/spend` (teamMemberSpend) в виде сводки или столбца «Траты из Spend API» рядом с стоимостью из Usage Events.
+- **Team Members** — показывать в сводке число участников команды или список (если нет Jira).
+- **Audit Logs** — опционально: последние события (кто, когда, действие) или фильтр по типу события для аудита.
 
 ---
 
@@ -159,7 +179,7 @@ chmod +x scripts/deploy.sh
 | GET | `/api/analytics?endpoint=...&startDate=...&endDate=...` | Выборка из таблицы `analytics`. Ответ: `{ data: [ { endpoint, date, payload, updated_at }, ... ] }`. |
 | GET | `/api/analytics/coverage` | Ответ: `{ coverage: [ { endpoint, min_date, max_date, days }, ... ] }`. |
 | POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД: таблицы `analytics` и `jira_users`; при `clearSettings: true` — также `settings` (API key). Ответ: `{ ok, message }`. |
-| GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage по пользователям и месяцам. Ответ: `{ users, months }`. У каждого пользователя: `displayName`, `email`, `monthlyActivity: [ { month, activeDays, requests, linesAdded, linesDeleted, applies, accepts }, ... ]`. Пользователи — из Jira (если загружен CSV) и/или только из Cursor по email. |
+| GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage и Usage Events по пользователям и месяцам. Ответ: `{ users, months }`. У пользователя: `displayName`, `email`, `jiraStatus`, `jiraProject`, `jiraConnectedAt`, `jiraDisconnectedAt`, `monthlyActivity: [ { month, activeDays, requests, linesAdded, linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageCostByModel }, ... ]`. Пользователи — из Jira (CSV) и/или из Cursor по email. |
 | GET | `/api/jira-users` | Ответ: `{ users: [ ... ] }` — массив объектов из таблицы `jira_users`. |
 | POST | `/api/jira-users/upload` | Тело: `{ csv: "строка CSV" }`. Полная замена записей в `jira_users`. |
 
