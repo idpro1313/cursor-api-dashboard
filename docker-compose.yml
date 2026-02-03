@@ -9,6 +9,5 @@ services:
       # Опционально: API key через переменную (без ввода на сайте)
       # - CURSOR_API_KEY=your_key_here
     volumes:
-      - cursor-data:/data
-volumes:
-  cursor-data:
+      # Каталог данных на хосте: /var/cursor/data (БД analytics.db, настройки)
+      - /var/cursor/data:/data

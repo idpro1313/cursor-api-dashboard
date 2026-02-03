@@ -2,13 +2,18 @@
  * Cursor Admin API Dashboard — клиентская логика
  * Документация: https://cursor.com/docs/account/teams/admin-api
  */
-const ADMIN_ENDPOINTS = [
-  { path: '/teams/members', method: 'GET', label: 'Team Members', snapshotOnly: true },
-  { path: '/teams/audit-logs', method: 'GET', label: 'Audit Logs', useDates: true, dateParamNames: ['startTime', 'endTime'], paginated: true },
-  { path: '/teams/daily-usage-data', method: 'POST', label: 'Daily Usage Data', useDates: true, bodyEpoch: true },
-  { path: '/teams/spend', method: 'POST', label: 'Spending Data', snapshotOnly: true },
-  { path: '/teams/filtered-usage-events', method: 'POST', label: 'Usage Events', useDates: true, bodyEpoch: true, paginated: true },
-];
+/** Подписи эндпоинтов для отображения покрытия БД */
+const ENDPOINT_LABELS = {
+  '/teams/members': 'Team Members',
+  '/teams/audit-logs': 'Audit Logs',
+  '/teams/daily-usage-data': 'Daily Usage Data',
+  '/teams/spend': 'Spending Data',
+  '/teams/filtered-usage-events': 'Usage Events',
+};
+
+function getEndpointLabel(path) {
+  return ENDPOINT_LABELS[path] || path;
+}
 
 let lastErrors = [];
 let apiKeyConfigured = false;
@@ -96,21 +101,11 @@ async function init() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
       applyApiKeyConfig(true);
-      alert('Ключ сохранён в data/api-key.txt. Больше вводить не нужно.');
+      alert('Ключ сохранён в БД.');
     } catch (e) {
       alert(e.message || 'Ошибка сохранения');
     }
   });
-
-  const grid = document.getElementById('endpointsGrid');
-  ADMIN_ENDPOINTS.forEach((ep, idx) => {
-    const label = document.createElement('label');
-    label.innerHTML = `<input type="checkbox" class="ep-check" data-idx="${idx}"> ${escapeHtml(ep.label)}`;
-    grid.appendChild(label);
-  });
-
-  document.getElementById('btnSelectAll').onclick = () => document.querySelectorAll('.ep-check').forEach(c => c.checked = true);
-  document.getElementById('btnSelectNone').onclick = () => document.querySelectorAll('.ep-check').forEach(c => c.checked = false);
 
   const syncStart = document.getElementById('syncStartDate');
   if (syncStart && !syncStart.value) {
@@ -130,14 +125,21 @@ async function loadCoverage() {
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const cov = data.coverage || [];
     if (cov.length === 0) {
-      el.innerHTML = '<span class="muted">БД пуста. Запустите «Загрузить и сохранить в БД».</span>';
+      el.innerHTML = '<span class="muted">БД пуста. Нажмите «Загрузить и сохранить в БД» — загрузятся все эндпоинты.</span>';
       return;
     }
     el.innerHTML = `
-      <table>
+      <table class="coverage-table">
         <thead><tr><th>Эндпоинт</th><th>С</th><th>По</th><th>Дней</th></tr></thead>
         <tbody>
-          ${cov.map(c => `<tr><td>${escapeHtml(c.endpoint)}</td><td>${escapeHtml(c.min_date)}</td><td>${escapeHtml(c.max_date)}</td><td>${c.days}</td></tr>`).join('')}
+          ${cov.map(c => `
+            <tr>
+              <td>${escapeHtml(getEndpointLabel(c.endpoint))}</td>
+              <td>${escapeHtml(c.min_date)}</td>
+              <td>${escapeHtml(c.max_date)}</td>
+              <td>${c.days}</td>
+            </tr>
+          `).join('')}
         </tbody>
       </table>
     `;
@@ -182,12 +184,31 @@ async function runSync() {
   const resultEl = document.getElementById('syncResult');
   const btnSync = document.getElementById('btnSync');
 
+  const syncPlan = document.getElementById('syncPlan');
+  const syncLog = document.getElementById('syncLog');
+  const syncLogWrap = document.getElementById('syncLogWrap');
+
   progressRow.style.display = 'block';
   resultEl.style.display = 'none';
   btnSync.disabled = true;
   progressText.textContent = 'Подготовка...';
   if (progressBar) progressBar.style.width = '0%';
   if (progressDetail) progressDetail.textContent = '';
+  if (syncPlan) { syncPlan.style.display = 'none'; syncPlan.innerHTML = ''; }
+  if (syncLog) syncLog.innerHTML = '';
+  if (syncLogWrap) syncLogWrap.style.display = 'block';
+
+  function appendLog(className, text, sub) {
+    if (!syncLog) return;
+    const entry = document.createElement('div');
+    entry.className = 'sync-log-entry ' + className;
+    const ts = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    entry.innerHTML = sub
+      ? `<span class="ts">${ts}</span><span>${escapeHtml(text)}</span>`
+      : `<span class="ts">${ts}</span><span>${escapeHtml(text)}</span>`;
+    syncLog.appendChild(entry);
+    syncLogWrap.scrollTop = syncLogWrap.scrollHeight;
+  }
 
   const headers = { 'Content-Type': 'application/json' };
   if (!apiKeyConfigured) headers['X-API-Key'] = document.getElementById('apiKey').value.trim();
@@ -219,25 +240,56 @@ async function runSync() {
         if (!line) continue;
         try {
           const event = JSON.parse(line.slice(6));
-          if (event.type === 'progress') {
-            const pct = event.totalSteps > 0 ? Math.round((event.currentStep / event.totalSteps) * 100) : 0;
-            progressText.textContent = `Загрузка: ${event.currentStep} из ${event.totalSteps} шагов`;
-            if (progressBar) progressBar.style.width = pct + '%';
-            const detail = event.chunkLabel
-              ? `${event.endpointLabel} · ${event.chunkLabel} · записей: +${event.savedInStep} (всего ${event.totalSaved})`
-              : `${event.endpointLabel} · записей: ${event.savedInStep} (всего ${event.totalSaved})`;
-            if (progressDetail) progressDetail.textContent = detail;
+          if (event.type === 'plan') {
+            if (syncPlan) {
+              syncPlan.style.display = 'block';
+              const breakdownList = (event.breakdown || []).map((b) => {
+                if (b.type === 'snapshot') return `<li>${escapeHtml(b.endpointLabel)} — снимок</li>`;
+                return `<li>${escapeHtml(b.endpointLabel)} — ${b.chunksCount || 0} чанков (по 30 дней)</li>`;
+              }).join('');
+              syncPlan.innerHTML = `
+                <strong>План:</strong> период ${escapeHtml(event.startDate)} – ${escapeHtml(event.endCapped)}, всего шагов: ${event.totalSteps || 0}
+                <ul>${breakdownList}</ul>
+              `;
+            }
+            appendLog('', `План загрузки: ${event.startDate} – ${event.endCapped}, ${event.totalSteps} шагов`);
+          } else if (event.type === 'progress') {
+            if (event.phase === 'requesting') {
+              if (event.subPhase === 'page') {
+                appendLog('page', `Страница ${event.page}`, true);
+              } else {
+                const label = event.chunkLabel
+                  ? `${event.endpointLabel} · ${event.chunkLabel}`
+                  : event.endpointLabel;
+                appendLog('requesting', `${event.stepLabel || 'Запрос'}: ${label}`);
+              }
+            } else if (event.phase === 'saved') {
+              const pct = event.totalSteps > 0 ? Math.round((event.currentStep / event.totalSteps) * 100) : 0;
+              progressText.textContent = `Шаг ${event.currentStep} из ${event.totalSteps}`;
+              if (progressBar) progressBar.style.width = pct + '%';
+              const daysInfo = event.daysInStep != null ? ` (${event.daysInStep} дней)` : '';
+              const line = event.chunkLabel
+                ? `${event.endpointLabel} · ${event.chunkLabel} — сохранено записей: ${event.savedInStep}${daysInfo}, всего: ${event.totalSaved}`
+                : `${event.endpointLabel} — сохранено: ${event.savedInStep} записей, всего: ${event.totalSaved}`;
+              appendLog('saved', line, true);
+              if (progressDetail) {
+                progressDetail.textContent = event.chunkLabel
+                  ? `${event.endpointLabel} · ${event.chunkLabel} · +${event.savedInStep} записей (всего ${event.totalSaved})`
+                  : `${event.endpointLabel} · +${event.savedInStep} записей (всего ${event.totalSaved})`;
+              }
+            }
           } else if (event.type === 'done') {
-            progressRow.style.display = 'none';
             btnSync.disabled = false;
-            progressText.textContent = '';
+            progressText.textContent = 'Готово';
             if (progressBar) progressBar.style.width = '100%';
+            appendLog('saved', `Готово. ${event.message || ''}`);
             showSyncResult(resultEl, event, false);
             loadCoverage();
             return;
           } else if (event.type === 'error') {
             progressRow.style.display = 'none';
             btnSync.disabled = false;
+            appendLog('error', event.error || 'Ошибка');
             if (event.code === 'INVALID_API_KEY') {
               showApiKeyForm(event.error || 'API key недействителен. Введите новый ключ.');
               resultEl.style.display = 'block';

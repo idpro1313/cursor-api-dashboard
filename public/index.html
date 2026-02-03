@@ -26,10 +26,6 @@
       Ключ сохранён в БД. <button type="button" class="btn-link" id="btnChangeApiKey">Изменить ключ</button>
     </div>
     <div id="apiKeyError" class="meta error" style="display: none; margin-top: 8px;"></div>
-    <div class="row">
-      <button class="btn btn-secondary" id="btnSelectAll">Выбрать все</button>
-      <button class="btn btn-secondary" id="btnSelectNone">Снять выбор</button>
-    </div>
   </div>
 
   <div class="panel">
@@ -52,21 +48,20 @@
       <div class="progress-bar-wrap" aria-hidden="true">
         <div class="progress-bar-fill" id="syncProgressBar" style="width: 0%;"></div>
       </div>
+      <div class="sync-plan" id="syncPlan" style="display: none; margin-top: 10px;"></div>
+      <div class="sync-log-wrap" id="syncLogWrap">
+        <div class="sync-log" id="syncLog" role="log" aria-live="polite"></div>
+      </div>
       <div class="meta" id="syncProgressDetail" style="margin-top: 6px;"></div>
     </div>
     <div id="syncResult" class="sync-result" style="display: none;"></div>
     <p style="margin-top: 12px;"><a href="data.html" class="btn btn-secondary">Просмотр данных в БД →</a></p>
     <div class="section coverage-section" style="margin-top: 16px;">
-      <h3 style="font-size: 1rem; margin: 0 0 8px; color: var(--muted);">Покрытие БД (что уже сохранено)</h3>
+      <h3 style="font-size: 1rem; margin: 0 0 8px; color: var(--muted);">Покрытие БД по всем эндпоинтам</h3>
+      <p class="meta" style="margin-bottom: 8px;">Какие эндпоинты и за какие даты уже сохранены (загружаются все: Team Members, Audit Logs, Daily Usage Data, Spending Data, Usage Events).</p>
       <div id="coverageList" class="meta">Загрузка...</div>
       <button class="btn btn-secondary" id="btnRefreshCoverage" style="margin-top: 8px;">Обновить</button>
     </div>
-  </div>
-
-  <div class="panel">
-    <h2>Эндпоинты Admin API</h2>
-    <p class="meta">Чтение: участники команды, аудит-логи, ежедневное использование, траты, события использования. <strong>Team Members</strong> и <strong>Spending Data</strong> — снимок на текущий момент, не за выбранный период.</p>
-    <div class="endpoints-grid" id="endpointsGrid"></div>
   </div>
 
   <script src="app.js"></script>

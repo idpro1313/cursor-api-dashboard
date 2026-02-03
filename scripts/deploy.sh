@@ -31,6 +31,14 @@ else
   DCC="docker-compose"
 fi
 
+# Каталог данных на хосте (монтируется в контейнер)
+DATA_DIR="${DATA_DIR:-/var/cursor/data}"
+if [ ! -d "$DATA_DIR" ]; then
+  echo "--- Создание каталога данных: $DATA_DIR ---"
+  sudo mkdir -p "$DATA_DIR"
+  sudo chown "$(id -u):$(id -g)" "$DATA_DIR" 2>/dev/null || true
+fi
+
 echo "--- Пересборка и перезапуск контейнера ---"
 $DCC build --no-cache
 $DCC up -d

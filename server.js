@@ -76,6 +76,11 @@ async function waitCursorRateLimit(apiPath) {
   cursorRateBuckets[bucket] = timestamps;
 }
 
+/** Задержка между запросами при синхронизации (распределение нагрузки, см. cursor.com/docs/api). */
+const REQUEST_DELAY_MS = Number(process.env.REQUEST_DELAY_MS) || 150;
+const RATE_LIMIT_MAX_RETRIES = 5;
+const RATE_LIMIT_BACKOFF_BASE_MS = 1000;
+
 // Простой rate limit нашего сервера: N запросов с одного IP в минуту (не логируем заголовки — API key не попадает в логи)
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 120;
@@ -120,45 +125,92 @@ function validateDateRangeForSync(startDate, endDate) {
   return { ok: true };
 }
 
-/** Разбить период на отрезки по 30 дней (лимит API). */
+/** Разбить период на отрезки по 30 дней (лимит API). Используем UTC для единообразия с БД. */
 function dateChunks(startDate, endDate) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = new Date(startDate + 'T00:00:00Z');
+  const end = new Date(endDate + 'T00:00:00Z');
   const chunks = [];
   let cur = new Date(start);
   while (cur <= end) {
     const chunkEnd = new Date(cur);
-    chunkEnd.setDate(chunkEnd.getDate() + MAX_DAYS - 1);
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + MAX_DAYS - 1);
     if (chunkEnd > end) chunkEnd.setTime(end.getTime());
     chunks.push({
       startDate: cur.toISOString().slice(0, 10),
       endDate: chunkEnd.toISOString().slice(0, 10),
     });
-    cur.setDate(chunkEnd.getDate() + 1);
+    cur.setUTCDate(chunkEnd.getUTCDate() + 1);
   }
   return chunks;
 }
 
-/** Запрос к Cursor Admin API с Basic Auth (для синхронизации). Соблюдает лимиты Cursor (20/60 запр/мин). */
+/**
+ * Находит непрерывные диапазоны недостающих дат в [startDate, endCapped] и разбивает их на чанки по 30 дней.
+ * Так мы запрашиваем только недостающие периоды и не трогаем уже загруженные данные.
+ */
+function getMissingChunks(startDate, endCapped, existingSet) {
+  const allDates = datesInRange(startDate, endCapped);
+  const missing = allDates.filter((d) => !existingSet.has(d));
+  if (missing.length === 0) return [];
+
+  const ranges = [];
+  let rangeStart = missing[0];
+  let rangeEnd = missing[0];
+  for (let i = 1; i < missing.length; i++) {
+    const prev = new Date(missing[i - 1] + 'T00:00:00Z').getTime();
+    const curr = new Date(missing[i] + 'T00:00:00Z').getTime();
+    if (curr - prev === 24 * 60 * 60 * 1000) {
+      rangeEnd = missing[i];
+    } else {
+      ranges.push({ startDate: rangeStart, endDate: rangeEnd });
+      rangeStart = missing[i];
+      rangeEnd = missing[i];
+    }
+  }
+  ranges.push({ startDate: rangeStart, endDate: rangeEnd });
+
+  const chunks = [];
+  for (const r of ranges) {
+    const subChunks = dateChunks(r.startDate, r.endDate);
+    chunks.push(...subChunks);
+  }
+  return chunks;
+}
+
+/**
+ * Запрос к Cursor Admin API с Basic Auth (для синхронизации).
+ * Соблюдает лимиты (20/60 запр/мин), при 429 — exponential backoff (cursor.com/docs/api).
+ */
 async function cursorFetch(apiKey, apiPath, options = {}) {
-  await waitCursorRateLimit(apiPath);
   const { method = 'GET', query = {}, body } = options;
   const url = new URL(apiPath, CURSOR_API);
   Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   const auth = Buffer.from(apiKey + ':', 'utf8').toString('base64');
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
   const opts = {
     method,
     headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/json' },
-    signal: controller.signal,
   };
   if (body && method === 'POST') opts.body = JSON.stringify(body);
-  const r = await fetch(url.toString(), opts);
-  clearTimeout(timeoutId);
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || data.message || r.statusText);
-  return data;
+
+  for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+    await waitCursorRateLimit(apiPath);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+    opts.signal = controller.signal;
+    const r = await fetch(url.toString(), opts);
+    clearTimeout(timeoutId);
+    const data = await r.json().catch(() => ({}));
+
+    if (r.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+      const waitMs = RATE_LIMIT_BACKOFF_BASE_MS * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      continue;
+    }
+    if (r.status === 401) throw new Error('INVALID_API_KEY');
+    if (!r.ok) throw new Error(data.error || data.message || r.statusText);
+    return data;
+  }
+  throw new Error('Rate limit exceeded. Please try again later.');
 }
 
 /** Timestamp (ms или строка) -> YYYY-MM-DD */
@@ -317,19 +369,13 @@ function datesInRange(startStr, endStr) {
   return out;
 }
 
-/** Для каждого daterange-эндпоинта возвращает только те чанки, по которым в БД ещё не все дни. */
+/** Для каждого daterange-эндпоинта возвращает только чанки по недостающим диапазонам (не запрашиваем уже загруженные дни). */
 function getChunksToFetch(startDate, endCapped) {
-  const allChunks = dateChunks(startDate, endCapped);
   const result = {};
   for (const ep of SYNC_ENDPOINTS) {
     if (ep.syncType !== 'daterange') continue;
     const existingSet = new Set(db.getExistingDates(ep.path, startDate, endCapped));
-    const toFetch = allChunks.filter(({ startDate: cStart, endDate: cEnd }) => {
-      const chunkDates = datesInRange(cStart, cEnd);
-      const allPresent = chunkDates.every((d) => existingSet.has(d));
-      return !allPresent;
-    });
-    result[ep.path] = toFetch;
+    result[ep.path] = getMissingChunks(startDate, endCapped, existingSet);
   }
   return result;
 }
@@ -350,7 +396,7 @@ function isFeatureNotEnabled(msg) {
 
 /**
  * Выполняет синхронизацию в БД. Загружаются только те дни, которых ещё нет в БД; текущий день не загружается.
- * onProgress({ currentStep, totalSteps, endpointLabel, chunkLabel, savedInStep, totalSaved }) вызывается после каждого шага.
+ * onProgress вызывается с phase 'requesting' (перед запросом) и 'saved' (после сохранения); для постраничных — с page.
  * Возвращает { message, saved, ok, errors, skipped }.
  */
 async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
@@ -365,6 +411,15 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
     try {
       let savedForEp = 0;
       if (ep.syncType === 'snapshot') {
+        if (onProgress) {
+          onProgress({
+            phase: 'requesting',
+            endpointLabel: ep.label || ep.path,
+            endpointPath: ep.path,
+            chunkLabel: null,
+            stepLabel: 'Запрос снимка (текущее состояние)',
+          });
+        }
         const chunkEnd = yesterday;
         const response = await cursorFetch(apiKey, ep.path, {
           method: ep.method,
@@ -379,17 +434,30 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
         currentStep++;
         if (onProgress) {
           onProgress({
+            phase: 'saved',
             currentStep,
             totalSteps,
             endpointLabel: ep.label || ep.path,
+            endpointPath: ep.path,
             chunkLabel: null,
             savedInStep: savedForEp,
             totalSaved: results.saved + savedForEp,
+            daysInStep: rows.length,
           });
         }
       } else {
         const chunks = chunksToFetch[ep.path] || [];
         for (const { startDate: chunkStart, endDate: chunkEnd } of chunks) {
+          const chunkLabel = `${chunkStart} – ${chunkEnd}`;
+          if (onProgress) {
+            onProgress({
+              phase: 'requesting',
+              endpointLabel: ep.label || ep.path,
+              endpointPath: ep.path,
+              chunkLabel,
+              stepLabel: ep.paginated ? `Запрос периода (постранично)` : `Запрос периода`,
+            });
+          }
           let response;
           if (ep.path === '/teams/audit-logs') {
             const allEvents = [];
@@ -397,6 +465,16 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
             const pageSize = 100;
             let hasNext = true;
             while (hasNext) {
+              if (onProgress) {
+                onProgress({
+                  phase: 'requesting',
+                  subPhase: 'page',
+                  endpointLabel: ep.label || ep.path,
+                  chunkLabel,
+                  page,
+                  stepLabel: `Запрос страницы ${page}`,
+                });
+              }
               response = await cursorFetch(apiKey, ep.path, {
                 method: 'GET',
                 query: { startTime: chunkStart, endTime: chunkEnd, page, pageSize },
@@ -420,6 +498,16 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
             const pageSize = 100;
             let hasNext = true;
             while (hasNext) {
+              if (onProgress) {
+                onProgress({
+                  phase: 'requesting',
+                  subPhase: 'page',
+                  endpointLabel: ep.label || ep.path,
+                  chunkLabel,
+                  page,
+                  stepLabel: `Запрос страницы ${page}`,
+                });
+              }
               response = await cursorFetch(apiKey, ep.path, {
                 method: 'POST',
                 body: {
@@ -447,12 +535,15 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
           currentStep++;
           if (onProgress) {
             onProgress({
+              phase: 'saved',
               currentStep,
               totalSteps,
               endpointLabel: ep.label || ep.path,
-              chunkLabel: `${chunkStart} – ${chunkEnd}`,
+              endpointPath: ep.path,
+              chunkLabel,
               savedInStep: stepSaved,
               totalSaved: results.saved + savedForEp,
+              daysInStep: rows.length,
             });
           }
         }
@@ -518,6 +609,24 @@ app.post('/api/sync-stream', async (req, res) => {
   }
 
   try {
+    const yesterday = getYesterdayStr();
+    const endCapped = !end || end > yesterday ? yesterday : end;
+    const chunksToFetch = getChunksToFetch(startDate, endCapped);
+    const totalSteps = getSyncTotalSteps(chunksToFetch);
+    const breakdown = SYNC_ENDPOINTS.map((ep) => {
+      if (ep.syncType === 'snapshot') {
+        return { endpointLabel: ep.label || ep.path, type: 'snapshot' };
+      }
+      const count = (chunksToFetch[ep.path] || []).length;
+      return { endpointLabel: ep.label || ep.path, type: 'daterange', chunksCount: count };
+    });
+    send({
+      type: 'plan',
+      startDate,
+      endCapped,
+      totalSteps,
+      breakdown,
+    });
     const result = await runSyncToDB(apiKey, startDate, end, (p) => send({ type: 'progress', ...p }));
     send({ type: 'done', ...result });
   } catch (e) {
