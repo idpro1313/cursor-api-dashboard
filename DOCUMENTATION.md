@@ -154,6 +154,7 @@ chmod +x scripts/deploy.sh
 |-------|------|----------|
 | GET | `/api/analytics?endpoint=...&startDate=...&endDate=...` | Выборка из таблицы `analytics`. Ответ: `{ data: [ { endpoint, date, payload, updated_at }, ... ] }`. |
 | GET | `/api/analytics/coverage` | Ответ: `{ coverage: [ { endpoint, min_date, max_date, days }, ... ] }`. |
+| POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД: таблицы `analytics` и `jira_users`; при `clearSettings: true` — также `settings` (API key). Ответ: `{ ok, message }`. |
 | GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage по пользователям и месяцам. Ответ: `{ users, months }`. У каждого пользователя: `displayName`, `email`, `monthlyActivity: [ { month, activeDays, requests, linesAdded, linesDeleted, applies, accepts }, ... ]`. Пользователи — из Jira (если загружен CSV) и/или только из Cursor по email. |
 | GET | `/api/jira-users` | Ответ: `{ users: [ ... ] }` — массив объектов из таблицы `jira_users`. |
 | POST | `/api/jira-users/upload` | Тело: `{ csv: "строка CSV" }`. Полная замена записей в `jira_users`. |

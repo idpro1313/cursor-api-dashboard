@@ -162,6 +162,17 @@ function setApiKey(apiKey) {
   setSetting(SETTING_API_KEY, apiKey);
 }
 
+/**
+ * Полная очистка БД: таблицы analytics и jira_users.
+ * Если clearSettings === true, также очищает settings (в т.ч. API key).
+ */
+function clearAllData(clearSettings = false) {
+  const d = getDb();
+  d.exec('DELETE FROM analytics');
+  d.exec('DELETE FROM jira_users');
+  if (clearSettings) d.exec('DELETE FROM settings');
+}
+
 module.exports = {
   getDb,
   upsertAnalytics,
@@ -174,4 +185,5 @@ module.exports = {
   setSetting,
   getApiKey,
   setApiKey,
+  clearAllData,
 };

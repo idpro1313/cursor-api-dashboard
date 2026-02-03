@@ -125,7 +125,11 @@ function validateDateRangeForSync(startDate, endDate) {
   return { ok: true };
 }
 
-/** Разбить период на отрезки по 30 дней (лимит API). Используем UTC для единообразия с БД. */
+/**
+ * Разбить заданный период на отрезки по 30 дней (лимит Cursor API).
+ * Сдвиг между чанками — сразу на 30 дней (cur = конец_чанка + 1), а не на 1 день.
+ * Вызывается только для диапазонов недостающих дат (getMissingChunks), не для всего периода.
+ */
 function dateChunks(startDate, endDate) {
   const start = new Date(startDate + 'T00:00:00Z');
   const end = new Date(endDate + 'T00:00:00Z');
@@ -139,19 +143,19 @@ function dateChunks(startDate, endDate) {
       startDate: cur.toISOString().slice(0, 10),
       endDate: chunkEnd.toISOString().slice(0, 10),
     });
-    cur.setUTCDate(chunkEnd.getUTCDate() + 1);
+    cur.setUTCDate(chunkEnd.getUTCDate() + 1); // следующий чанк начинается сразу после текущего (шаг 30 дней)
   }
   return chunks;
 }
 
 /**
- * Находит непрерывные диапазоны недостающих дат в [startDate, endCapped] и разбивает их на чанки по 30 дней.
- * Так мы запрашиваем только недостающие периоды и не трогаем уже загруженные данные.
+ * Запрашиваем только те дни, которых нет в БД: находим «дыры» (непрерывные диапазоны недостающих дат)
+ * и разбиваем каждую дыру на чанки по 30 дней. Возвращает { chunks, missingDays, rangesCount }.
  */
-function getMissingChunks(startDate, endCapped, existingSet) {
+function getMissingChunksWithMeta(startDate, endCapped, existingSet) {
   const allDates = datesInRange(startDate, endCapped);
   const missing = allDates.filter((d) => !existingSet.has(d));
-  if (missing.length === 0) return [];
+  if (missing.length === 0) return { chunks: [], missingDays: 0, rangesCount: 0 };
 
   const ranges = [];
   let rangeStart = missing[0];
@@ -174,7 +178,7 @@ function getMissingChunks(startDate, endCapped, existingSet) {
     const subChunks = dateChunks(r.startDate, r.endDate);
     chunks.push(...subChunks);
   }
-  return chunks;
+  return { chunks, missingDays: missing.length, rangesCount: ranges.length };
 }
 
 /**
@@ -369,13 +373,13 @@ function datesInRange(startStr, endStr) {
   return out;
 }
 
-/** Для каждого daterange-эндпоинта возвращает только чанки по недостающим диапазонам (не запрашиваем уже загруженные дни). */
+/** Для каждого daterange-эндпоинта возвращает { chunks, missingDays, rangesCount } по недостающим диапазонам. */
 function getChunksToFetch(startDate, endCapped) {
   const result = {};
   for (const ep of SYNC_ENDPOINTS) {
     if (ep.syncType !== 'daterange') continue;
     const existingSet = new Set(db.getExistingDates(ep.path, startDate, endCapped));
-    result[ep.path] = getMissingChunks(startDate, endCapped, existingSet);
+    result[ep.path] = getMissingChunksWithMeta(startDate, endCapped, existingSet);
   }
   return result;
 }
@@ -385,7 +389,7 @@ function getSyncTotalSteps(chunksToFetchByEndpoint) {
   let steps = 0;
   for (const ep of SYNC_ENDPOINTS) {
     if (ep.syncType === 'snapshot') steps += 1;
-    else steps += (chunksToFetchByEndpoint[ep.path] || []).length;
+    else steps += (chunksToFetchByEndpoint[ep.path]?.chunks || []).length;
   }
   return steps;
 }
@@ -446,7 +450,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
           });
         }
       } else {
-        const chunks = chunksToFetch[ep.path] || [];
+        const chunks = chunksToFetch[ep.path]?.chunks || [];
         for (const { startDate: chunkStart, endDate: chunkEnd } of chunks) {
           const chunkLabel = `${chunkStart} – ${chunkEnd}`;
           if (onProgress) {
@@ -617,8 +621,15 @@ app.post('/api/sync-stream', async (req, res) => {
       if (ep.syncType === 'snapshot') {
         return { endpointLabel: ep.label || ep.path, type: 'snapshot' };
       }
-      const count = (chunksToFetch[ep.path] || []).length;
-      return { endpointLabel: ep.label || ep.path, type: 'daterange', chunksCount: count };
+      const meta = chunksToFetch[ep.path] || { chunks: [], missingDays: 0, rangesCount: 0 };
+      const chunksCount = meta.chunks.length;
+      return {
+        endpointLabel: ep.label || ep.path,
+        type: 'daterange',
+        chunksCount,
+        missingDays: meta.missingDays,
+        rangesCount: meta.rangesCount,
+      };
     });
     send({
       type: 'plan',
@@ -654,6 +665,22 @@ app.get('/api/analytics/coverage', (req, res) => {
   try {
     const coverage = db.getCoverage();
     res.json({ coverage });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Полная очистка БД: analytics и jira_users; при clearSettings: true — также settings (API key). */
+app.post('/api/clear-db', (req, res) => {
+  try {
+    const clearSettings = !!(req.body && req.body.clearSettings);
+    db.clearAllData(clearSettings);
+    res.json({
+      ok: true,
+      message: clearSettings
+        ? 'БД полностью очищена (аналитика, пользователи Jira, настройки).'
+        : 'БД очищена: аналитика и пользователи Jira. Настройки (API key) сохранены.',
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

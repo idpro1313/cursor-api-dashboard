@@ -89,6 +89,28 @@ async function init() {
     if (saved) document.getElementById('apiKey').value = saved;
   }
 
+  document.getElementById('btnClearDb')?.addEventListener('click', async () => {
+    const includeSettings = document.getElementById('clearDbIncludeSettings')?.checked;
+    const msg = includeSettings
+      ? 'Очистить всю БД (аналитика, пользователи Jira, настройки и API key)? Это действие нельзя отменить.'
+      : 'Очистить аналитику и пользователей Jira? API key будет сохранён. Действие нельзя отменить.';
+    if (!confirm(msg)) return;
+    try {
+      const r = await fetch('/api/clear-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearSettings: includeSettings }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      alert(data.message || 'БД очищена.');
+      if (includeSettings) applyApiKeyConfig(false);
+      loadCoverage();
+    } catch (e) {
+      alert(e.message || 'Ошибка очистки БД');
+    }
+  });
+
   document.getElementById('btnSaveApiKey').addEventListener('click', async () => {
     const apiKey = document.getElementById('apiKey').value.trim();
     if (!apiKey) { alert('Введите API key'); return; }
@@ -243,13 +265,19 @@ async function runSync() {
           if (event.type === 'plan') {
             if (syncPlan) {
               syncPlan.style.display = 'block';
+              const totalDays = Math.ceil((new Date(event.endCapped + 'T00:00:00Z') - new Date(event.startDate + 'T00:00:00Z')) / (24 * 60 * 60 * 1000)) + 1;
               const breakdownList = (event.breakdown || []).map((b) => {
                 if (b.type === 'snapshot') return `<li>${escapeHtml(b.endpointLabel)} — снимок</li>`;
-                return `<li>${escapeHtml(b.endpointLabel)} — ${b.chunksCount || 0} чанков (по 30 дней)</li>`;
+                const chunkText = `${b.chunksCount || 0} чанков`;
+                const detail = b.missingDays != null && b.rangesCount != null
+                  ? ` (${b.missingDays} дней отсутствует в ${b.rangesCount} диапазонах)`
+                  : ' (по 30 дней)';
+                return `<li>${escapeHtml(b.endpointLabel)} — ${chunkText}${detail}</li>`;
               }).join('');
               syncPlan.innerHTML = `
-                <strong>План:</strong> период ${escapeHtml(event.startDate)} – ${escapeHtml(event.endCapped)}, всего шагов: ${event.totalSteps || 0}
+                <strong>План:</strong> период ${escapeHtml(event.startDate)} – ${escapeHtml(event.endCapped)} (всего ${totalDays} дней), шагов: ${event.totalSteps || 0}
                 <ul>${breakdownList}</ul>
+                <span class="meta">Если чанков много при малом периоде — в БД уже есть часть данных, а отсутствующие дни разбиты на много «дыр». При пустой БД за 5 мес. будет ~6 чанков.</span>
               `;
             }
             appendLog('', `План загрузки: ${event.startDate} – ${event.endCapped}, ${event.totalSteps} шагов`);
