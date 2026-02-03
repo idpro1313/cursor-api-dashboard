@@ -69,12 +69,31 @@ function getIntensity(value, maxValue) {
   return Math.min(1, value / maxValue);
 }
 
+/** Дата YYYY-MM-DD → DD.MM.YYYY */
+function formatJiraDate(ymd) {
+  if (!ymd || String(ymd).length < 10) return '—';
+  const parts = String(ymd).slice(0, 10).split('-');
+  return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : ymd;
+}
+
 /** Бейдж статуса из Jira: Активный / Архивный (по данным Jira, самый поздний статус). */
 function formatJiraStatusBadge(user) {
   if (user.jiraStatus == null) return '';
   const label = user.jiraStatus === 'archived' ? 'Архивный' : 'Активный';
   const cls = user.jiraStatus === 'archived' ? 'jira-status jira-status-archived' : 'jira-status jira-status-active';
   return `<span class="${cls}" title="Статус в Jira">${escapeHtml(label)}</span>`;
+}
+
+/** Блок рядом с пользователем: значок статуса (активный/архивный) + дата подключения и отключения. */
+function formatUserStatusAndDates(user) {
+  const badge = formatJiraStatusBadge(user);
+  const hasDates = user.jiraConnectedAt || user.jiraDisconnectedAt;
+  const conn = user.jiraConnectedAt ? `Подкл.: ${formatJiraDate(user.jiraConnectedAt)}` : '';
+  const disconn = user.jiraDisconnectedAt ? `Откл.: ${formatJiraDate(user.jiraDisconnectedAt)}` : '';
+  const datesStr = [conn, disconn].filter(Boolean).join(' · ');
+  const datesHtml = hasDates ? `<span class="user-meta-dates" title="Даты из Jira">${escapeHtml(datesStr)}</span>` : '';
+  if (!badge && !datesHtml) return '';
+  return `<span class="user-meta-block">${badge}${datesHtml ? ' ' + datesHtml : ''}</span>`;
 }
 
 function renderSummary(data, preparedUsers) {
@@ -147,6 +166,7 @@ function renderCards(preparedUsers, months, viewMetric) {
   const cards = preparedUsers.map((u) => {
     const name = escapeHtml(u.displayName || u.email || '—');
     const email = u.email ? `<span class="user-card-email">${escapeHtml(u.email)}</span>` : '';
+    const statusAndDates = formatUserStatusAndDates(u);
     const t = u.totals || getUserTotals(u);
     const act = u[activityKey] || [];
     const monthCells = act.map((a) => {
@@ -162,7 +182,7 @@ function renderCards(preparedUsers, months, viewMetric) {
     return `
       <div class="user-card">
         <div class="user-card-header">
-          <div class="user-card-name">${name}</div>
+          <div class="user-card-name">${name} ${statusAndDates}</div>
           ${email}
         </div>
         <div class="user-card-stats">
@@ -196,7 +216,7 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
   const monthHeaders = months.map((m) => `<th class="heatmap-th">${escapeHtml(formatMonthLabel(m))}</th>`).join('');
   const rows = grid.map(({ user, values }) => {
     const name = escapeHtml(user.displayName || user.email || '—');
-    const statusBadge = formatJiraStatusBadge(user);
+    const statusAndDates = formatUserStatusAndDates(user);
     const act = user[activityKey] || [];
     const cells = values.map((v, i) => {
       const intensity = getIntensity(v, maxVal);
@@ -205,7 +225,7 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
       const title = v > 0 ? `Месяц: ${v}${usagePart}` : '';
       return `<td class="heatmap-td" style="--intensity:${intensity}" title="${title}">${v > 0 ? v : ''}</td>`;
     }).join('');
-    return `<tr><th class="heatmap-th-name">${name}</th>${cells}</tr>`;
+    return `<tr><th class="heatmap-th-name">${name} ${statusAndDates}</th>${cells}</tr>`;
   }).join('');
   return `
     <table class="dashboard-heatmap">
@@ -229,6 +249,7 @@ function renderTable(preparedUsers, months, viewMetric) {
   }
   const rows = preparedUsers.map((u) => {
     const name = escapeHtml(u.displayName || u.email || '—');
+    const statusAndDates = formatUserStatusAndDates(u);
     const email = u.email ? `<br><span class="muted" style="font-size:0.8em">${escapeHtml(u.email)}</span>` : '';
     const t = u.totals || getUserTotals(u);
     const cells = (u[activityKey] || []).map((a) => {
@@ -241,7 +262,7 @@ function renderTable(preparedUsers, months, viewMetric) {
     }).join('');
     const usageTotals = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` · Событий: ${t.usageEventsCount} · $${formatCostCents(t.usageCostCents)}` : '';
     return `<tr>
-      <td class="table-user-cell">${name} ${statusBadge}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}</div></td>
+      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}</div></td>
       ${cells}
     </tr>`;
   }).join('');

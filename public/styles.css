@@ -361,16 +361,29 @@ select {
 .user-card-header { margin-bottom: 10px; }
 .user-card-name { font-weight: 600; font-size: 1rem; color: var(--text); }
 .user-card-email { font-size: 0.8rem; color: var(--muted); display: block; margin-top: 2px; }
+.user-meta-block { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: 6px; vertical-align: middle; }
+.user-meta-dates { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 .jira-status {
   font-size: 0.7rem;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 4px;
-  margin-left: 6px;
   vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.jira-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 .jira-status-active { background: rgba(25, 135, 84, 0.15); color: var(--green); }
+.jira-status-active::before { background: var(--green); }
 .jira-status-archived { background: rgba(108, 117, 125, 0.2); color: var(--muted); }
+.jira-status-archived::before { background: var(--muted); }
 .user-card-stats {
   display: flex;
   flex-wrap: wrap;
