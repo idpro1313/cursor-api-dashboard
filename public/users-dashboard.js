@@ -270,7 +270,7 @@ async function load() {
       statusEl.textContent = '';
       return;
     }
-    if (!weeks.length) {
+    if (!months.length) {
       tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные на <a href="index.html">главной</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные в БД</a>.</p>';
       emptyState.style.display = 'none';
       contentPanel.style.display = 'block';
