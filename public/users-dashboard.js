@@ -129,11 +129,27 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-label">стоимость (Usage Events)</span>
     </div>
   ` : '';
+  const teamMembersCount = data.teamMembersCount ?? 0;
+  const teamMembers = data.teamMembers || [];
+  const teamMembersCard = teamMembersCount > 0 ? `
+    <div class="stat-card" title="${escapeHtml(teamMembers.slice(0, 15).map((m) => m.name || m.email).join(', '))}">
+      <span class="stat-value">${teamMembersCount}</span>
+      <span class="stat-label">участников в команде</span>
+    </div>
+  ` : '';
+  const totalTeamSpendCents = data.totalTeamSpendCents ?? 0;
+  const spendApiCard = totalTeamSpendCents > 0 ? `
+    <div class="stat-card">
+      <span class="stat-value">$${formatCostCents(totalTeamSpendCents)}</span>
+      <span class="stat-label">траты (Spend API)</span>
+    </div>
+  ` : '';
   return `
     <div class="stat-card">
       <span class="stat-value">${allUsers.length}</span>
       <span class="stat-label">всего в Jira</span>
     </div>
+    ${teamMembersCard}
     <div class="stat-card">
       <span class="stat-value">${activeUserCount}</span>
       <span class="stat-label">с активностью в Cursor</span>
@@ -151,6 +167,7 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-label">строк удалено</span>
     </div>
     ${usageCards}
+    ${spendApiCard}
     <div class="stat-card stat-card-highlight">
       <span class="stat-value">${escapeHtml(topLabel)}</span>
       <span class="stat-label">самый активный по запросам</span>
@@ -187,6 +204,7 @@ function renderCards(preparedUsers, months, viewMetric) {
     }).join('');
     const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
     const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
+    const teamSpendStat = (u.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(u.teamSpendCents)}</span>` : '';
     const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${escapeHtml(model)}: $${formatCostCents(cents)}`).join(', ') : '';
     const costByModelStats = byModel ? ` <span class="user-card-stat user-card-cost-by-model" title="Стоимость в $ по моделям">${byModel}</span>` : '';
     return `
@@ -199,7 +217,7 @@ function renderCards(preparedUsers, months, viewMetric) {
           <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
           <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
           <span class="user-card-stat stat-add">+${t.linesAdded}</span>
-          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}
+          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}${teamSpendStat}${costByModelStats}
         </div>
         <div class="user-card-weeks" title="Активность по месяцам">${monthCells}</div>
       </div>
@@ -271,10 +289,11 @@ function renderTable(preparedUsers, months, viewMetric) {
       return `<td class="table-cell-intensity" style="--intensity:${intensity}" title="${escapeHtml(title)}">${text}</td>`;
     }).join('');
     const usageTotals = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` · Событий: ${t.usageEventsCount} · $${formatCostCents(t.usageCostCents)}` : '';
+    const teamSpendLine = (u.teamSpendCents > 0) ? ` · Spend API: $${formatCostCents(u.teamSpendCents)}` : '';
     const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${model}: $${formatCostCents(cents)}`).join('; ') : '';
     const costByModelLine = byModel ? `<div class="table-user-cost-by-model" title="Стоимость по моделям">${escapeHtml(byModel)}</div>` : '';
     return `<tr>
-      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}</div>${costByModelLine}</td>
+      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}${teamSpendLine}</div>${costByModelLine}</td>
       ${cells}
     </tr>`;
   }).join('');
@@ -393,6 +412,7 @@ async function load() {
 
     tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
     statusEl.textContent = '';
+    loadAuditPreview();
   } catch (e) {
     statusEl.textContent = e.message || 'Ошибка загрузки';
     statusEl.className = 'meta error';
@@ -403,9 +423,51 @@ async function load() {
   }
 }
 
+function formatAuditEventDate(ts) {
+  if (ts == null) return '—';
+  const d = new Date(typeof ts === 'number' ? ts : Number(ts) || ts);
+  return isNaN(d.getTime()) ? String(ts) : d.toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+async function loadAuditPreview() {
+  const container = document.getElementById('auditEventsContainer');
+  const panel = document.getElementById('auditPanel');
+  if (!container || !panel) return;
+  try {
+    const r = await fetch('/api/audit-events?limit=20');
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
+    const events = data.events || [];
+    panel.style.display = 'block';
+    if (events.length === 0) {
+      container.innerHTML = '<p class="muted">Нет событий. Загрузите Audit Logs в разделе <a href="admin.html">Настройки и загрузка</a>.</p>';
+      return;
+    }
+    const rows = events.map((e) => {
+      const date = formatAuditEventDate(e.timestamp);
+      const user = escapeHtml((e.userEmail || e.email || e.user_email || e.actor || '—').toString());
+      const action = escapeHtml((e.type || e.action || e.eventType || e.name || '—').toString());
+      const details = e.details || e.metadata ? escapeHtml(JSON.stringify(e.details || e.metadata || {})) : '';
+      return `<tr><td>${date}</td><td>${user}</td><td>${action}</td><td class="audit-details">${details}</td></tr>`;
+    }).join('');
+    container.innerHTML = `
+      <div class="table-wrap">
+        <table class="data-table audit-table">
+          <thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th><th>Детали</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    panel.style.display = 'block';
+    container.innerHTML = '<p class="muted">Не удалось загрузить события: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
 function init() {
   setDefaultDates().then(() => {
     if (document.getElementById('startDate').value && document.getElementById('endDate').value) load();
+    else loadAuditPreview();
   });
   document.getElementById('btnLoad').addEventListener('click', load);
   const refresh = () => {
@@ -414,6 +476,7 @@ function init() {
   document.getElementById('viewMode').addEventListener('change', refresh);
   document.getElementById('sortBy').addEventListener('change', refresh);
   document.getElementById('showOnlyActive').addEventListener('change', refresh);
+  loadAuditPreview();
 }
 
 if (document.readyState === 'loading') {

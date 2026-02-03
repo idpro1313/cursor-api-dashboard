@@ -447,3 +447,7 @@ select {
 .table-user-cell { min-width: 180px; }
 .table-user-totals { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 .users-dashboard-table .table-wrap { max-height: 480px; }
+
+.audit-table { font-size: 0.9rem; }
+.audit-details { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; color: var(--muted); }
+.audit-details:hover { white-space: normal; overflow: visible; }

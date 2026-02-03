@@ -15,6 +15,7 @@
         <a href="admin.html">Настройки и загрузка</a>
         <a href="data.html">Данные в БД</a>
         <a href="jira-users.html">Пользователи Jira</a>
+        <a href="audit.html">Аудит</a>
       </nav>
     </div>
   </header>
@@ -76,6 +77,12 @@
     <div id="heatmapContainer" class="dashboard-heatmap-wrap" style="display: none;"></div>
     <div id="cardsContainer" style="display: none;"></div>
     <div id="tableSummary" class="meta" style="margin-top: 10px;"></div>
+  </div>
+
+  <div class="panel" id="auditPanel" style="display: none;">
+    <h2>Последние события (Audit Logs)</h2>
+    <p class="meta">События из загруженных Audit Logs в БД. <a href="audit.html">Все события с фильтром →</a></p>
+    <div id="auditEventsContainer"></div>
   </div>
 
   <div class="panel" id="emptyState">

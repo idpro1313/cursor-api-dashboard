@@ -237,6 +237,32 @@ chmod +x scripts/deploy.sh
 | `CORS_ORIGIN` | Разрешённые origins через запятую. | все |
 | `PROXY_TIMEOUT_MS` | Таймаут запроса к Cursor API, мс. | 60000 |
 | `RATE_LIMIT_MAX` | Максимум запросов с одного IP в минуту к нашему серверу. | 120 |
+| `SYNC_LOG_FILE` | Путь к файлу: все события загрузки (sync) дополнительно пишутся в этот файл (append). Пусто — только stdout. | — |
+
+---
+
+## 9.1 Логирование процесса загрузки (sync)
+
+При синхронизации (кнопка «Загрузить и сохранить в БД») в stdout и при необходимости в файл (`SYNC_LOG_FILE`) пишутся строки формата:
+
+```
+[SYNC] ISO_TIMESTAMP action=... key=value ...
+```
+
+**Действия (action):**
+
+| action | Описание |
+|--------|----------|
+| `start` | Старт синхронизации: startDate, endDate, endCapped, totalSteps. |
+| `request` | Перед запросом к Cursor API: endpoint, method, chunkLabel, page (если есть). |
+| `response` | Успешный ответ: endpoint, status, durationMs. |
+| `saved` | После записи в БД: endpoint, records, days. |
+| `retry` | Повтор из-за 429: endpoint, status, attempt, durationMs. |
+| `error` | Ошибка запроса или эндпоинта: endpoint, status, error, durationMs. |
+| `skipped` | Эндпоинт пропущен (функция не включена): endpoint, reason. |
+| `complete` | Конец синхронизации: saved, okCount, errorsCount, skippedCount, errors (текст). |
+
+**Анализ лога:** ошибки искать по `action=error` или `action=complete` с `errorsCount>0`. По `durationMs` можно находить медленные запросы. Пример (bash): `grep '\[SYNC\]' sync.log | grep 'action=error'`.
 
 ---
 

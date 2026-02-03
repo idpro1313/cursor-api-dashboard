@@ -6,7 +6,30 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const db = require('./db');
+
+/** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
+const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || '';
+function syncLog(action, fields = {}) {
+  const ts = new Date().toISOString();
+  const parts = ['[SYNC]', ts, 'action=' + action];
+  Object.entries(fields).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    const escaped = /[\s=]/.test(val) ? '"' + val.replace(/"/g, '\\"') + '"' : val;
+    parts.push(k + '=' + escaped);
+  });
+  const line = parts.join(' ') + '\n';
+  console.log(line.trim());
+  if (SYNC_LOG_FILE) {
+    try {
+      fs.appendFileSync(SYNC_LOG_FILE, line, 'utf8');
+    } catch (e) {
+      console.error('[SYNC] log write failed:', e.message);
+    }
+  }
+}
 
 function isApiKeyConfigured() {
   return !!(process.env.CURSOR_API_KEY || db.getApiKey());
@@ -188,7 +211,7 @@ function getMissingChunksWithMeta(startDate, endCapped, existingSet) {
  * Запрос к Cursor Admin API с Basic Auth (для синхронизации).
  * Соблюдает лимиты (20/60 запр/мин), при 429 — exponential backoff (cursor.com/docs/api).
  */
-async function cursorFetch(apiKey, apiPath, options = {}) {
+async function cursorFetch(apiKey, apiPath, options = {}, logContext = {}) {
   const { method = 'GET', query = {}, body } = options;
   const url = new URL(apiPath, CURSOR_API);
   Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, String(v)));
@@ -199,24 +222,45 @@ async function cursorFetch(apiKey, apiPath, options = {}) {
   };
   if (body && method === 'POST') opts.body = JSON.stringify(body);
 
+  syncLog('request', { endpoint: apiPath, method, ...logContext });
+
   for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
     await waitCursorRateLimit(apiPath);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
     opts.signal = controller.signal;
-    const r = await fetch(url.toString(), opts);
+    const startMs = Date.now();
+    let r;
+    try {
+      r = await fetch(url.toString(), opts);
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      syncLog('error', { endpoint: apiPath, error: fetchErr.message || String(fetchErr), durationMs: Date.now() - startMs, ...logContext });
+      throw fetchErr;
+    }
     clearTimeout(timeoutId);
+    const durationMs = Date.now() - startMs;
     const data = await r.json().catch(() => ({}));
 
     if (r.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+      syncLog('retry', { endpoint: apiPath, status: 429, attempt: attempt + 1, durationMs, ...logContext });
       const waitMs = RATE_LIMIT_BACKOFF_BASE_MS * Math.pow(2, attempt);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
       continue;
     }
-    if (r.status === 401) throw new Error('INVALID_API_KEY');
-    if (!r.ok) throw new Error(data.error || data.message || r.statusText);
+    if (r.status === 401) {
+      syncLog('error', { endpoint: apiPath, status: 401, error: 'INVALID_API_KEY', durationMs, ...logContext });
+      throw new Error('INVALID_API_KEY');
+    }
+    if (!r.ok) {
+      const errMsg = data.error || data.message || r.statusText;
+      syncLog('error', { endpoint: apiPath, status: r.status, error: errMsg, durationMs, ...logContext });
+      throw new Error(errMsg);
+    }
+    syncLog('response', { endpoint: apiPath, status: r.status, durationMs, ...logContext });
     return data;
   }
+  syncLog('error', { endpoint: apiPath, error: 'Rate limit exceeded', ...logContext });
   throw new Error('Rate limit exceeded. Please try again later.');
 }
 
@@ -414,6 +458,8 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
   const results = { ok: [], errors: [], skipped: [], saved: 0 };
   let currentStep = 0;
 
+  syncLog('start', { startDate, endDate, endCapped, totalSteps });
+
   for (const ep of SYNC_ENDPOINTS) {
     try {
       let savedForEp = 0;
@@ -432,12 +478,13 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
           method: ep.method,
           query: ep.method === 'GET' ? {} : undefined,
           body: ep.method === 'POST' ? {} : undefined,
-        });
+        }, { endpointLabel: ep.label, chunkLabel: 'snapshot' });
         const rows = parseResponseToDays(ep.path, response, chunkEnd);
         for (const { date, payload } of rows) {
           db.upsertAnalytics(ep.path, date, payload);
           savedForEp++;
         }
+        syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, records: savedForEp, days: rows.length });
         currentStep++;
         if (onProgress) {
           onProgress({
@@ -485,7 +532,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
               response = await cursorFetch(apiKey, ep.path, {
                 method: 'GET',
                 query: { startTime: chunkStart, endTime: chunkEnd, page, pageSize },
-              });
+              }, { endpointLabel: ep.label, chunkLabel, page });
               if (Array.isArray(response.events)) allEvents.push(...response.events);
               hasNext = response.pagination?.hasNextPage === true;
               page++;
@@ -498,7 +545,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
                 startDate: dateToEpochMs(chunkStart),
                 endDate: dateToEpochMs(chunkEnd),
               },
-            });
+            }, { endpointLabel: ep.label, chunkLabel });
           } else if (ep.path === '/teams/filtered-usage-events') {
             const allEvents = [];
             let page = 1;
@@ -523,7 +570,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
                   page,
                   pageSize,
                 },
-              });
+              }, { endpointLabel: ep.label, chunkLabel, page });
               if (Array.isArray(response.usageEvents)) allEvents.push(...response.usageEvents);
               hasNext = response.pagination?.hasNextPage === true;
               page++;
@@ -539,6 +586,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
             savedForEp++;
             stepSaved++;
           }
+          syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, chunkLabel, records: stepSaved, days: rows.length });
           currentStep++;
           if (onProgress) {
             onProgress({
@@ -559,15 +607,24 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
       results.ok.push(ep.path);
     } catch (e) {
       if (isFeatureNotEnabled(e.message)) {
+        syncLog('skipped', { endpoint: ep.path, reason: 'feature_not_enabled' });
         results.skipped.push({ endpoint: ep.path, reason: 'Функция не включена для команды' });
         results.ok.push(ep.path);
       } else {
+        syncLog('error', { endpoint: ep.path, error: e.message, step: 'runSyncToDB' });
         results.errors.push({ endpoint: ep.path, error: e.message });
       }
     }
   }
 
   const skippedNote = results.skipped.length ? ` Пропущено (функция не включена): ${results.skipped.length}.` : '';
+  syncLog('complete', {
+    saved: results.saved,
+    okCount: results.ok.length,
+    errorsCount: results.errors.length,
+    skippedCount: results.skipped.length,
+    errors: results.errors.length ? results.errors.map((e) => e.endpoint + ':' + e.error).join('; ') : undefined,
+  });
   return {
     message: `Сохранено записей по дням: ${results.saved}. Успешно: ${results.ok.length}, ошибок: ${results.errors.length}.${skippedNote}`,
     saved: results.saved,
@@ -894,7 +951,90 @@ app.get('/api/users/activity-by-month', (req, res) => {
       });
       users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
     }
-    res.json({ users, months });
+
+    // Spending Data: траты по пользователям из последнего снимка /teams/spend
+    const emailToSpendCents = new Map();
+    const spendRows = db.getAnalytics({ endpoint: '/teams/spend' });
+    if (spendRows.length > 0) {
+      const latest = spendRows.sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+      const spendList = latest?.payload?.teamMemberSpend;
+      if (Array.isArray(spendList)) {
+        for (const s of spendList) {
+          const email = (s.userEmail || s.email || s.user_email || '').toString().trim().toLowerCase();
+          if (!email) continue;
+          const cents = Number(s.cents ?? s.totalCents ?? s.spendCents ?? s.amount ?? 0) || 0;
+          emailToSpendCents.set(email, (emailToSpendCents.get(email) || 0) + cents);
+        }
+      }
+    }
+    let totalTeamSpendCents = 0;
+    for (const u of users) {
+      const cents = emailToSpendCents.get(u.email) || 0;
+      u.teamSpendCents = cents;
+      totalTeamSpendCents += cents;
+    }
+
+    // Team Members: последний снимок /teams/members для сводки
+    let teamMembersCount = 0;
+    let teamMembers = [];
+    const membersRows = db.getAnalytics({ endpoint: '/teams/members' });
+    if (membersRows.length > 0) {
+      const latest = membersRows.sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+      const list = latest?.payload?.teamMembers;
+      if (Array.isArray(list)) {
+        teamMembersCount = list.length;
+        teamMembers = list.map((m) => ({
+          email: (m.email || m.userEmail || m.user_email || '').toString().trim().toLowerCase(),
+          name: (m.name || m.displayName || m.display_name || m.email || '').toString().trim(),
+        })).filter((m) => m.email || m.name);
+      }
+    }
+
+    res.json({ users, months, totalTeamSpendCents, teamMembersCount, teamMembers });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** События Audit Logs для страницы аудита и блока на дашборде. */
+app.get('/api/audit-events', (req, res) => {
+  try {
+    const startDate = req.query.startDate || undefined;
+    const endDate = req.query.endDate || undefined;
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const eventType = (req.query.eventType || '').trim() || undefined;
+    const rows = db.getAnalytics({
+      endpoint: '/teams/audit-logs',
+      startDate,
+      endDate,
+    });
+    const allEvents = [];
+    for (const row of rows) {
+      const events = row.payload?.events;
+      if (!Array.isArray(events)) continue;
+      for (const e of events) {
+        allEvents.push({
+          ...e,
+          _date: row.date,
+        });
+      }
+    }
+    allEvents.sort((a, b) => {
+      const ta = a.timestamp != null ? Number(a.timestamp) : 0;
+      const tb = b.timestamp != null ? Number(b.timestamp) : 0;
+      return tb - ta;
+    });
+    let filtered = allEvents;
+    if (eventType) {
+      const typeLower = eventType.toLowerCase();
+      filtered = allEvents.filter((e) => {
+        const t = (e.type || e.action || e.eventType || e.name || '').toString().toLowerCase();
+        return t.includes(typeLower);
+      });
+    }
+    const events = filtered.slice(0, limit);
+    const eventTypes = [...new Set(allEvents.map((e) => (e.type || e.action || e.eventType || e.name || '').toString()).filter(Boolean))].sort();
+    res.json({ events, total: filtered.length, eventTypes });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
