@@ -18,7 +18,8 @@ function syncLog(action, fields = {}) {
   const parts = ['[SYNC]', ts, 'action=' + action];
   Object.entries(fields).forEach(([k, v]) => {
     if (v === undefined || v === null) return;
-    const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    let val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    val = val.replace(/\r/g, '').replace(/\n/g, '\\n');
     const escaped = /[\s=]/.test(val) ? '"' + val.replace(/"/g, '\\"') + '"' : val;
     parts.push(k + '=' + escaped);
   });
@@ -225,7 +226,9 @@ async function cursorFetch(apiKey, apiPath, options = {}, logContext = {}) {
   };
   if (body && method === 'POST') opts.body = JSON.stringify(body);
 
+  const requestPayload = method === 'POST' ? body : query;
   syncLog('request', { endpoint: apiPath, method, ...logContext });
+  syncLog('request_body', { endpoint: apiPath, body: JSON.stringify(requestPayload || {}) });
 
   for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
     await waitCursorRateLimit(apiPath);
@@ -258,9 +261,16 @@ async function cursorFetch(apiKey, apiPath, options = {}, logContext = {}) {
     if (!r.ok) {
       const errMsg = data.error || data.message || r.statusText;
       syncLog('error', { endpoint: apiPath, status: r.status, error: errMsg, durationMs, ...logContext });
+      syncLog('response_body', { endpoint: apiPath, body: JSON.stringify(data), status: r.status });
       throw new Error(errMsg);
     }
+    const responseStr = JSON.stringify(data);
+    const maxLogLen = 20000;
+    const responseBodyLog = responseStr.length > maxLogLen
+      ? responseStr.slice(0, maxLogLen) + ' ... (truncated, total ' + responseStr.length + ' chars)'
+      : responseStr;
     syncLog('response', { endpoint: apiPath, status: r.status, durationMs, ...logContext });
+    syncLog('response_body', { endpoint: apiPath, body: responseBodyLog, status: r.status });
     return data;
   }
   syncLog('error', { endpoint: apiPath, error: 'Rate limit exceeded', ...logContext });
