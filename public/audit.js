@@ -75,13 +75,18 @@ async function loadAudit() {
       const date = formatAuditDate(e.timestamp);
       const user = escapeHtml((e.userEmail || e.email || e.user_email || e.actor || '—').toString());
       const action = escapeHtml((e.type || e.action || e.eventType || e.name || '—').toString());
+      const eventType = escapeHtml((e.event_type || e.eventType || e.type || e.action || e.name || '—').toString());
+      const eventDataStr = (e.event_data != null)
+        ? (typeof e.event_data === 'object' ? JSON.stringify(e.event_data) : String(e.event_data))
+        : '';
+      const eventData = escapeHtml(eventDataStr);
       const details = (e.details || e.metadata) ? escapeHtml(JSON.stringify(e.details || e.metadata)) : '';
-      return `<tr><td>${date}</td><td>${user}</td><td>${action}</td><td class="audit-details">${details}</td></tr>`;
+      return `<tr><td>${date}</td><td>${user}</td><td>${action}</td><td>${eventType}</td><td class="audit-details">${eventData || '—'}</td><td class="audit-details">${details || '—'}</td></tr>`;
     }).join('');
     resultsContainer.innerHTML = `
       <div class="table-wrap">
         <table class="data-table audit-table">
-          <thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th><th>Детали</th></tr></thead>
+          <thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th><th>Тип события</th><th>Данные события</th><th>Детали</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>

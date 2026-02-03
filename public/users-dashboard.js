@@ -790,6 +790,54 @@ function renderTable(preparedUsers, months, viewMetric) {
 
 const DAILY_USAGE_ENDPOINT = '/teams/daily-usage-data';
 
+/** Кэш последних загруженных данных: при смене сортировки/вида обновляем только блок пользователей. */
+let lastDashboardData = null;
+
+/** Обновляет только блок «Активность по пользователям» (без повторного запроса к API). */
+function updateContentBlockOnly() {
+  if (!lastDashboardData) return;
+  const viewModeEl = document.getElementById('viewMode');
+  const sortByEl = document.getElementById('sortBy');
+  const showOnlyActiveEl = document.getElementById('showOnlyActive');
+  const viewMode = viewModeEl ? viewModeEl.value : 'cards';
+  const sortBy = sortByEl ? sortByEl.value : 'requests';
+  const showOnlyActive = showOnlyActiveEl ? showOnlyActiveEl.checked : true;
+  const data = lastDashboardData;
+  const months = data.months || [];
+  const users = data.users || [];
+  if (!users.length || !months.length) return;
+  const tableContainer = document.getElementById('tableContainer');
+  const heatmapContainer = document.getElementById('heatmapContainer');
+  const cardsContainer = document.getElementById('cardsContainer');
+  const tableSummary = document.getElementById('tableSummary');
+  if (!tableContainer || !heatmapContainer || !cardsContainer) return;
+
+  const preparedUsers = prepareUsers(data, sortBy, showOnlyActive);
+  const viewMetric = sortBy === 'lines' ? 'lines' : sortBy === 'activeDays' ? 'activeDays' : 'requests';
+
+  tableContainer.style.display = 'none';
+  heatmapContainer.style.display = 'none';
+  heatmapContainer.innerHTML = '';
+  cardsContainer.style.display = 'none';
+  cardsContainer.innerHTML = '';
+
+  if (viewMode === 'cards') {
+    cardsContainer.innerHTML = renderCards(preparedUsers, months, viewMetric, 0);
+    cardsContainer.style.display = 'block';
+    setupCardsSelection();
+  } else if (viewMode === 'heatmap') {
+    heatmapContainer.innerHTML = renderHeatmap(preparedUsers, months, viewMetric);
+    heatmapContainer.style.display = 'block';
+    setupMainTableSort();
+  } else {
+    tableContainer.innerHTML = renderTable(preparedUsers, months, viewMetric);
+    tableContainer.style.display = 'block';
+    setupMainTableSort();
+  }
+
+  if (tableSummary) tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
+}
+
 /** По умолчанию подставить период по данным в БД (Daily Usage); если пусто — последние 90 дней. */
 async function setDefaultDates() {
   const elEnd = document.getElementById('endDate');

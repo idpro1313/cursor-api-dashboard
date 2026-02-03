@@ -1313,12 +1313,18 @@ app.get('/api/audit-events', requireSettingsAuth, (req, res) => {
     if (eventType) {
       const typeLower = eventType.toLowerCase();
       filtered = allEvents.filter((e) => {
-        const t = (e.type || e.action || e.eventType || e.name || '').toString().toLowerCase();
+        const t = (e.type || e.action || e.eventType || e.event_type || e.name || '').toString().toLowerCase();
         return t.includes(typeLower);
       });
     }
     const events = filtered.slice(0, limit);
-    const eventTypes = [...new Set(allEvents.map((e) => (e.type || e.action || e.eventType || e.name || '').toString()).filter(Boolean))].sort();
+    const eventTypes = [...new Set(allEvents.flatMap((e) => [
+      (e.type || '').toString(),
+      (e.action || '').toString(),
+      (e.eventType || '').toString(),
+      (e.event_type || '').toString(),
+      (e.name || '').toString(),
+    ].filter(Boolean)))].sort();
     res.json({ events, total: filtered.length, eventTypes });
   } catch (e) {
     res.status(500).json({ error: e.message });
