@@ -19,6 +19,15 @@ function tableToTsv(table) {
   return rows.join('\n');
 }
 
+function showCopyFeedback(btn, message) {
+  const feedback = btn.parentElement && btn.parentElement.querySelector('.copy-feedback');
+  if (feedback) {
+    feedback.textContent = message;
+    feedback.classList.add('visible');
+    setTimeout(() => { feedback.textContent = ''; feedback.classList.remove('visible'); }, 2000);
+  }
+}
+
 /** Копирует таблицу в буфер по кнопке с data-copy-target (id контейнера таблицы или самой таблицы). */
 function copyTableFromButton(ev) {
   const btn = ev.target.closest('.btn-copy-table');
@@ -30,17 +39,29 @@ function copyTableFromButton(ev) {
   const table = el.tagName === 'TABLE' ? el : el.querySelector('table');
   if (!table) return;
   const tsv = tableToTsv(table);
-  navigator.clipboard.writeText(tsv).then(() => {
-    const feedback = btn.parentElement.querySelector('.copy-feedback');
-    if (feedback) {
-      feedback.textContent = 'Скопировано';
-      feedback.classList.add('visible');
-      setTimeout(() => { feedback.textContent = ''; feedback.classList.remove('visible'); }, 2000);
-    }
-  }).catch(() => {
-    const feedback = btn.parentElement.querySelector('.copy-feedback');
-    if (feedback) { feedback.textContent = 'Ошибка'; feedback.classList.add('visible'); }
-  });
+
+  function onSuccess() { showCopyFeedback(btn, 'Скопировано'); }
+  function onError() { showCopyFeedback(btn, 'Ошибка'); }
+
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(tsv).then(onSuccess).catch(onError);
+    return;
+  }
+  // Запасной вариант для HTTP или старых браузеров: временное textarea + execCommand
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = tsv;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.setAttribute('readonly', '');
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (ok) onSuccess(); else onError();
+  } catch (e) {
+    onError();
+  }
 }
 
 function escapeHtml(s) {

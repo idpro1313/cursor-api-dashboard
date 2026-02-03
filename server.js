@@ -179,23 +179,24 @@ app.get('/api/auth/check', (req, res) => {
   res.json({ authenticated: !!login });
 });
 
-// Защищённые страницы настроек: только после входа (явные маршруты, чтобы static их не отдал)
-const SETTINGS_PAGES = ['admin.html', 'data.html', 'jira-users.html', 'audit.html', 'settings.html'];
-function sendSettingsPageIfExists(req, res) {
+// Защищённые страницы настроек: только после входа. Перехват по пути без учёта регистра,
+// чтобы /Data.html или /DATA.HTML не обходили авторизацию через express.static (на Windows отдаёт тот же файл).
+const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'jira-users.html', 'audit.html', 'settings.html'];
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
   const base = path.basename(req.path);
-  const file = path.join(__dirname, 'public', base);
-  if (fs.existsSync(file)) {
-    res.setHeader('Cache-Control', 'no-store');
-    res.sendFile(file);
-  } else {
-    res.status(404).send('Not Found');
-  }
-}
-app.get('/admin.html', requireSettingsAuth, sendSettingsPageIfExists);
-app.get('/data.html', requireSettingsAuth, sendSettingsPageIfExists);
-app.get('/jira-users.html', requireSettingsAuth, sendSettingsPageIfExists);
-app.get('/audit.html', requireSettingsAuth, sendSettingsPageIfExists);
-app.get('/settings.html', requireSettingsAuth, sendSettingsPageIfExists);
+  const lower = base.toLowerCase();
+  if (!SETTINGS_PAGES_LOWER.includes(lower)) return next();
+  requireSettingsAuth(req, res, () => {
+    const file = path.join(__dirname, 'public', lower);
+    if (fs.existsSync(file)) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.sendFile(file);
+    } else {
+      res.status(404).send('Not Found');
+    }
+  });
+});
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
