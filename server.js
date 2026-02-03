@@ -857,13 +857,33 @@ function getJiraProjectFromRow(row) {
 const JIRA_SUBSCRIPTION_START_KEYS = ['Дата начала подписки', 'Subscription start date', 'Subscription start', 'Дата подписки', 'Start date'];
 const JIRA_DATE_KEYS = ['Дата', 'Date', 'Created', 'Создан', 'Обновлён', 'Updated', 'Дата изменения', 'Дата выдачи'];
 
+/** Парсит дату из Jira: ДД.ММ.ГГГГ, ДД.ММ.ГГГГ ЧЧ:мм или ISO/другие форматы. Возвращает Date или null. */
+function parseJiraDateStr(str) {
+  if (str == null || String(str).trim() === '') return null;
+  const s = String(str).trim();
+  const ddmmyyyy = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/;
+  const m = s.match(ddmmyyyy);
+  if (m) {
+    const day = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10) - 1;
+    const year = parseInt(m[3], 10);
+    const hour = m[4] != null ? parseInt(m[4], 10) : 0;
+    const min = m[5] != null ? parseInt(m[5], 10) : 0;
+    const sec = m[6] != null ? parseInt(m[6], 10) : 0;
+    const d = new Date(year, month, day, hour, min, sec);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 /** Дата из строки Jira в формате YYYY-MM-DD (для отображения подключения/отключения). */
 function getJiraDateFromRow(row) {
-  for (const k of JIRA_DATE_KEYS) {
+  const keys = [...JIRA_SUBSCRIPTION_START_KEYS, ...JIRA_DATE_KEYS];
+  for (const k of keys) {
     const v = row[k];
-    if (v == null || String(v).trim() === '') continue;
-    const d = new Date(String(v).trim());
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const d = parseJiraDateStr(v);
+    if (d) return d.toISOString().slice(0, 10);
   }
   return null;
 }
@@ -873,9 +893,8 @@ function getJiraRowOrderKey(row, id) {
   const dateKeys = [...JIRA_SUBSCRIPTION_START_KEYS, ...JIRA_DATE_KEYS];
   for (const k of dateKeys) {
     const v = row[k];
-    if (v == null || String(v).trim() === '') continue;
-    const d = new Date(String(v).trim());
-    if (!isNaN(d.getTime())) return d.getTime();
+    const d = parseJiraDateStr(v);
+    if (d) return d.getTime();
   }
   return id;
 }

@@ -615,7 +615,6 @@ async function load() {
 
     tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
     statusEl.textContent = '';
-    loadAuditPreview();
   } catch (e) {
     statusEl.textContent = e.message || 'Ошибка загрузки';
     statusEl.className = 'meta error';
@@ -628,51 +627,9 @@ async function load() {
   }
 }
 
-function formatAuditEventDate(ts) {
-  if (ts == null) return '—';
-  const d = new Date(typeof ts === 'number' ? ts : Number(ts) || ts);
-  return isNaN(d.getTime()) ? String(ts) : d.toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
-}
-
-async function loadAuditPreview() {
-  const container = document.getElementById('auditEventsContainer');
-  const panel = document.getElementById('auditPanel');
-  if (!container || !panel) return;
-  try {
-    const r = await fetch('/api/audit-events?limit=20');
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
-    const events = data.events || [];
-    panel.style.display = 'block';
-    if (events.length === 0) {
-      container.innerHTML = '<p class="muted">Нет событий. Загрузите Audit Logs в разделе <a href="admin.html">Настройки и загрузка</a>.</p>';
-      return;
-    }
-    const rows = events.map((e) => {
-      const date = formatAuditEventDate(e.timestamp);
-      const user = escapeHtml((e.userEmail || e.email || e.user_email || e.actor || '—').toString());
-      const action = escapeHtml((e.type || e.action || e.eventType || e.name || '—').toString());
-      const details = e.details || e.metadata ? escapeHtml(JSON.stringify(e.details || e.metadata || {})) : '';
-      return `<tr><td>${date}</td><td>${user}</td><td>${action}</td><td class="audit-details">${details}</td></tr>`;
-    }).join('');
-    container.innerHTML = `
-      <div class="table-wrap">
-        <table class="data-table audit-table">
-          <thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th><th>Детали</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    `;
-  } catch (e) {
-    panel.style.display = 'block';
-    container.innerHTML = '<p class="muted">Не удалось загрузить события: ' + escapeHtml(e.message) + '</p>';
-  }
-}
-
 function init() {
   setDefaultDates().then(() => {
     if (document.getElementById('startDate').value && document.getElementById('endDate').value) load();
-    else loadAuditPreview();
   });
   document.getElementById('btnLoad').addEventListener('click', load);
   const refresh = () => {
@@ -681,7 +638,6 @@ function init() {
   document.getElementById('viewMode').addEventListener('change', refresh);
   document.getElementById('sortBy').addEventListener('change', refresh);
   document.getElementById('showOnlyActive').addEventListener('change', refresh);
-  loadAuditPreview();
 }
 
 if (document.readyState === 'loading') {
