@@ -1236,6 +1236,8 @@ app.get('/api/users/activity-by-month', (req, res) => {
       displayName: u.displayName,
       jiraProject: u.jiraProject,
       jiraStatus: u.jiraStatus,
+      jiraConnectedAt: u.jiraConnectedAt,
+      jiraDisconnectedAt: u.jiraDisconnectedAt,
       lastActivityMonth: u.lastActivityMonth,
       totalRequestsInPeriod: u.totalRequestsInPeriod,
       teamSpendCents: u.teamSpendCents,

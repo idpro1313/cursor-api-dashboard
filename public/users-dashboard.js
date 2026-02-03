@@ -62,6 +62,13 @@ function getUserTotals(user) {
   return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts, usageInputTokens, usageOutputTokens, usageCacheWriteTokens, usageCacheReadTokens, usageTokenCents, usageCostByModel };
 }
 
+/** Направление сортировки по имени (таблица/тепловая карта). */
+let tableSortNameDir = 'asc';
+/** Состояние сортировки таблицы «Затраты по проекту». */
+let costByProjectSort = { key: 'project', dir: 'asc' };
+/** Данные для повторного рендера таблицы затрат по проекту при смене сортировки. */
+let costByProjectData = null;
+
 /** Фильтр и сортировка пользователей */
 function prepareUsers(data, sortBy, showOnlyActive) {
   let users = (data.users || []).slice();
@@ -80,6 +87,7 @@ function prepareUsers(data, sortBy, showOnlyActive) {
     }
   };
   users.sort(cmp);
+  if (sortBy === 'name' && tableSortNameDir === 'desc') users.reverse();
   return users;
 }
 
@@ -268,13 +276,25 @@ function setupInactiveCursorSort() {
   }
 }
 
-/** Блок: затраты по проекту помесячно */
-function renderCostByProject(costByProjectByMonth, projectTotals, months) {
-  const projects = Object.keys(costByProjectByMonth || {}).sort();
+/** Блок: затраты по проекту помесячно (с сортировкой по клику на заголовок). */
+function renderCostByProject(costByProjectByMonth, projectTotals, months, sortState) {
+  let projects = Object.keys(costByProjectByMonth || {});
   if (!projects.length) {
     return '<p class="muted">Нет данных по проектам. Загрузите <a href="jira-users.html">пользователей Jira</a> с полем «Проект».</p>';
   }
+  const state = sortState || costByProjectSort;
+  const dir = state.dir === 'desc' ? -1 : 1;
+  projects = projects.slice().sort((a, b) => {
+    if (state.key === 'project') {
+      return dir * String(a).localeCompare(String(b), 'ru');
+    }
+    const va = projectTotals && projectTotals[a] ? projectTotals[a] : 0;
+    const vb = projectTotals && projectTotals[b] ? projectTotals[b] : 0;
+    return dir * (va - vb);
+  });
   const monthHeaders = (months || []).map((m) => `<th title="${m}">${formatMonthShort(m)}</th>`).join('');
+  const projectArrow = state.key === 'project' ? (state.dir === 'asc' ? ' ↑' : ' ↓') : '';
+  const spendArrow = state.key === 'spend' ? (state.dir === 'asc' ? ' ↑' : ' ↓') : '';
   const rows = projects.map((project) => {
     const byMonth = costByProjectByMonth[project] || {};
     const cells = (months || []).map((month) => {
@@ -285,12 +305,15 @@ function renderCostByProject(costByProjectByMonth, projectTotals, months) {
     const totalSpend = projectTotals && projectTotals[project] ? formatCostCents(projectTotals[project]) : '—';
     return `<tr><th class="project-name">${escapeHtml(project)}</th>${cells}<td class="num" title="Spend API за период">${totalSpend !== '—' ? '$' + totalSpend : '—'}</td></tr>`;
   }).join('');
-  const monthHeaderCells = (months || []).map((m) => `<th>${formatMonthShort(m)}</th>`).join('');
   return `
-    <div class="table-wrap cost-by-project-table-wrap">
+    <div class="table-wrap cost-by-project-table-wrap" id="costByProjectTableWrap">
       <table class="data-table cost-by-project-table">
         <thead>
-          <tr><th>Проект</th>${monthHeaderCells}<th>Spend API (период)</th></tr>
+          <tr>
+            <th class="sortable" data-sort="project" title="Сортировать">Проект${projectArrow}</th>
+            ${monthHeaders}
+            <th class="sortable" data-sort="spend" title="Сортировать">Spend API (период)${spendArrow}</th>
+          </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -423,7 +446,7 @@ function renderCompactUserCard(user, index, isSelected) {
   `;
 }
 
-/** Одна полная карточка пользователя (правая колонка). */
+/** Одна полная карточка пользователя (правая колонка): структурированные блоки и график расходов по месяцам в $. */
 function renderUserCardDetail(user, months, viewMetric, maxVal) {
   if (!user) return '<p class="muted">Выберите пользователя слева.</p>';
   const activityKey = user.monthlyActivity ? 'monthlyActivity' : 'weeklyActivity';
@@ -433,14 +456,24 @@ function renderUserCardDetail(user, months, viewMetric, maxVal) {
   const statusAndDates = formatUserStatusAndDates(user);
   const t = user.totals || getUserTotals(user);
   const act = user[activityKey] || [];
-  const monthCells = act.map((a) => {
-    const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
-    const intensity = getIntensity(v, maxVal);
-    const label = monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey];
-    const usagePart = (a.usageEventsCount > 0 || a.usageCostCents > 0) ? `, событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
-    const title = `${label}: дн. ${a.activeDays}, запросов ${a.requests}, строк +${a.linesAdded}/−${a.linesDeleted}${usagePart}`;
-    return `<span class="week-cell" style="--intensity:${intensity}" title="${escapeHtml(title)}">${v > 0 ? v : ''}</span>`;
+
+  // Максимум расходов по месяцам для шкалы графика
+  let maxCostCents = 0;
+  for (const a of act) {
+    if ((a.usageCostCents || 0) > maxCostCents) maxCostCents = a.usageCostCents;
+  }
+  const monthlyBars = act.map((a) => {
+    const cents = a.usageCostCents || 0;
+    const intensity = maxCostCents > 0 ? getIntensity(cents, maxCostCents) : 0;
+    const label = monthKey === 'month' ? formatMonthShort(a[monthKey]) : a[monthKey];
+    const valueStr = cents > 0 ? `$${formatCostCents(cents)}` : '—';
+    const title = `${monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey]}: ${valueStr}${(a.usageEventsCount || 0) > 0 ? `, событий ${a.usageEventsCount}` : ''}`;
+    return `<div class="user-card-chart-bar" style="--intensity:${intensity}" title="${escapeHtml(title)}">
+      <span class="user-card-chart-value">${valueStr}</span>
+      <span class="user-card-chart-label">${escapeHtml(label)}</span>
+    </div>`;
   }).join('');
+
   const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
   const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
   const hasTokens = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
@@ -458,20 +491,41 @@ function renderUserCardDetail(user, months, viewMetric, maxVal) {
   ` : '';
   const teamSpendStat = (user.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(user.teamSpendCents)}</span>` : '';
   const byModelRows = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('') : '';
-  const costByModelStats = byModelRows ? `<div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div>` : '';
+  const costByModelBlock = byModelRows ? `<div class="user-card-section user-card-section-models"><div class="user-card-section-title">Стоимость по моделям</div><div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div></div>` : '';
+
   return `
     <div class="user-card user-card-detail">
       <div class="user-card-header">
         <div class="user-card-name">${name} ${statusAndDates}</div>
         ${email}
       </div>
-      <div class="user-card-stats">
-        <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
-        <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
-        <span class="user-card-stat stat-add">+${t.linesAdded}</span>
-        <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}${tokenStats}${teamSpendStat}${costByModelStats}
+      <div class="user-card-detail-grid">
+        <div class="user-card-section user-card-section-activity">
+          <div class="user-card-section-title">Активность</div>
+          <div class="user-card-stats user-card-stats-block">
+            <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
+            <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
+            <span class="user-card-stat stat-add">+${t.linesAdded}</span>
+            <span class="user-card-stat stat-del">−${t.linesDeleted}</span>
+            ${applyAccept}
+          </div>
+        </div>
+        <div class="user-card-section user-card-section-spend">
+          <div class="user-card-section-title">Расходы</div>
+          <div class="user-card-stats user-card-stats-block">
+            ${(usageStats || teamSpendStat) ? [usageStats, teamSpendStat].filter(Boolean).join('') : '<span class="muted">Нет данных</span>'}
+          </div>
+        </div>
+        <div class="user-card-section user-card-section-tokens">
+          <div class="user-card-section-title">Токены</div>
+          ${tokenStats || '<p class="muted user-card-no-tokens">Нет данных</p>'}
+        </div>
+        ${costByModelBlock}
       </div>
-      <div class="user-card-weeks" title="Активность по месяцам">${monthCells}</div>
+      <div class="user-card-section user-card-section-monthly">
+        <div class="user-card-section-title">Расход по месяцам ($)</div>
+        <div class="user-card-chart-bars">${monthlyBars}</div>
+      </div>
     </div>
   `;
 }
@@ -531,6 +585,44 @@ function setupCardsSelection() {
   });
 }
 
+/** Сортировка по клику на заголовок «Пользователь» в таблице или тепловой карте. */
+function setupMainTableSort() {
+  const tableWrap = document.getElementById('usersTableWrap');
+  const heatmap = document.querySelector('.dashboard-heatmap');
+  const thead = (tableWrap && tableWrap.querySelector('thead')) || (heatmap && heatmap.querySelector('thead'));
+  if (!thead) return;
+  thead.addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort="name"]');
+    if (!th) return;
+    const sortByEl = document.getElementById('sortBy');
+    if (sortByEl) sortByEl.value = 'name';
+    tableSortNameDir = tableSortNameDir === 'asc' ? 'desc' : 'asc';
+    load();
+  });
+}
+
+/** Сортировка по клику на заголовки таблицы «Затраты по проекту». */
+function setupCostByProjectSort() {
+  const wrap = document.getElementById('costByProjectTableWrap');
+  if (!wrap || !costByProjectData) return;
+  wrap.addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.getAttribute('data-sort');
+    if (key !== 'project' && key !== 'spend') return;
+    if (costByProjectSort.key === key) {
+      costByProjectSort.dir = costByProjectSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      costByProjectSort = { key, dir: 'asc' };
+    }
+    const container = document.getElementById('costByProjectContainer');
+    if (container) {
+      container.innerHTML = renderCostByProject(costByProjectData.costByProjectByMonth, costByProjectData.projectTotals, costByProjectData.months, costByProjectSort);
+      setupCostByProjectSort();
+    }
+  });
+}
+
 /** Тепловая карта: строки = пользователи, столбцы = месяцы */
 function renderHeatmap(preparedUsers, months, viewMetric) {
   if (!months.length) return '<p class="muted">Нет месяцев в периоде.</p>';
@@ -562,7 +654,7 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
   }).join('');
   return `
     <table class="dashboard-heatmap">
-      <thead><tr><th>Пользователь</th>${monthHeaders}</tr></thead>
+      <thead><tr><th class="sortable heatmap-th-name" data-sort="name" title="Сортировать">Пользователь${nameSortArrow}</th>${monthHeaders}</tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -572,6 +664,7 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
 function renderTable(preparedUsers, months, viewMetric) {
   const activityKey = preparedUsers.length && preparedUsers[0].monthlyActivity ? 'monthlyActivity' : 'weeklyActivity';
   const monthKey = activityKey === 'monthlyActivity' ? 'month' : 'week';
+  const nameSortArrow = tableSortNameDir === 'desc' ? ' ↓' : ' ↑';
   const monthHeaders = months.map((m) => `<th title="${m}">${escapeHtml(formatMonthLabel(m))}</th>`).join('');
   let maxVal = 0;
   for (const u of preparedUsers) {
@@ -605,11 +698,11 @@ function renderTable(preparedUsers, months, viewMetric) {
     </tr>`;
   }).join('');
   return `
-    <div class="table-wrap">
+    <div class="table-wrap" id="usersTableWrap">
       <table class="data-table users-dashboard-table">
         <thead>
           <tr>
-            <th>Пользователь</th>
+            <th class="sortable" data-sort="name" title="Сортировать">Пользователь${nameSortArrow}</th>
             ${monthHeaders}
           </tr>
         </thead>
@@ -712,8 +805,10 @@ async function load() {
       setupInactiveCursorSort();
     }
     if (costByProjectPanel && costByProjectContainer) {
-      costByProjectContainer.innerHTML = renderCostByProject(data.costByProjectByMonth || {}, data.projectTotals || {}, data.months || []);
+      costByProjectData = { costByProjectByMonth: data.costByProjectByMonth || {}, projectTotals: data.projectTotals || {}, months: data.months || [] };
+      costByProjectContainer.innerHTML = renderCostByProject(costByProjectData.costByProjectByMonth, costByProjectData.projectTotals, costByProjectData.months, costByProjectSort);
       costByProjectPanel.style.display = 'block';
+      setupCostByProjectSort();
     }
 
     const viewMetric = sortBy === 'lines' ? 'lines' : sortBy === 'activeDays' ? 'activeDays' : 'requests';
@@ -730,9 +825,11 @@ async function load() {
     } else if (viewMode === 'heatmap') {
       heatmapContainer.innerHTML = renderHeatmap(preparedUsers, months, viewMetric);
       heatmapContainer.style.display = 'block';
+      setupMainTableSort();
     } else {
       tableContainer.innerHTML = renderTable(preparedUsers, months, viewMetric);
       tableContainer.style.display = 'block';
+      setupMainTableSort();
     }
 
     tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
