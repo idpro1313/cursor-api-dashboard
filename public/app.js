@@ -314,6 +314,7 @@ async function runSync() {
             appendLog('saved', `Готово. ${event.message || ''}`);
             showSyncResult(resultEl, event, false);
             loadCoverage();
+            progressRow.style.display = 'none';
             return;
           } else if (event.type === 'error') {
             progressRow.style.display = 'none';

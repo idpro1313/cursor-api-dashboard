@@ -581,12 +581,29 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
           }
           const rows = parseResponseToDays(ep.path, response, chunkEnd);
           let stepSaved = 0;
-          for (const { date, payload } of rows) {
-            db.upsertAnalytics(ep.path, date, payload);
-            savedForEp++;
-            stepSaved++;
+          if (rows.length === 0) {
+            const emptyPayload =
+              ep.path === '/teams/audit-logs' ? { events: [], params: response.params || {} }
+                : ep.path === '/teams/daily-usage-data' ? { data: [], period: response.period || {} }
+                  : ep.path === '/teams/filtered-usage-events' ? { usageEvents: [], period: response.period || {} }
+                    : null;
+            if (emptyPayload) {
+              const daysInChunk = datesInRange(chunkStart, chunkEnd);
+              for (const date of daysInChunk) {
+                db.upsertAnalytics(ep.path, date, emptyPayload);
+                savedForEp++;
+                stepSaved++;
+              }
+              syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, chunkLabel, records: stepSaved, days: stepSaved, empty: true });
+            }
+          } else {
+            for (const { date, payload } of rows) {
+              db.upsertAnalytics(ep.path, date, payload);
+              savedForEp++;
+              stepSaved++;
+            }
+            syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, chunkLabel, records: stepSaved, days: rows.length });
           }
-          syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, chunkLabel, records: stepSaved, days: rows.length });
           currentStep++;
           if (onProgress) {
             onProgress({
