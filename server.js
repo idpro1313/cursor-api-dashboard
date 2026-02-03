@@ -723,6 +723,16 @@ function getJiraStatusFromRow(row) {
   return archivedTerms.some((t) => raw.includes(t)) ? 'archived' : 'active';
 }
 
+/** Проект из строки Jira (название или ключ проекта). */
+function getJiraProjectFromRow(row) {
+  const projectKeys = ['Проект', 'Project', 'Project key', 'Название проекта', 'Project name', 'Проект / Project'];
+  for (const k of projectKeys) {
+    const v = row[k];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return null;
+}
+
 const JIRA_DATE_KEYS = ['Дата', 'Date', 'Created', 'Создан', 'Обновлён', 'Updated', 'Дата изменения', 'Дата выдачи'];
 
 /** Дата из строки Jira в формате YYYY-MM-DD (для отображения подключения/отключения). */
@@ -787,7 +797,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
+          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         rec.activeDays += 1;
@@ -820,7 +830,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
+          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         rec.usageEventsCount += 1;
@@ -828,6 +838,8 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const tokenCents = Number(e.tokenUsage?.totalCents ?? 0) || 0;
         const cursorFee = Number(e.cursorTokenFee ?? 0) || 0;
         rec.usageCostCents += tokenCents + cursorFee;
+        const modelKey = (e.model || e.modelId || e.modelName || e.providerModelId || '').toString().trim() || 'Другое';
+        rec.usageCostByModel[modelKey] = (rec.usageCostByModel[modelKey] || 0) + tokenCents + cursorFee;
       }
     }
 
@@ -855,14 +867,16 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const [email, { jira, firstDate, lastDate }] of emailToJiraInfo) {
       const displayName = jira['Пользователь, которому выдан доступ'] || jira['Display Name'] || jira['Username'] || jira['Name'] || email || '—';
       const jiraStatus = getJiraStatusFromRow(jira);
+      const jiraProject = getJiraProjectFromRow(jira);
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
-        return rec ? { ...def, ...rec } : def;
+        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageCostByModel: {} };
+        if (!rec) return def;
+        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) } };
       });
       const jiraConnectedAt = firstDate || null;
       const jiraDisconnectedAt = jiraStatus === 'archived' && lastDate ? lastDate : null;
-      users.push({ jira, email, displayName: String(displayName), jiraStatus, jiraConnectedAt, jiraDisconnectedAt, monthlyActivity });
+      users.push({ jira, email, displayName: String(displayName), jiraStatus, jiraProject, jiraConnectedAt, jiraDisconnectedAt, monthlyActivity });
     }
     const cursorOnlyEmails = new Set();
     for (const key of emailByMonth.keys()) {
@@ -872,10 +886,11 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const email of cursorOnlyEmails) {
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
-        return rec ? { ...def, ...rec } : def;
+        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageCostByModel: {} };
+        if (!rec) return def;
+        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) } };
       });
-      users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
+      users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
     }
     res.json({ users, months });
   } catch (e) {

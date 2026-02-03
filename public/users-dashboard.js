@@ -23,11 +23,12 @@ function formatCostCents(cents) {
   return d.replace(/\.?0+$/, '') || '0';
 }
 
-/** Считаем итоги по пользователю за весь период */
+/** Считаем итоги по пользователю за весь период (в т.ч. стоимость по моделям). */
 function getUserTotals(user) {
   const activity = user.monthlyActivity || user.weeklyActivity || [];
   let requests = 0, activeDays = 0, linesAdded = 0, linesDeleted = 0, applies = 0, accepts = 0;
   let usageEventsCount = 0, usageCostCents = 0, usageRequestsCosts = 0;
+  const usageCostByModel = {};
   for (const a of activity) {
     requests += a.requests || 0;
     activeDays += a.activeDays || 0;
@@ -38,8 +39,12 @@ function getUserTotals(user) {
     usageEventsCount += a.usageEventsCount || 0;
     usageCostCents += a.usageCostCents || 0;
     usageRequestsCosts += a.usageRequestsCosts || 0;
+    const byModel = a.usageCostByModel || {};
+    for (const [model, cents] of Object.entries(byModel)) {
+      usageCostByModel[model] = (usageCostByModel[model] || 0) + cents;
+    }
   }
-  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts };
+  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts, usageCostByModel };
 }
 
 /** Фильтр и сортировка пользователей */
@@ -84,7 +89,7 @@ function formatJiraStatusBadge(user) {
   return `<span class="${cls}" title="Статус в Jira">${escapeHtml(label)}</span>`;
 }
 
-/** Блок рядом с пользователем: значок статуса (активный/архивный) + дата подключения и отключения. */
+/** Блок рядом с пользователем: значок статуса + даты + проект. */
 function formatUserStatusAndDates(user) {
   const badge = formatJiraStatusBadge(user);
   const hasDates = user.jiraConnectedAt || user.jiraDisconnectedAt;
@@ -92,8 +97,10 @@ function formatUserStatusAndDates(user) {
   const disconn = user.jiraDisconnectedAt ? `Откл.: ${formatJiraDate(user.jiraDisconnectedAt)}` : '';
   const datesStr = [conn, disconn].filter(Boolean).join(' · ');
   const datesHtml = hasDates ? `<span class="user-meta-dates" title="Даты из Jira">${escapeHtml(datesStr)}</span>` : '';
-  if (!badge && !datesHtml) return '';
-  return `<span class="user-meta-block">${badge}${datesHtml ? ' ' + datesHtml : ''}</span>`;
+  const projectHtml = user.jiraProject ? `<span class="user-meta-project" title="Проект в Jira">${escapeHtml(user.jiraProject)}</span>` : '';
+  const parts = [badge, datesHtml, projectHtml].filter(Boolean);
+  if (!parts.length) return '';
+  return `<span class="user-meta-block">${parts.join(' ')}</span>`;
 }
 
 function renderSummary(data, preparedUsers) {
@@ -148,6 +155,7 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-value">${escapeHtml(topLabel)}</span>
       <span class="stat-label">самый активный по запросам</span>
     </div>
+    ${costByModelHtml}
   `;
 }
 
@@ -179,6 +187,8 @@ function renderCards(preparedUsers, months, viewMetric) {
     }).join('');
     const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
     const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
+    const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${escapeHtml(model)}: $${formatCostCents(cents)}`).join(', ') : '';
+    const costByModelStats = byModel ? ` <span class="user-card-stat user-card-cost-by-model" title="Стоимость в $ по моделям">${byModel}</span>` : '';
     return `
       <div class="user-card">
         <div class="user-card-header">
@@ -261,8 +271,10 @@ function renderTable(preparedUsers, months, viewMetric) {
       return `<td class="table-cell-intensity" style="--intensity:${intensity}" title="${escapeHtml(title)}">${text}</td>`;
     }).join('');
     const usageTotals = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` · Событий: ${t.usageEventsCount} · $${formatCostCents(t.usageCostCents)}` : '';
+    const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${model}: $${formatCostCents(cents)}`).join('; ') : '';
+    const costByModelLine = byModel ? `<div class="table-user-cost-by-model" title="Стоимость по моделям">${escapeHtml(byModel)}</div>` : '';
     return `<tr>
-      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}</div></td>
+      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}</div>${costByModelLine}</td>
       ${cells}
     </tr>`;
   }).join('');
