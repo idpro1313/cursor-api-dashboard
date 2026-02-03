@@ -42,13 +42,13 @@ function isPathAllowed(apiPath) {
   return ALLOWED_PATH_PREFIXES.some((p) => apiPath.startsWith(p));
 }
 
-// Эндпоинты Admin API для синхронизации в БД (без дублирования по дням)
+// Эндпоинты Admin API для синхронизации в БД (рекомендации: https://cursor.com/docs/account/teams/admin-api)
 const SYNC_ENDPOINTS = [
-  { path: '/teams/members', method: 'GET', syncType: 'snapshot' },
-  { path: '/teams/audit-logs', method: 'GET', syncType: 'daterange', paginated: true },
-  { path: '/teams/daily-usage-data', method: 'POST', syncType: 'daterange', bodyEpoch: true },
-  { path: '/teams/spend', method: 'POST', syncType: 'snapshot' },
-  { path: '/teams/filtered-usage-events', method: 'POST', syncType: 'daterange', paginated: true },
+  { path: '/teams/members', method: 'GET', syncType: 'snapshot', label: 'Team Members' },
+  { path: '/teams/audit-logs', method: 'GET', syncType: 'daterange', paginated: true, label: 'Audit Logs' },
+  { path: '/teams/daily-usage-data', method: 'POST', syncType: 'daterange', bodyEpoch: true, label: 'Daily Usage Data' },
+  { path: '/teams/spend', method: 'POST', syncType: 'snapshot', label: 'Spending Data' },
+  { path: '/teams/filtered-usage-events', method: 'POST', syncType: 'daterange', paginated: true, label: 'Usage Events' },
 ];
 
 // CORS: по умолчанию все origins; для продакшена задайте CORS_ORIGIN (например http://localhost:3333)
@@ -312,21 +312,29 @@ function dateToEpochMs(dateStr) {
   return new Date(dateStr + 'T00:00:00Z').getTime();
 }
 
-app.post('/api/sync', async (req, res) => {
-  const apiKey = getApiKey(req);
-  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
-  const { startDate, endDate } = req.body || {};
-  const validation = validateDateRangeForSync(startDate, endDate);
-  if (!validation.ok) return res.status(400).json({ error: validation.error });
+/** Подсчёт общего числа шагов синхронизации (для прогресса). */
+function getSyncTotalSteps(chunks) {
+  return SYNC_ENDPOINTS.reduce(
+    (acc, ep) => acc + (ep.syncType === 'snapshot' ? 1 : chunks.length),
+    0
+  );
+}
 
+function isFeatureNotEnabled(msg) {
+  return msg && /not enabled|feature is not enabled/i.test(String(msg));
+}
+
+/**
+ * Выполняет синхронизацию в БД. onProgress({ currentStep, totalSteps, endpointLabel, chunkLabel, savedInStep, totalSaved }) вызывается после каждого шага.
+ * Возвращает { message, saved, ok, errors, skipped }.
+ */
+async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
   const today = new Date().toISOString().slice(0, 10);
   const end = endDate || today;
   const chunks = dateChunks(startDate, end);
+  const totalSteps = getSyncTotalSteps(chunks);
   const results = { ok: [], errors: [], skipped: [], saved: 0 };
-
-  function isFeatureNotEnabled(msg) {
-    return msg && /not enabled|feature is not enabled/i.test(String(msg));
-  }
+  let currentStep = 0;
 
   for (const ep of SYNC_ENDPOINTS) {
     try {
@@ -343,7 +351,19 @@ app.post('/api/sync', async (req, res) => {
           db.upsertAnalytics(ep.path, date, payload);
           savedForEp++;
         }
+        currentStep++;
+        if (onProgress) {
+          onProgress({
+            currentStep,
+            totalSteps,
+            endpointLabel: ep.label || ep.path,
+            chunkLabel: null,
+            savedInStep: savedForEp,
+            totalSaved: results.saved + savedForEp,
+          });
+        }
       } else {
+        let chunkIndex = 0;
         for (const { startDate: chunkStart, endDate: chunkEnd } of chunks) {
           let response;
           if (ep.path === '/teams/audit-logs') {
@@ -390,13 +410,28 @@ app.post('/api/sync', async (req, res) => {
             }
             response = { usageEvents: allEvents, period: response.period };
           } else {
+            chunkIndex++;
             continue;
           }
           const rows = parseResponseToDays(ep.path, response, chunkEnd);
+          let stepSaved = 0;
           for (const { date, payload } of rows) {
             db.upsertAnalytics(ep.path, date, payload);
             savedForEp++;
+            stepSaved++;
           }
+          currentStep++;
+          if (onProgress) {
+            onProgress({
+              currentStep,
+              totalSteps,
+              endpointLabel: ep.label || ep.path,
+              chunkLabel: `${chunkStart} – ${chunkEnd}`,
+              savedInStep: stepSaved,
+              totalSaved: results.saved + savedForEp,
+            });
+          }
+          chunkIndex++;
         }
       }
       results.saved += savedForEp;
@@ -412,13 +447,61 @@ app.post('/api/sync', async (req, res) => {
   }
 
   const skippedNote = results.skipped.length ? ` Пропущено (функция не включена): ${results.skipped.length}.` : '';
-  res.json({
+  return {
     message: `Сохранено записей по дням: ${results.saved}. Успешно: ${results.ok.length}, ошибок: ${results.errors.length}.${skippedNote}`,
     saved: results.saved,
     ok: results.ok,
     errors: results.errors,
     skipped: results.skipped,
-  });
+  };
+}
+
+app.post('/api/sync', async (req, res) => {
+  const apiKey = getApiKey(req);
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
+  const { startDate, endDate } = req.body || {};
+  const validation = validateDateRangeForSync(startDate, endDate);
+  if (!validation.ok) return res.status(400).json({ error: validation.error });
+  try {
+    const data = await runSyncToDB(apiKey, startDate, endDate || new Date().toISOString().slice(0, 10), null);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Синхронизация с потоковой отдачей прогресса (SSE). */
+app.post('/api/sync-stream', async (req, res) => {
+  const apiKey = getApiKey(req);
+  if (!apiKey) {
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(401).json({ error: 'API key required.' });
+  }
+  const { startDate, endDate } = req.body || {};
+  const validation = validateDateRangeForSync(startDate, endDate);
+  if (!validation.ok) {
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(400).json({ error: validation.error });
+  }
+  const end = endDate || new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders && res.flushHeaders();
+
+  function send(event) {
+    res.write('data: ' + JSON.stringify(event) + '\n\n');
+  }
+
+  try {
+    const result = await runSyncToDB(apiKey, startDate, end, (p) => send({ type: 'progress', ...p }));
+    send({ type: 'done', ...result });
+  } catch (e) {
+    send({ type: 'error', error: e.message });
+  } finally {
+    res.end();
+  }
 });
 
 app.get('/api/analytics', (req, res) => {

@@ -56,6 +56,15 @@ a { color: var(--accent); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.sync-progress-block { margin-top: 12px; }
+.progress-bar-wrap {
+  height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin-top: 10px;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--accent); border-radius: 4px;
+  transition: width 0.25s ease-out;
+}
+
 /* Блок последних ошибок */
 .errors-panel {
   margin-top: 12px; padding: 12px; background: rgba(248, 81, 73, 0.1);

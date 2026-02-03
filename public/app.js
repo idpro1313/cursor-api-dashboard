@@ -131,6 +131,20 @@ async function loadCoverage() {
   }
 }
 
+function showSyncResult(resultEl, data, isError) {
+  resultEl.style.display = 'block';
+  resultEl.className = isError ? 'sync-result error' : 'sync-result ok';
+  if (isError) {
+    resultEl.textContent = data.error || 'Ошибка';
+    return;
+  }
+  resultEl.innerHTML = `
+    ${escapeHtml(data.message)}<br>
+    ${data.skipped && data.skipped.length ? '<br>Пропущено (функция не включена): ' + data.skipped.map(s => escapeHtml(s.endpoint)).join(', ') : ''}
+    ${data.errors && data.errors.length ? '<br>Ошибки по эндпоинтам: ' + data.errors.map(e => escapeHtml(e.endpoint + ': ' + e.error)).join('; ') : ''}
+  `;
+}
+
 async function runSync() {
   if (!apiKeyConfigured) {
     const apiKey = document.getElementById('apiKey').value.trim();
@@ -147,36 +161,76 @@ async function runSync() {
   const endDate = new Date().toISOString().slice(0, 10);
   const progressRow = document.getElementById('syncProgressRow');
   const progressText = document.getElementById('syncProgressText');
+  const progressBar = document.getElementById('syncProgressBar');
+  const progressDetail = document.getElementById('syncProgressDetail');
   const resultEl = document.getElementById('syncResult');
   const btnSync = document.getElementById('btnSync');
-  progressRow.style.display = 'flex';
+
+  progressRow.style.display = 'block';
   resultEl.style.display = 'none';
   btnSync.disabled = true;
-  progressText.textContent = 'Синхронизация с Cursor API...';
+  progressText.textContent = 'Подготовка...';
+  if (progressBar) progressBar.style.width = '0%';
+  if (progressDetail) progressDetail.textContent = '';
+
   const headers = { 'Content-Type': 'application/json' };
   if (!apiKeyConfigured) headers['X-API-Key'] = document.getElementById('apiKey').value.trim();
+
   try {
-    const r = await fetch('/api/sync', {
+    const r = await fetch('/api/sync-stream', {
       method: 'POST',
       headers,
       body: JSON.stringify({ startDate, endDate }),
     });
-    const data = await r.json();
-    progressRow.style.display = 'none';
-    btnSync.disabled = false;
-    resultEl.style.display = 'block';
     if (!r.ok) {
-      resultEl.className = 'sync-result error';
-      resultEl.textContent = data.error || r.statusText;
+      const err = await r.json().catch(() => ({}));
+      progressRow.style.display = 'none';
+      btnSync.disabled = false;
+      showSyncResult(resultEl, { error: err.error || r.statusText }, true);
       return;
     }
-    resultEl.className = 'sync-result ok';
-    resultEl.innerHTML = `
-      ${escapeHtml(data.message)}<br>
-      ${data.skipped && data.skipped.length ? '<br>Пропущено (функция не включена): ' + data.skipped.map(s => escapeHtml(s.endpoint)).join(', ') : ''}
-      ${data.errors && data.errors.length ? '<br>Ошибки по эндпоинтам: ' + data.errors.map(e => escapeHtml(e.endpoint + ': ' + e.error)).join('; ') : ''}
-    `;
-    loadCoverage();
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        const line = part.split('\n').find((l) => l.startsWith('data: '));
+        if (!line) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'progress') {
+            const pct = event.totalSteps > 0 ? Math.round((event.currentStep / event.totalSteps) * 100) : 0;
+            progressText.textContent = `Загрузка: ${event.currentStep} из ${event.totalSteps} шагов`;
+            if (progressBar) progressBar.style.width = pct + '%';
+            const detail = event.chunkLabel
+              ? `${event.endpointLabel} · ${event.chunkLabel} · записей: +${event.savedInStep} (всего ${event.totalSaved})`
+              : `${event.endpointLabel} · записей: ${event.savedInStep} (всего ${event.totalSaved})`;
+            if (progressDetail) progressDetail.textContent = detail;
+          } else if (event.type === 'done') {
+            progressRow.style.display = 'none';
+            btnSync.disabled = false;
+            progressText.textContent = '';
+            if (progressBar) progressBar.style.width = '100%';
+            showSyncResult(resultEl, event, false);
+            loadCoverage();
+            return;
+          } else if (event.type === 'error') {
+            progressRow.style.display = 'none';
+            btnSync.disabled = false;
+            showSyncResult(resultEl, { error: event.error }, true);
+            return;
+          }
+        } catch (_) {}
+      }
+    }
+    progressRow.style.display = 'none';
+    btnSync.disabled = false;
+    showSyncResult(resultEl, { error: 'Соединение закрыто без результата' }, true);
   } catch (e) {
     progressRow.style.display = 'none';
     btnSync.disabled = false;
