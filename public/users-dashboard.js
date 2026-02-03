@@ -1,6 +1,48 @@
 /**
  * Дашборд использования Cursor: наглядная статистика по пользователям
  */
+
+/** Иконка «Копировать» (SVG) для кнопок копирования таблиц. */
+const COPY_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
+/** Преобразует DOM-таблицу в текст TSV (табуляция между ячейками, перевод строки между строками). */
+function tableToTsv(table) {
+  const rows = [];
+  table.querySelectorAll('tr').forEach((tr) => {
+    const cells = [];
+    tr.querySelectorAll('th, td').forEach((cell) => {
+      const text = (cell.textContent || '').trim().replace(/\s+/g, ' ').replace(/\t/g, ' ').replace(/\n/g, ' ');
+      cells.push(text);
+    });
+    if (cells.length) rows.push(cells.join('\t'));
+  });
+  return rows.join('\n');
+}
+
+/** Копирует таблицу в буфер по кнопке с data-copy-target (id контейнера таблицы или самой таблицы). */
+function copyTableFromButton(ev) {
+  const btn = ev.target.closest('.btn-copy-table');
+  if (!btn) return;
+  const id = btn.getAttribute('data-copy-target');
+  if (!id) return;
+  const el = document.querySelector(id);
+  if (!el) return;
+  const table = el.tagName === 'TABLE' ? el : el.querySelector('table');
+  if (!table) return;
+  const tsv = tableToTsv(table);
+  navigator.clipboard.writeText(tsv).then(() => {
+    const feedback = btn.parentElement.querySelector('.copy-feedback');
+    if (feedback) {
+      feedback.textContent = 'Скопировано';
+      feedback.classList.add('visible');
+      setTimeout(() => { feedback.textContent = ''; feedback.classList.remove('visible'); }, 2000);
+    }
+  }).catch(() => {
+    const feedback = btn.parentElement.querySelector('.copy-feedback');
+    if (feedback) { feedback.textContent = 'Ошибка'; feedback.classList.add('visible'); }
+  });
+}
+
 function escapeHtml(s) {
   if (s == null) return '';
   const div = document.createElement('div');
@@ -68,6 +110,10 @@ let tableSortNameDir = 'asc';
 let costByProjectSort = { key: 'project', dir: 'asc' };
 /** Данные для повторного рендера таблицы затрат по проекту при смене сортировки. */
 let costByProjectData = null;
+/** Состояние сортировки таблицы «Стоимость по моделям». */
+let summaryCostByModelSort = { key: 'cost', dir: 'desc' };
+/** Данные для повторного рендера таблицы стоимости по моделям. */
+let summaryCostByModelData = { entries: [] };
 
 /** Фильтр и сортировка пользователей */
 function prepareUsers(data, sortBy, showOnlyActive) {
@@ -177,7 +223,7 @@ const INACTIVE_CURSOR_COLUMNS = [
   { key: 'jiraConnectedAt', label: 'Дата подключения' },
   { key: 'lastActivityMonth', label: 'Последняя активность' },
   { key: 'totalRequestsInPeriod', label: 'Запросов за период' },
-  { key: 'teamSpendCents', label: 'Spend API' },
+  { key: 'teamSpendCents', label: 'Расходы текущего месяца' },
 ];
 
 /** Блок: активные в Jira, но не/редко используют Cursor (с сортировкой по клику на заголовок) */
@@ -209,7 +255,7 @@ function renderInactiveCursorList(list, sortState) {
   return `
     <div class="inactive-cursor-block">
       <div class="table-actions">
-        <button type="button" class="btn btn-secondary" id="inactiveCursorCopyBtn" title="Скопировать таблицу (с заголовками) в буфер обмена">Скопировать таблицу в буфер</button>
+        <button type="button" class="btn btn-icon btn-copy-table" data-copy-target="#inactiveCursorTableWrap" title="Копировать в буфер" aria-label="Копировать">${COPY_ICON_SVG}</button>
         <span class="copy-feedback" id="inactiveCursorCopyFeedback" aria-live="polite"></span>
       </div>
       <div class="table-wrap" id="inactiveCursorTableWrap">
@@ -220,39 +266,6 @@ function renderInactiveCursorList(list, sortState) {
       </div>
     </div>
   `;
-}
-
-function copyInactiveCursorTableToClipboard() {
-  const sorted = sortInactiveCursorList(inactiveCursorList, inactiveCursorSort.key, inactiveCursorSort.dir);
-  const headerRow = INACTIVE_CURSOR_COLUMNS.map((c) => c.label).join('\t');
-  const dataRows = sorted.map((u) => {
-    const name = (u.displayName || u.email || '').replace(/\t/g, ' ');
-    const email = (u.email || '').replace(/\t/g, ' ');
-    const project = (u.jiraProject || '').replace(/\t/g, ' ');
-    const connectedAt = u.jiraConnectedAt ? formatJiraDate(u.jiraConnectedAt) : '';
-    const lastActive = u.lastActivityMonth ? formatMonthShort(u.lastActivityMonth) : 'нет активности';
-    const req = u.totalRequestsInPeriod != null ? u.totalRequestsInPeriod : 0;
-    const spend = u.teamSpendCents > 0 ? `$${formatCostCents(u.teamSpendCents)}` : '';
-    return [name, email, project, connectedAt, lastActive, req, spend].join('\t');
-  });
-  const tsv = [headerRow, ...dataRows].join('\n');
-  navigator.clipboard.writeText(tsv).then(() => {
-    const el = document.getElementById('inactiveCursorCopyFeedback');
-    if (el) {
-      el.textContent = 'Скопировано';
-      el.classList.add('visible');
-      setTimeout(() => {
-        el.textContent = '';
-        el.classList.remove('visible');
-      }, 2000);
-    }
-  }).catch(() => {
-    const el = document.getElementById('inactiveCursorCopyFeedback');
-    if (el) {
-      el.textContent = 'Ошибка копирования';
-      el.classList.add('visible');
-    }
-  });
 }
 
 function setupInactiveCursorSort() {
@@ -269,11 +282,6 @@ function setupInactiveCursorSort() {
       setupInactiveCursorSort();
     }
   });
-  const copyBtn = document.getElementById('inactiveCursorCopyBtn');
-  if (copyBtn) {
-    copyBtn.replaceWith(copyBtn.cloneNode(true));
-    document.getElementById('inactiveCursorCopyBtn').addEventListener('click', copyInactiveCursorTableToClipboard);
-  }
 }
 
 /** Блок: затраты по проекту помесячно (с сортировкой по клику на заголовок). */
@@ -303,19 +311,57 @@ function renderCostByProject(costByProjectByMonth, projectTotals, months, sortSt
       return `<td class="num">${cents > 0 ? '$' + formatCostCents(cents) : '—'}</td>`;
     }).join('');
     const totalSpend = projectTotals && projectTotals[project] ? formatCostCents(projectTotals[project]) : '—';
-    return `<tr><th class="project-name">${escapeHtml(project)}</th>${cells}<td class="num" title="Spend API за период">${totalSpend !== '—' ? '$' + totalSpend : '—'}</td></tr>`;
+    return `<tr><th class="project-name">${escapeHtml(project)}</th>${cells}<td class="num" title="Расходы текущего месяца">${totalSpend !== '—' ? '$' + totalSpend : '—'}</td></tr>`;
   }).join('');
   return `
-    <div class="table-wrap cost-by-project-table-wrap" id="costByProjectTableWrap">
-      <table class="data-table cost-by-project-table">
-        <thead>
-          <tr>
-            <th class="sortable" data-sort="project" title="Сортировать">Проект${projectArrow}</th>
-            ${monthHeaders}
-            <th class="sortable" data-sort="spend" title="Сортировать">Spend API (период)${spendArrow}</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
+    <div class="table-block-with-copy">
+      <div class="table-actions">
+        <button type="button" class="btn btn-icon btn-copy-table" data-copy-target="#costByProjectTableWrap" title="Копировать в буфер" aria-label="Копировать">${COPY_ICON_SVG}</button>
+        <span class="copy-feedback" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap cost-by-project-table-wrap" id="costByProjectTableWrap">
+        <table class="data-table cost-by-project-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="project" title="Сортировать">Проект${projectArrow}</th>
+              ${monthHeaders}
+              <th class="sortable" data-sort="spend" title="Сортировать">Расходы текущего месяца${spendArrow}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+/** Таблица «Стоимость по моделям ($)» в сводке (с сортировкой по клику на заголовок). */
+function renderSummaryCostByModelTable(entries, sortState) {
+  const state = sortState || summaryCostByModelSort;
+  const dir = state.dir === 'desc' ? -1 : 1;
+  const sorted = entries.slice().sort((a, b) => {
+    if (state.key === 'model') {
+      return dir * String(a[0]).localeCompare(String(b[0]), 'ru');
+    }
+    return dir * (a[1] - b[1]);
+  });
+  const modelArrow = state.key === 'model' ? (state.dir === 'asc' ? ' ↑' : ' ↓') : '';
+  const costArrow = state.key === 'cost' ? (state.dir === 'asc' ? ' ↑' : ' ↓') : '';
+  return `
+    <div class="summary-cost-by-model-label">Стоимость по моделям ($)</div>
+    <div class="table-actions">
+      <button type="button" class="btn btn-icon btn-copy-table" data-copy-target="#summaryCostByModelTableWrap" title="Копировать в буфер" aria-label="Копировать">${COPY_ICON_SVG}</button>
+      <span class="copy-feedback" aria-live="polite"></span>
+    </div>
+    <div class="table-wrap summary-cost-by-model-table-wrap" id="summaryCostByModelTableWrap">
+      <table class="data-table summary-cost-by-model-table">
+        <thead><tr>
+          <th class="sortable" data-sort="model" title="Сортировать">Модель${modelArrow}</th>
+          <th class="sortable num" data-sort="cost" title="Сортировать">Стоимость ($)${costArrow}</th>
+        </tr></thead>
+        <tbody>
+          ${sorted.map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('')}
+        </tbody>
       </table>
     </div>
   `;
@@ -364,7 +410,7 @@ function renderSummary(data, preparedUsers) {
   const spendApiCard = totalTeamSpendCents > 0 ? `
     <div class="stat-card">
       <span class="stat-value">$${formatCostCents(totalTeamSpendCents)}</span>
-      <span class="stat-label">траты (Spend API)</span>
+      <span class="stat-label">расходы текущего месяца</span>
     </div>
   ` : '';
   const totalByModel = {};
@@ -376,19 +422,10 @@ function renderSummary(data, preparedUsers) {
     }
   }
   const costByModelEntries = Object.entries(totalByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
-  const costByModelHtml = costByModelEntries.length ? `
-    <div class="summary-cost-by-model">
-      <div class="summary-cost-by-model-label">Стоимость по моделям ($)</div>
-      <div class="table-wrap summary-cost-by-model-table-wrap">
-        <table class="data-table summary-cost-by-model-table">
-          <thead><tr><th>Модель</th><th class="num">Стоимость ($)</th></tr></thead>
-          <tbody>
-            ${costByModelEntries.map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  ` : '';
+  summaryCostByModelData.entries = costByModelEntries.slice();
+  const costByModelHtml = costByModelEntries.length
+    ? `<div id="summaryCostByModelBlock" class="summary-cost-by-model">${renderSummaryCostByModelTable(costByModelEntries, summaryCostByModelSort)}</div>`
+    : '';
   return `
     <div class="stat-card">
       <span class="stat-value">${allUsers.length}</span>
@@ -489,7 +526,7 @@ function renderUserCardDetail(user, months, viewMetric, maxVal) {
       </table>
     </div>
   ` : '';
-  const teamSpendStat = (user.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(user.teamSpendCents)}</span>` : '';
+  const teamSpendStat = (user.teamSpendCents > 0) ? ` <span class="user-card-stat">Расходы текущего месяца: $${formatCostCents(user.teamSpendCents)}</span>` : '';
   const byModelRows = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('') : '';
   const costByModelBlock = byModelRows ? `<div class="user-card-section user-card-section-models"><div class="user-card-section-title">Стоимость по моделям</div><div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div></div>` : '';
 
@@ -653,10 +690,18 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
     return `<tr><th class="heatmap-th-name">${name} ${statusAndDates}</th>${cells}</tr>`;
   }).join('');
   return `
-    <table class="dashboard-heatmap">
-      <thead><tr><th class="sortable heatmap-th-name" data-sort="name" title="Сортировать">Пользователь${nameSortArrow}</th>${monthHeaders}</tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <div class="table-block-with-copy">
+      <div class="table-actions">
+        <button type="button" class="btn btn-icon btn-copy-table" data-copy-target="#heatmapTableWrap" title="Копировать в буфер" aria-label="Копировать">${COPY_ICON_SVG}</button>
+        <span class="copy-feedback" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap dashboard-heatmap-wrap" id="heatmapTableWrap">
+        <table class="dashboard-heatmap">
+          <thead><tr><th class="sortable heatmap-th-name" data-sort="name" title="Сортировать">Пользователь${nameSortArrow}</th>${monthHeaders}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
   `;
 }
 
@@ -689,7 +734,7 @@ function renderTable(preparedUsers, months, viewMetric) {
     const usageTotals = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` · Событий: ${t.usageEventsCount} · $${formatCostCents(t.usageCostCents)}` : '';
     const hasTokenTotals = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
     const tokenTotals = hasTokenTotals ? ` · Токены: in ${formatTokensShort(t.usageInputTokens)}, out ${formatTokensShort(t.usageOutputTokens)}, cW ${formatTokensShort(t.usageCacheWriteTokens)}, cR ${formatTokensShort(t.usageCacheReadTokens)}` : '';
-    const teamSpendLine = (u.teamSpendCents > 0) ? ` · Spend API: $${formatCostCents(u.teamSpendCents)}` : '';
+    const teamSpendLine = (u.teamSpendCents > 0) ? ` · Расходы текущего месяца: $${formatCostCents(u.teamSpendCents)}` : '';
     const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${model}: $${formatCostCents(cents)}`).join('; ') : '';
     const costByModelLine = byModel ? `<div class="table-user-cost-by-model" title="Стоимость по моделям">${escapeHtml(byModel)}</div>` : '';
     return `<tr>
@@ -698,16 +743,22 @@ function renderTable(preparedUsers, months, viewMetric) {
     </tr>`;
   }).join('');
   return `
-    <div class="table-wrap" id="usersTableWrap">
-      <table class="data-table users-dashboard-table">
-        <thead>
-          <tr>
-            <th class="sortable" data-sort="name" title="Сортировать">Пользователь${nameSortArrow}</th>
-            ${monthHeaders}
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+    <div class="table-block-with-copy">
+      <div class="table-actions">
+        <button type="button" class="btn btn-icon btn-copy-table" data-copy-target="#usersTableWrap" title="Копировать в буфер" aria-label="Копировать">${COPY_ICON_SVG}</button>
+        <span class="copy-feedback" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap" id="usersTableWrap">
+        <table class="data-table users-dashboard-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="name" title="Сортировать">Пользователь${nameSortArrow}</th>
+              ${monthHeaders}
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>
   `;
 }
@@ -793,6 +844,7 @@ async function load() {
     summaryPanel.style.display = 'block';
     contentPanel.style.display = 'block';
     emptyState.style.display = 'none';
+    setupSummaryCostByModelSort();
 
     const inactiveCursorPanel = document.getElementById('inactiveCursorPanel');
     const inactiveCursorContainer = document.getElementById('inactiveCursorContainer');
@@ -857,6 +909,7 @@ function init() {
   document.getElementById('viewMode').addEventListener('change', refresh);
   document.getElementById('sortBy').addEventListener('change', refresh);
   document.getElementById('showOnlyActive').addEventListener('change', refresh);
+  document.body.addEventListener('click', copyTableFromButton);
 }
 
 if (document.readyState === 'loading') {

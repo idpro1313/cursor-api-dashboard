@@ -89,6 +89,9 @@ h1 { font-size: 1.5rem; margin-top: 0; font-weight: 700; color: var(--text); }
 h2 { font-size: 1.15rem; margin: 20px 0 12px; color: var(--text-secondary); font-weight: 600; }
 h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
 
+.content-panel-toolbar { margin-top: 8px; margin-bottom: 12px; }
+.content-panel-toolbar .field { margin-bottom: 0; }
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -143,6 +146,18 @@ input:focus {
   color: var(--text);
   border: 1px solid var(--border);
 }
+.btn-icon {
+  padding: 8px;
+  min-width: 36px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-icon svg {
+  display: block;
+}
+.btn-icon:hover { opacity: 0.9; }
 .btn-secondary:hover {
   background: var(--bg);
   border-color: var(--muted);
@@ -285,9 +300,13 @@ a:hover { text-decoration: underline; }
 .inactive-cursor-table th.sort-active { color: var(--accent); }
 .cost-by-project-table-wrap { overflow-x: auto; }
 .cost-by-project-table th.project-name { max-width: 200px; }
+.table-block-with-copy .table-actions,
 .inactive-cursor-block .table-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.table-block-with-copy .table-actions .btn,
 .inactive-cursor-block .table-actions .btn { flex-shrink: 0; }
+.table-block-with-copy .copy-feedback,
 .inactive-cursor-block .copy-feedback { font-size: 0.85rem; color: var(--muted); }
+.table-block-with-copy .copy-feedback.visible,
 .inactive-cursor-block .copy-feedback.visible { color: var(--accent); }
 .table-wrap { overflow-x: auto; margin: 8px 0; max-height: 420px; overflow-y: auto; }
 
