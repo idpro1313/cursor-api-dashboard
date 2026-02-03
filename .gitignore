@@ -3,3 +3,7 @@ data/
 .env
 .env.*
 export.csv
+
+# API key не коммитить
+api-key.txt
+**/api-key.txt
