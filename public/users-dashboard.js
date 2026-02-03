@@ -144,6 +144,16 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-label">траты (Spend API)</span>
     </div>
   ` : '';
+  const totalByModel = {};
+  for (const u of withActivity) {
+    const t = u.totals || getUserTotals(u);
+    const byModel = t.usageCostByModel || {};
+    for (const [model, cents] of Object.entries(byModel)) {
+      totalByModel[model] = (totalByModel[model] || 0) + cents;
+    }
+  }
+  const costByModelEntries = Object.entries(totalByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
+  const costByModelHtml = costByModelEntries.length ? `<div class="summary-cost-by-model"><span class="summary-cost-by-model-label">Стоимость по моделям ($):</span> ${costByModelEntries.map(([model, cents]) => `<span class="summary-cost-by-model-item">${escapeHtml(model)}: $${formatCostCents(cents)}</span>`).join(', ')}</div>` : '';
   return `
     <div class="stat-card">
       <span class="stat-value">${allUsers.length}</span>
