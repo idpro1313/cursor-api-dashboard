@@ -31,8 +31,32 @@ function getDb() {
       data TEXT NOT NULL,
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
   return db;
+}
+
+const SETTING_API_KEY = 'cursor_api_key';
+
+/** Получить значение настройки (например API key). */
+function getSetting(key) {
+  const d = getDb();
+  const row = d.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? String(row.value).trim() : null;
+}
+
+/** Сохранить значение настройки. */
+function setSetting(key, value) {
+  const d = getDb();
+  d.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+  `).run(key, String(value ?? ''));
 }
 
 function upsertAnalytics(endpoint, date, payload) {
@@ -130,6 +154,14 @@ function replaceJiraUsers(rows) {
   return rows.length;
 }
 
+function getApiKey() {
+  return getSetting(SETTING_API_KEY);
+}
+
+function setApiKey(apiKey) {
+  setSetting(SETTING_API_KEY, apiKey);
+}
+
 module.exports = {
   getDb,
   upsertAnalytics,
@@ -138,4 +170,8 @@ module.exports = {
   getExistingDates,
   getJiraUsers,
   replaceJiraUsers,
+  getSetting,
+  setSetting,
+  getApiKey,
+  setApiKey,
 };

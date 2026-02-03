@@ -1,33 +1,19 @@
 /**
  * Прокси для Cursor Admin API и сохранение данных в локальную БД.
- * API key: заголовок X-API-Key, переменная CURSOR_API_KEY или файл data/api-key.txt.
+ * API key: заголовок X-API-Key, переменная CURSOR_API_KEY или значение в БД (таблица settings).
  * Документация: https://cursor.com/docs/account/teams/admin-api
  */
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
 const db = require('./db');
 
-const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
-const API_KEY_FILE = path.join(DATA_DIR, 'api-key.txt');
-
-function getApiKeyFromFile() {
-  try {
-    if (fs.existsSync(API_KEY_FILE)) {
-      const key = fs.readFileSync(API_KEY_FILE, 'utf8').trim();
-      if (key) return key;
-    }
-  } catch (_) {}
-  return null;
-}
-
 function isApiKeyConfigured() {
-  return !!(process.env.CURSOR_API_KEY || getApiKeyFromFile());
+  return !!(process.env.CURSOR_API_KEY || db.getApiKey());
 }
 
 function getApiKey(req) {
-  return req.headers['x-api-key'] || process.env.CURSOR_API_KEY || getApiKeyFromFile();
+  return req.headers['x-api-key'] || process.env.CURSOR_API_KEY || db.getApiKey();
 }
 
 const app = express();
@@ -230,7 +216,7 @@ function parseResponseToDays(endpoint, response, chunkEndDate) {
   return out;
 }
 
-// Конфигурация API key (файл data/api-key.txt)
+// Конфигурация API key (хранится в БД, таблица settings)
 app.get('/api/config', (req, res) => {
   res.json({ apiKeyConfigured: isApiKeyConfigured() });
 });
@@ -239,11 +225,10 @@ app.post('/api/config', (req, res) => {
   const apiKey = (req.body && req.body.apiKey) ? String(req.body.apiKey).trim() : '';
   if (!apiKey) return res.status(400).json({ error: 'Требуется apiKey в теле запроса.' });
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(API_KEY_FILE, apiKey, 'utf8');
-    res.json({ ok: true, message: 'Ключ сохранён в data/api-key.txt' });
+    db.setApiKey(apiKey);
+    res.json({ ok: true, message: 'Ключ сохранён в БД' });
   } catch (e) {
-    res.status(500).json({ error: e.message || 'Ошибка записи файла' });
+    res.status(500).json({ error: e.message || 'Ошибка записи в БД' });
   }
 });
 
@@ -298,7 +283,7 @@ app.post('/api/proxy', async (req, res) => {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
   const apiKey = getApiKey(req);
-  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
+  if (!apiKey) return res.status(401).json({ error: 'Введите и сохраните API key для выгрузки.', code: 'API_KEY_REQUIRED' });
   const { path: apiPath, ...body } = req.body || {};
   if (!apiPath || !isPathAllowed(apiPath)) {
     return res.status(400).json({ error: 'Body path required, допустимы /teams/... и /settings/...' });
@@ -513,7 +498,7 @@ app.post('/api/sync-stream', async (req, res) => {
   const apiKey = getApiKey(req);
   if (!apiKey) {
     res.setHeader('Content-Type', 'application/json');
-    return res.status(401).json({ error: 'API key required.' });
+    return res.status(401).json({ error: 'Введите и сохраните API key для выгрузки.', code: 'API_KEY_REQUIRED' });
   }
   const { startDate, endDate } = req.body || {};
   const validation = validateDateRangeForSync(startDate, endDate);
@@ -536,7 +521,8 @@ app.post('/api/sync-stream', async (req, res) => {
     const result = await runSyncToDB(apiKey, startDate, end, (p) => send({ type: 'progress', ...p }));
     send({ type: 'done', ...result });
   } catch (e) {
-    send({ type: 'error', error: e.message });
+    if (e.message === 'INVALID_API_KEY') send({ type: 'error', error: 'API key недействителен. Введите новый ключ и нажмите «Сохранить ключ».', code: 'INVALID_API_KEY' });
+    else send({ type: 'error', error: e.message });
   } finally {
     res.end();
   }

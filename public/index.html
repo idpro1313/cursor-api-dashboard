@@ -12,18 +12,20 @@
 
   <div class="panel">
     <h2>Настройки</h2>
+    <p id="apiKeyHint" class="meta" style="display: none; margin-bottom: 10px;">Для выгрузки данных введите API key и нажмите «Сохранить ключ в БД».</p>
     <div id="apiKeyRow" class="row">
       <div class="field">
         <label>API Key (Cursor Team)</label>
         <input type="password" id="apiKey" placeholder="Вставьте API key" autocomplete="off">
       </div>
       <div class="field" style="align-self: flex-end;">
-        <button type="button" class="btn btn-secondary" id="btnSaveApiKey">Сохранить ключ в файл</button>
+        <button type="button" class="btn btn-secondary" id="btnSaveApiKey">Сохранить ключ в БД</button>
       </div>
     </div>
-    <div id="apiKeyFromFileNote" class="meta" style="display: none; margin-bottom: 12px;">
-      Используется ключ из файла <code>data/api-key.txt</code>. Ввод не требуется.
+    <div id="apiKeySavedNote" class="meta" style="display: none; margin-bottom: 12px;">
+      Ключ сохранён в БД. <button type="button" class="btn-link" id="btnChangeApiKey">Изменить ключ</button>
     </div>
+    <div id="apiKeyError" class="meta error" style="display: none; margin-top: 8px;"></div>
     <div class="row">
       <button class="btn btn-secondary" id="btnSelectAll">Выбрать все</button>
       <button class="btn btn-secondary" id="btnSelectNone">Снять выбор</button>

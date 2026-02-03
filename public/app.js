@@ -44,14 +44,31 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function showApiKeyForm(message) {
+  const row = document.getElementById('apiKeyRow');
+  const note = document.getElementById('apiKeySavedNote');
+  const hint = document.getElementById('apiKeyHint');
+  const errEl = document.getElementById('apiKeyError');
+  if (row) row.style.display = 'flex';
+  if (note) note.style.display = 'none';
+  if (hint) hint.style.display = 'block';
+  if (errEl) {
+    errEl.style.display = message ? 'block' : 'none';
+    errEl.textContent = message || '';
+  }
+  document.getElementById('apiKey')?.focus();
+}
+
 function applyApiKeyConfig(configured) {
   apiKeyConfigured = !!configured;
   const row = document.getElementById('apiKeyRow');
-  const note = document.getElementById('apiKeyFromFileNote');
-  const btnSave = document.getElementById('btnSaveApiKey');
+  const note = document.getElementById('apiKeySavedNote');
+  const hint = document.getElementById('apiKeyHint');
+  const errEl = document.getElementById('apiKeyError');
   if (row) row.style.display = configured ? 'none' : 'flex';
   if (note) note.style.display = configured ? 'block' : 'none';
-  if (btnSave) btnSave.style.display = configured ? 'none' : 'inline-block';
+  if (hint) hint.style.display = configured ? 'none' : 'block';
+  if (errEl) errEl.style.display = 'none';
 }
 
 async function init() {
@@ -144,12 +161,10 @@ function showSyncResult(resultEl, data, isError) {
 }
 
 async function runSync() {
-  if (!apiKeyConfigured) {
-    const apiKey = document.getElementById('apiKey').value.trim();
-    if (!apiKey) {
-      alert('Введите API key');
-      return;
-    }
+  const apiKeyInput = document.getElementById('apiKey').value.trim();
+  if (!apiKeyConfigured && !apiKeyInput) {
+    showApiKeyForm('Введите и сохраните API key для выгрузки.');
+    return;
   }
   const startDate = document.getElementById('syncStartDate').value;
   if (!startDate) {
@@ -223,7 +238,14 @@ async function runSync() {
           } else if (event.type === 'error') {
             progressRow.style.display = 'none';
             btnSync.disabled = false;
-            showSyncResult(resultEl, { error: event.error }, true);
+            if (event.code === 'INVALID_API_KEY') {
+              showApiKeyForm(event.error || 'API key недействителен. Введите новый ключ.');
+              resultEl.style.display = 'block';
+              resultEl.className = 'sync-result error';
+              resultEl.textContent = event.error || '';
+            } else {
+              showSyncResult(resultEl, { error: event.error }, true);
+            }
             return;
           }
         } catch (_) {}
