@@ -276,6 +276,9 @@ a:hover { text-decoration: underline; }
 .data-table th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .data-table tbody tr:hover { background: var(--accent-light); }
 .data-table td.num { text-align: right; }
+.inactive-cursor-table th.sortable { cursor: pointer; user-select: none; }
+.inactive-cursor-table th.sortable:hover { color: var(--text); }
+.inactive-cursor-table th.sort-active { color: var(--accent); }
 .cost-by-project-table-wrap { overflow-x: auto; }
 .cost-by-project-table th.project-name { max-width: 200px; }
 .table-wrap { overflow-x: auto; margin: 8px 0; max-height: 420px; overflow-y: auto; }
@@ -408,10 +411,15 @@ select {
   font-size: 0.85rem;
   color: var(--muted);
 }
-.user-card-stat { white-space: nowrap; }
+.user-card-stat { overflow-wrap: break-word; word-break: break-word; }
 .user-card-stat strong { color: var(--text); }
 .user-card-stat.stat-add { color: var(--green); }
 .user-card-stat.stat-del { color: var(--red); }
+.user-card-tokens-wrap { flex-basis: 100%; margin-top: 4px; min-width: 0; }
+.user-card-tokens-table { width: 100%; font-size: 0.75rem; color: var(--muted); border-collapse: collapse; table-layout: fixed; }
+.user-card-tokens-table td { padding: 1px 6px 1px 0; border: none; }
+.user-card-tokens-table td:first-child { width: 2.2em; color: var(--text); }
+.user-card-tokens-table td.num { text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
 .user-card-weeks {
   display: flex;
   gap: 3px;

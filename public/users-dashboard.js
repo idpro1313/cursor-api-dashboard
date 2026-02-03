@@ -23,6 +23,15 @@ function formatCostCents(cents) {
   return d.replace(/\.?0+$/, '') || '0';
 }
 
+/** Сокращение больших чисел: М — миллионы (25,88М), К — тысячи (1,5К). */
+function formatTokensShort(n) {
+  if (n == null || n === 0) return '0';
+  const num = Number(n);
+  if (num >= 1e6) return (num / 1e6).toFixed(2).replace('.', ',') + 'М';
+  if (num >= 1e3) return (num / 1e3).toFixed(2).replace('.', ',') + 'К';
+  return String(Math.round(num));
+}
+
 /** Считаем итоги по пользователю за весь период (в т.ч. стоимость по моделям). */
 function getUserTotals(user) {
   const activity = user.monthlyActivity || user.weeklyActivity || [];
@@ -117,12 +126,58 @@ function formatMonthShort(monthStr) {
   return d.toLocaleDateString('ru-RU', { month: 'short', year: '2-digit' });
 }
 
-/** Блок: активные в Jira, но не/редко используют Cursor */
-function renderInactiveCursorList(list) {
-  if (!Array.isArray(list) || list.length === 0) {
+/** Состояние сортировки таблицы «Активные в Jira, но не используют Cursor» */
+let inactiveCursorSort = { key: 'lastActivityMonth', dir: 'asc' };
+let inactiveCursorList = [];
+
+function sortInactiveCursorList(list, key, dir) {
+  const arr = [...(list || [])];
+  const asc = dir === 'asc';
+  arr.sort((a, b) => {
+    let va = a[key];
+    let vb = b[key];
+    if (key === 'lastActivityMonth') {
+      const na = !va || String(va).trim() === '';
+      const nb = !vb || String(vb).trim() === '';
+      if (na && nb) return 0;
+      if (na) return asc ? -1 : 1;
+      if (nb) return asc ? 1 : -1;
+      return asc ? (va || '').localeCompare(vb || '') : (vb || '').localeCompare(va || '');
+    }
+    if (key === 'totalRequestsInPeriod' || key === 'teamSpendCents') {
+      va = Number(va) || 0;
+      vb = Number(vb) || 0;
+      return asc ? va - vb : vb - va;
+    }
+    va = (va != null ? String(va) : '').toLowerCase();
+    vb = (vb != null ? String(vb) : '').toLowerCase();
+    const cmp = va.localeCompare(vb, 'ru');
+    return asc ? cmp : -cmp;
+  });
+  return arr;
+}
+
+const INACTIVE_CURSOR_COLUMNS = [
+  { key: 'displayName', label: 'Пользователь' },
+  { key: 'email', label: 'Email' },
+  { key: 'jiraProject', label: 'Проект' },
+  { key: 'lastActivityMonth', label: 'Последняя активность' },
+  { key: 'totalRequestsInPeriod', label: 'Запросов за период' },
+  { key: 'teamSpendCents', label: 'Spend API' },
+];
+
+/** Блок: активные в Jira, но не/редко используют Cursor (с сортировкой по клику на заголовок) */
+function renderInactiveCursorList(list, sortState) {
+  inactiveCursorList = Array.isArray(list) ? list : [];
+  const key = (sortState && sortState.key) || inactiveCursorSort.key;
+  const dir = (sortState && sortState.dir) || inactiveCursorSort.dir;
+  inactiveCursorSort = { key, dir };
+
+  if (inactiveCursorList.length === 0) {
     return '<p class="muted">Нет таких пользователей за выбранный период.</p>';
   }
-  const rows = list.map((u) => {
+  const sorted = sortInactiveCursorList(inactiveCursorList, key, dir);
+  const rows = sorted.map((u) => {
     const name = escapeHtml(u.displayName || u.email || '—');
     const email = escapeHtml(u.email || '');
     const project = u.jiraProject ? escapeHtml(u.jiraProject) : '—';
@@ -131,14 +186,35 @@ function renderInactiveCursorList(list) {
     const spend = u.teamSpendCents > 0 ? `$${formatCostCents(u.teamSpendCents)}` : '—';
     return `<tr><td>${name}</td><td class="muted">${email}</td><td>${project}</td><td>${lastActive}</td><td>${req}</td><td>${spend}</td></tr>`;
   }).join('');
+  const ths = INACTIVE_CURSOR_COLUMNS.map((col) => {
+    const isActive = col.key === key;
+    const arrow = isActive ? (dir === 'asc' ? ' ↑' : ' ↓') : '';
+    return `<th class="sortable ${isActive ? 'sort-active' : ''}" data-sort="${col.key}" title="Сортировать">${escapeHtml(col.label)}${arrow}</th>`;
+  }).join('');
   return `
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead><tr><th>Пользователь</th><th>Email</th><th>Проект</th><th>Последняя активность</th><th>Запросов за период</th><th>Spend API</th></tr></thead>
+    <div class="table-wrap" id="inactiveCursorTableWrap">
+      <table class="data-table inactive-cursor-table">
+        <thead><tr>${ths}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
   `;
+}
+
+function setupInactiveCursorSort() {
+  const wrap = document.getElementById('inactiveCursorTableWrap');
+  if (!wrap) return;
+  wrap.addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort]');
+    if (!th || inactiveCursorList.length === 0) return;
+    const key = th.getAttribute('data-sort');
+    const dir = inactiveCursorSort.key === key && inactiveCursorSort.dir === 'asc' ? 'desc' : 'asc';
+    const container = document.getElementById('inactiveCursorContainer');
+    if (container) {
+      container.innerHTML = renderInactiveCursorList(inactiveCursorList, { key, dir });
+      setupInactiveCursorSort();
+    }
+  });
 }
 
 /** Блок: затраты по проекту помесячно */
@@ -299,7 +375,19 @@ function renderCards(preparedUsers, months, viewMetric) {
     }).join('');
     const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
     const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
-    const tokenStats = (t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0) ? ` <span class="user-card-stat" title="input / output / cache write / cache read">токены: in ${(t.usageInputTokens || 0).toLocaleString('ru-RU')}, out ${(t.usageOutputTokens || 0).toLocaleString('ru-RU')}, cW ${(t.usageCacheWriteTokens || 0).toLocaleString('ru-RU')}, cR ${(t.usageCacheReadTokens || 0).toLocaleString('ru-RU')}</span>` : '';
+    const hasTokens = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
+    const tokenStats = hasTokens ? `
+      <div class="user-card-tokens-wrap">
+        <table class="user-card-tokens-table" title="input / output / cache write / cache read (М — млн, К — тыс)">
+          <tbody>
+            <tr><td>in</td><td class="num">${formatTokensShort(t.usageInputTokens)}</td></tr>
+            <tr><td>out</td><td class="num">${formatTokensShort(t.usageOutputTokens)}</td></tr>
+            <tr><td>cW</td><td class="num">${formatTokensShort(t.usageCacheWriteTokens)}</td></tr>
+            <tr><td>cR</td><td class="num">${formatTokensShort(t.usageCacheReadTokens)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    ` : '';
     const teamSpendStat = (u.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(u.teamSpendCents)}</span>` : '';
     const byModelRows = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('') : '';
     const costByModelStats = byModelRows ? `<div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div>` : '';
@@ -385,6 +473,8 @@ function renderTable(preparedUsers, months, viewMetric) {
       return `<td class="table-cell-intensity" style="--intensity:${intensity}" title="${escapeHtml(title)}">${text}</td>`;
     }).join('');
     const usageTotals = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` · Событий: ${t.usageEventsCount} · $${formatCostCents(t.usageCostCents)}` : '';
+    const hasTokenTotals = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
+    const tokenTotals = hasTokenTotals ? ` · Токены: in ${formatTokensShort(t.usageInputTokens)}, out ${formatTokensShort(t.usageOutputTokens)}, cW ${formatTokensShort(t.usageCacheWriteTokens)}, cR ${formatTokensShort(t.usageCacheReadTokens)}` : '';
     const teamSpendLine = (u.teamSpendCents > 0) ? ` · Spend API: $${formatCostCents(u.teamSpendCents)}` : '';
     const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${model}: $${formatCostCents(cents)}`).join('; ') : '';
     const costByModelLine = byModel ? `<div class="table-user-cost-by-model" title="Стоимость по моделям">${escapeHtml(byModel)}</div>` : '';
@@ -495,8 +585,10 @@ async function load() {
     const costByProjectPanel = document.getElementById('costByProjectPanel');
     const costByProjectContainer = document.getElementById('costByProjectContainer');
     if (inactiveCursorPanel && inactiveCursorContainer) {
+      inactiveCursorSort = { key: 'lastActivityMonth', dir: 'asc' };
       inactiveCursorContainer.innerHTML = renderInactiveCursorList(data.activeJiraButInactiveCursor || []);
       inactiveCursorPanel.style.display = 'block';
+      setupInactiveCursorSort();
     }
     if (costByProjectPanel && costByProjectContainer) {
       costByProjectContainer.innerHTML = renderCostByProject(data.costByProjectByMonth || {}, data.projectTotals || {}, data.months || []);
