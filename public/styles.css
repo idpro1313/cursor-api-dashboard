@@ -105,3 +105,88 @@ select {
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
   padding: 8px 12px; color: var(--text); font-size: 0.9rem; min-width: 200px;
 }
+
+/* --- Дашборд по пользователям (статистика Cursor) --- */
+.filter-check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--muted); cursor: pointer; }
+.filter-check input { margin: 0; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+.stat-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: center;
+}
+.stat-card-highlight { border-color: var(--accent); background: rgba(88, 166, 255, 0.06); }
+.stat-value { display: block; font-size: 1.4rem; font-weight: 700; color: var(--text); }
+.stat-value.stat-green { color: var(--green); }
+.stat-value.stat-red { color: var(--red); }
+.stat-label { font-size: 0.75rem; color: var(--muted); margin-top: 4px; display: block; }
+
+.users-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.user-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  transition: border-color 0.15s;
+}
+.user-card:hover { border-color: var(--accent); }
+.user-card-header { margin-bottom: 10px; }
+.user-card-name { font-weight: 600; font-size: 1rem; color: var(--text); }
+.user-card-email { font-size: 0.8rem; color: var(--muted); display: block; margin-top: 2px; }
+.user-card-stats {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;
+  font-size: 0.85rem; color: var(--muted);
+}
+.user-card-stat { white-space: nowrap; }
+.user-card-stat strong { color: var(--text); }
+.user-card-stat.stat-add { color: var(--green); }
+.user-card-stat.stat-del { color: var(--red); }
+.user-card-weeks {
+  display: flex; gap: 3px; flex-wrap: wrap;
+  min-height: 24px; align-items: stretch;
+}
+.week-cell {
+  flex: 1; min-width: 12px; min-height: 20px;
+  background: rgba(88, 166, 255, calc(0.15 + 0.75 * var(--intensity, 0)));
+  border-radius: 3px;
+  font-size: 0.65rem;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--bg);
+}
+
+.dashboard-heatmap-wrap { overflow-x: auto; margin: 8px 0; max-height: 520px; overflow-y: auto; }
+.dashboard-heatmap {
+  width: 100%; border-collapse: collapse; font-size: 0.8rem;
+}
+.dashboard-heatmap th, .dashboard-heatmap td { padding: 6px 8px; border: 1px solid var(--border); text-align: center; }
+.dashboard-heatmap th { background: var(--bg); color: var(--muted); font-weight: 600; position: sticky; top: 0; z-index: 1; }
+.dashboard-heatmap .heatmap-th-name { text-align: left; min-width: 140px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
+.heatmap-td {
+  background: rgba(88, 166, 255, calc(0.1 + 0.85 * var(--intensity, 0)));
+  color: var(--bg);
+  font-weight: 600;
+  min-width: 36px;
+}
+.heatmap-td[style*="--intensity: 0"] { background: var(--surface); color: var(--muted); font-weight: normal; }
+
+.table-cell-intensity {
+  background: rgba(88, 166, 255, calc(0.08 + 0.5 * var(--intensity, 0)));
+  text-align: center;
+  font-weight: 500;
+}
+.table-cell-intensity[style*="--intensity: 0"] { background: var(--surface); }
+.table-user-cell { min-width: 180px; }
+.table-user-totals { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+.users-dashboard-table .table-wrap { max-height: 480px; }
