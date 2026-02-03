@@ -789,11 +789,14 @@ async function setDefaultDates() {
 }
 
 async function load() {
-  const startDate = document.getElementById('startDate').value;
-  const endDate = document.getElementById('endDate').value;
-  const viewMode = document.getElementById('viewMode').value;
-  const sortBy = document.getElementById('sortBy').value;
-  const showOnlyActive = document.getElementById('showOnlyActive').checked;
+  const startDate = (document.getElementById('startDate') || {}).value;
+  const endDate = (document.getElementById('endDate') || {}).value;
+  const viewModeEl = document.getElementById('viewMode');
+  const sortByEl = document.getElementById('sortBy');
+  const showOnlyActiveEl = document.getElementById('showOnlyActive');
+  const viewMode = viewModeEl ? viewModeEl.value : 'cards';
+  const sortBy = sortByEl ? sortByEl.value : 'requests';
+  const showOnlyActive = showOnlyActiveEl ? showOnlyActiveEl.checked : true;
   const statusEl = document.getElementById('loadStatus');
   const summaryPanel = document.getElementById('summaryPanel');
   const contentPanel = document.getElementById('contentPanel');
@@ -906,9 +909,12 @@ function init() {
   const refresh = () => {
     if (document.getElementById('startDate').value && document.getElementById('endDate').value) load();
   };
-  document.getElementById('viewMode').addEventListener('change', refresh);
-  document.getElementById('sortBy').addEventListener('change', refresh);
-  document.getElementById('showOnlyActive').addEventListener('change', refresh);
+  const viewModeEl = document.getElementById('viewMode');
+  const sortByEl = document.getElementById('sortBy');
+  const showOnlyActiveEl = document.getElementById('showOnlyActive');
+  if (viewModeEl) viewModeEl.addEventListener('change', refresh);
+  if (sortByEl) sortByEl.addEventListener('change', refresh);
+  if (showOnlyActiveEl) showOnlyActiveEl.addEventListener('change', refresh);
   document.body.addEventListener('click', copyTableFromButton);
 }
 
