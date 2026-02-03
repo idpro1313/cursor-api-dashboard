@@ -19,7 +19,7 @@
     </div>
   </header>
   <main class="site-wrap">
-    <p class="muted" style="margin-top: 0;">Активность по пользователям и месяцам. Данные из БД (Daily Usage). При загрузке CSV из Jira отображаются имена и статус.</p>
+    <p class="muted" style="margin-top: 0;">Активность по пользователям и месяцам. Данные из БД: Daily Usage и при наличии — Usage Events (события и стоимость). При загрузке CSV из Jira отображаются имена и статус.</p>
 
   <div class="panel">
     <h2>Период и отображение</h2>
@@ -47,6 +47,8 @@
           <option value="requests">По запросам (убыв.)</option>
           <option value="activeDays">По дням с активностью</option>
           <option value="lines">По изменённым строкам</option>
+          <option value="usageEvents">По событиям Usage Events</option>
+          <option value="usageCost">По стоимости (Usage Events)</option>
           <option value="name">По имени</option>
         </select>
       </div>

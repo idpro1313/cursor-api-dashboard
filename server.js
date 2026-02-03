@@ -735,7 +735,7 @@ function getJiraRowOrderKey(row, id) {
   return id;
 }
 
-/** Агрегация активности по пользователям и месяцам (Daily Usage Data + опционально applies/accepts из API). */
+/** Агрегация активности по пользователям и месяцам (Daily Usage Data + Usage Events Data). */
 app.get('/api/users/activity-by-month', (req, res) => {
   try {
     const startDate = req.query.startDate;
@@ -746,14 +746,16 @@ app.get('/api/users/activity-by-month', (req, res) => {
     const jiraRows = db.getJiraUsers();
     const jiraUsers = jiraRows.map((r) => r.data);
     const allKeys = jiraUsers.length ? getAllKeysFromRows(jiraUsers) : [];
-    const analyticsRows = db.getAnalytics({
+    const emailByMonth = new Map();
+    const monthSet = new Set();
+
+    // Daily Usage Data: активные дни, запросы, строки, applies/accepts
+    const dailyRows = db.getAnalytics({
       endpoint: '/teams/daily-usage-data',
       startDate,
       endDate,
     });
-    const emailByMonth = new Map();
-    const monthSet = new Set();
-    for (const row of analyticsRows) {
+    for (const row of dailyRows) {
       const payload = row.payload || {};
       const data = payload.data;
       if (!Array.isArray(data)) continue;
@@ -773,7 +775,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
+          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
           emailByMonth.set(key, rec);
         }
         rec.activeDays += 1;
@@ -784,6 +786,39 @@ app.get('/api/users/activity-by-month', (req, res) => {
         rec.accepts += Number(r.total_accepts ?? r.totalAccepts ?? 0);
       }
     }
+
+    // Usage Events Data (Get Usage Events Data): события, стоимость, requestsCosts
+    const usageEventsRows = db.getAnalytics({
+      endpoint: '/teams/filtered-usage-events',
+      startDate,
+      endDate,
+    });
+    for (const row of usageEventsRows) {
+      const payload = row.payload || {};
+      const events = payload.usageEvents;
+      if (!Array.isArray(events)) continue;
+      for (const e of events) {
+        const email = (e.userEmail || e.user_email || e.email || '').toString().trim().toLowerCase();
+        if (!email) continue;
+        const dateStr = toDateKey(e.timestamp);
+        if (!dateStr || dateStr.length < 10) continue;
+        const month = getMonthKey(dateStr);
+        if (!month) continue;
+        monthSet.add(month);
+        const key = email + '\n' + month;
+        let rec = emailByMonth.get(key);
+        if (!rec) {
+          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
+          emailByMonth.set(key, rec);
+        }
+        rec.usageEventsCount += 1;
+        rec.usageRequestsCosts += Number(e.requestsCosts ?? 0);
+        const tokenCents = Number(e.tokenUsage?.totalCents ?? 0) || 0;
+        const cursorFee = Number(e.cursorTokenFee ?? 0) || 0;
+        rec.usageCostCents += tokenCents + cursorFee;
+      }
+    }
+
     const months = Array.from(monthSet).sort();
     const users = [];
     const jiraEmails = new Set();
@@ -805,7 +840,8 @@ app.get('/api/users/activity-by-month', (req, res) => {
       const jiraStatus = getJiraStatusFromRow(jira);
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        return rec ? { month, ...rec } : { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
+        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
+        return rec ? { ...def, ...rec } : def;
       });
       users.push({ jira, email, displayName: String(displayName), jiraStatus, monthlyActivity });
     }
@@ -817,7 +853,8 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const email of cursorOnlyEmails) {
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        return rec ? { month, ...rec } : { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0 };
+        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0 };
+        return rec ? { ...def, ...rec } : def;
       });
       users.push({ jira: {}, email, displayName: email, jiraStatus: null, monthlyActivity });
     }

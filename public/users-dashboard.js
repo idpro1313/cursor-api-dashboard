@@ -16,10 +16,18 @@ function formatMonthLabel(monthStr) {
   return d.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
 }
 
+/** Форматирование стоимости из центов (Usage Events). */
+function formatCostCents(cents) {
+  if (cents == null || cents === 0) return '0';
+  const d = (cents / 100).toFixed(2);
+  return d.replace(/\.?0+$/, '') || '0';
+}
+
 /** Считаем итоги по пользователю за весь период */
 function getUserTotals(user) {
   const activity = user.monthlyActivity || user.weeklyActivity || [];
   let requests = 0, activeDays = 0, linesAdded = 0, linesDeleted = 0, applies = 0, accepts = 0;
+  let usageEventsCount = 0, usageCostCents = 0, usageRequestsCosts = 0;
   for (const a of activity) {
     requests += a.requests || 0;
     activeDays += a.activeDays || 0;
@@ -27,8 +35,11 @@ function getUserTotals(user) {
     linesDeleted += a.linesDeleted || 0;
     applies += a.applies || 0;
     accepts += a.accepts || 0;
+    usageEventsCount += a.usageEventsCount || 0;
+    usageCostCents += a.usageCostCents || 0;
+    usageRequestsCosts += a.usageRequestsCosts || 0;
   }
-  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts };
+  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts };
 }
 
 /** Фильтр и сортировка пользователей */
@@ -69,16 +80,29 @@ function formatJiraStatusBadge(user) {
 function renderSummary(data, preparedUsers) {
   const allUsers = data.users || [];
   let totalRequests = 0, totalLinesAdded = 0, totalLinesDeleted = 0, activeUserCount = 0;
+  let totalUsageEvents = 0, totalUsageCostCents = 0;
   const withActivity = (data.users || []).map((u) => ({ ...u, totals: u.totals || getUserTotals(u) }))
-    .filter((u) => (u.totals.requests || 0) > 0 || (u.totals.activeDays || 0) > 0 || (u.totals.linesTotal || 0) > 0);
+    .filter((u) => (u.totals.requests || 0) > 0 || (u.totals.activeDays || 0) > 0 || (u.totals.linesTotal || 0) > 0 || (u.totals.usageEventsCount || 0) > 0);
   for (const u of withActivity) {
     totalRequests += u.totals.requests || 0;
     totalLinesAdded += u.totals.linesAdded || 0;
     totalLinesDeleted += u.totals.linesDeleted || 0;
+    totalUsageEvents += u.totals.usageEventsCount || 0;
+    totalUsageCostCents += u.totals.usageCostCents || 0;
     activeUserCount++;
   }
   const top = withActivity.length ? withActivity.sort((a, b) => (b.totals.requests || 0) - (a.totals.requests || 0))[0] : null;
   const topLabel = top ? (top.displayName || top.email || '—') : '—';
+  const usageCards = totalUsageEvents > 0 || totalUsageCostCents > 0 ? `
+    <div class="stat-card">
+      <span class="stat-value">${totalUsageEvents.toLocaleString('ru-RU')}</span>
+      <span class="stat-label">событий Usage Events</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">$${formatCostCents(totalUsageCostCents)}</span>
+      <span class="stat-label">стоимость (Usage Events)</span>
+    </div>
+  ` : '';
   return `
     <div class="stat-card">
       <span class="stat-value">${allUsers.length}</span>
@@ -100,6 +124,7 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-value stat-red">−${totalLinesDeleted.toLocaleString('ru-RU')}</span>
       <span class="stat-label">строк удалено</span>
     </div>
+    ${usageCards}
     <div class="stat-card stat-card-highlight">
       <span class="stat-value">${escapeHtml(topLabel)}</span>
       <span class="stat-label">самый активный по запросам</span>
@@ -128,10 +153,12 @@ function renderCards(preparedUsers, months, viewMetric) {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       const intensity = getIntensity(v, maxVal);
       const label = monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey];
-      const title = `${label}: дн. ${a.activeDays}, запросов ${a.requests}, строк +${a.linesAdded}/−${a.linesDeleted}`;
+      const usagePart = (a.usageEventsCount > 0 || a.usageCostCents > 0) ? `, событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
+      const title = `${label}: дн. ${a.activeDays}, запросов ${a.requests}, строк +${a.linesAdded}/−${a.linesDeleted}${usagePart}`;
       return `<span class="week-cell" style="--intensity:${intensity}" title="${escapeHtml(title)}">${v > 0 ? v : ''}</span>`;
     }).join('');
     const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
+    const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
     return `
       <div class="user-card">
         <div class="user-card-header">
@@ -142,7 +169,7 @@ function renderCards(preparedUsers, months, viewMetric) {
           <span class="user-card-stat"><strong>${t.requests}</strong> запросов</span>
           <span class="user-card-stat"><strong>${t.activeDays}</strong> дн. активности</span>
           <span class="user-card-stat stat-add">+${t.linesAdded}</span>
-          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}
+          <span class="user-card-stat stat-del">−${t.linesDeleted}</span>${applyAccept}${usageStats}
         </div>
         <div class="user-card-weeks" title="Активность по месяцам">${monthCells}</div>
       </div>
@@ -170,9 +197,12 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
   const rows = grid.map(({ user, values }) => {
     const name = escapeHtml(user.displayName || user.email || '—');
     const statusBadge = formatJiraStatusBadge(user);
-    const cells = values.map((v) => {
+    const act = user[activityKey] || [];
+    const cells = values.map((v, i) => {
       const intensity = getIntensity(v, maxVal);
-      const title = v > 0 ? `Месяц: ${v}` : '';
+      const a = act[i];
+      const usagePart = (a && (a.usageEventsCount > 0 || a.usageCostCents > 0)) ? `; событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
+      const title = v > 0 ? `Месяц: ${v}${usagePart}` : '';
       return `<td class="heatmap-td" style="--intensity:${intensity}" title="${title}">${v > 0 ? v : ''}</td>`;
     }).join('');
     return `<tr><th class="heatmap-th-name">${name}</th>${cells}</tr>`;
@@ -204,12 +234,14 @@ function renderTable(preparedUsers, months, viewMetric) {
     const cells = (u[activityKey] || []).map((a) => {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       const intensity = getIntensity(v, maxVal);
-      const title = `${a.activeDays} дн., запросов: ${a.requests}, +${a.linesAdded}/−${a.linesDeleted}`;
+      const usagePart = (a.usageEventsCount > 0 || a.usageCostCents > 0) ? `; событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
+      const title = `${a.activeDays} дн., запросов: ${a.requests}, +${a.linesAdded}/−${a.linesDeleted}${usagePart}`;
       const text = viewMetric === 'lines' ? `+${a.linesAdded}/−${a.linesDeleted}` : v;
       return `<td class="table-cell-intensity" style="--intensity:${intensity}" title="${escapeHtml(title)}">${text}</td>`;
     }).join('');
+    const usageTotals = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` · Событий: ${t.usageEventsCount} · $${formatCostCents(t.usageCostCents)}` : '';
     return `<tr>
-      <td class="table-user-cell">${name} ${statusBadge}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}</div></td>
+      <td class="table-user-cell">${name} ${statusBadge}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}</div></td>
       ${cells}
     </tr>`;
   }).join('');
