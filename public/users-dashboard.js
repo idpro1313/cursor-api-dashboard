@@ -253,7 +253,7 @@ async function load() {
     const users = data.users || [];
     const weeks = data.weeks || [];
     if (!users.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет пользователей из Jira. Загрузите CSV на странице <a href="jira-users.html">Пользователи Jira</a>.</p>';
+      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» на <a href="index.html">главной</a>). Опционально можно загрузить <a href="jira-users.html">пользователей Jira</a> для отображения имён вместо email.</p>';
       emptyState.style.display = 'none';
       contentPanel.style.display = 'block';
       contentPanel.querySelector('#contentTitle').textContent = 'Активность по пользователям';
@@ -261,7 +261,7 @@ async function load() {
       return;
     }
     if (!weeks.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет данных по активности за выбранный период. Загрузите Daily Usage в БД на <a href="index.html">главной</a>.</p>';
+      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные на <a href="index.html">главной</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные в БД</a>.</p>';
       emptyState.style.display = 'none';
       contentPanel.style.display = 'block';
       statusEl.textContent = '';

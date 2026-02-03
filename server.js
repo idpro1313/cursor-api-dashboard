@@ -489,9 +489,14 @@ app.get('/api/users/activity-by-week', (req, res) => {
       const data = payload.data;
       if (!Array.isArray(data)) continue;
       for (const r of data) {
-        const email = (r.email || r.user_email || '').toString().trim().toLowerCase();
+        const email = (r.email || r.user_email || r.userEmail || '').toString().trim().toLowerCase();
         if (!email) continue;
-        const dateStr = typeof r.date === 'number' ? new Date(r.date).toISOString().slice(0, 10) : (r.date || row.date || '').toString().slice(0, 10);
+        let dateStr = '';
+        if (r.date != null) {
+          if (typeof r.date === 'number') dateStr = new Date(r.date).toISOString().slice(0, 10);
+          else dateStr = String(r.date).slice(0, 10);
+        }
+        if (!dateStr || dateStr.length < 10) dateStr = row.date || '';
         if (!dateStr || dateStr.length < 10) continue;
         const week = getWeekMonday(dateStr);
         weekSet.add(week);
@@ -502,21 +507,36 @@ app.get('/api/users/activity-by-week', (req, res) => {
           emailByWeek.set(key, rec);
         }
         rec.activeDays += 1;
-        rec.requests += Number(r.composer_requests || 0) + Number(r.chat_requests || 0) + Number(r.agent_requests || 0);
-        rec.linesAdded += Number(r.total_lines_added || 0) + Number(r.accepted_lines_added || 0);
-        rec.linesDeleted += Number(r.total_lines_deleted || 0) + Number(r.accepted_lines_deleted || 0);
+        rec.requests += Number(r.composer_requests ?? r.composerRequests ?? 0) + Number(r.chat_requests ?? r.chatRequests ?? 0) + Number(r.agent_requests ?? r.agentRequests ?? 0);
+        rec.linesAdded += Number(r.total_lines_added ?? r.totalLinesAdded ?? 0) + Number(r.accepted_lines_added ?? r.acceptedLinesAdded ?? 0);
+        rec.linesDeleted += Number(r.total_lines_deleted ?? r.totalLinesDeleted ?? 0) + Number(r.accepted_lines_deleted ?? r.acceptedLinesDeleted ?? 0);
       }
     }
     const weeks = Array.from(weekSet).sort();
     const users = [];
+    const jiraEmails = new Set();
     for (const jira of jiraUsers) {
       const email = getEmailFromJiraRow(jira, allKeys);
+      if (email) jiraEmails.add(email);
       const displayName = jira['Пользователь, которому выдан доступ'] || jira['Display Name'] || jira['Username'] || jira['Name'] || email || '—';
       const weeklyActivity = weeks.map((week) => {
         const rec = email ? emailByWeek.get(email + '\n' + week) : null;
         return rec ? { week, ...rec } : { week, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0 };
       });
       users.push({ jira, email, displayName: String(displayName), weeklyActivity });
+    }
+    // Пользователи только из Cursor (нет в Jira): показываем статистику по данным из БД
+    const cursorOnlyEmails = new Set();
+    for (const key of emailByWeek.keys()) {
+      const email = key.split('\n')[0];
+      if (email && !jiraEmails.has(email)) cursorOnlyEmails.add(email);
+    }
+    for (const email of cursorOnlyEmails) {
+      const weeklyActivity = weeks.map((week) => {
+        const rec = emailByWeek.get(email + '\n' + week);
+        return rec ? { week, ...rec } : { week, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0 };
+      });
+      users.push({ jira: {}, email, displayName: email, weeklyActivity });
     }
     res.json({ users, weeks });
   } catch (e) {
