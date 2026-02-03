@@ -51,8 +51,9 @@ function renderErrors() {
 }
 
 function escapeHtml(s) {
+  if (s == null) return '';
   const div = document.createElement('div');
-  div.textContent = s;
+  div.textContent = String(s);
   return div.innerHTML;
 }
 

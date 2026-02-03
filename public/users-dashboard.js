@@ -127,6 +127,8 @@ function prepareUsers(data, sortBy, showOnlyActive) {
       case 'requests': return (b.totals.requests || 0) - (a.totals.requests || 0);
       case 'activeDays': return (b.totals.activeDays || 0) - (a.totals.activeDays || 0);
       case 'lines': return (b.totals.linesTotal || 0) - (a.totals.linesTotal || 0);
+      case 'usageEvents': return (b.totals.usageEventsCount || 0) - (a.totals.usageEventsCount || 0);
+      case 'usageCost': return (b.totals.usageCostCents || 0) - (a.totals.usageCostCents || 0);
       case 'name':
       default:
         return String(a.displayName || a.email || '').localeCompare(String(b.displayName || b.email || ''), 'ru');
@@ -903,11 +905,16 @@ async function load() {
 
 function init() {
   setDefaultDates().then(() => {
-    if (document.getElementById('startDate').value && document.getElementById('endDate').value) load();
+    const startEl = document.getElementById('startDate');
+    const endEl = document.getElementById('endDate');
+    if (startEl && endEl && startEl.value && endEl.value) load();
   });
-  document.getElementById('btnLoad').addEventListener('click', load);
+  const btnLoad = document.getElementById('btnLoad');
+  if (btnLoad) btnLoad.addEventListener('click', load);
   const refresh = () => {
-    if (document.getElementById('startDate').value && document.getElementById('endDate').value) load();
+    const startEl = document.getElementById('startDate');
+    const endEl = document.getElementById('endDate');
+    if (startEl && endEl && startEl.value && endEl.value) load();
   };
   const viewModeEl = document.getElementById('viewMode');
   const sortByEl = document.getElementById('sortBy');

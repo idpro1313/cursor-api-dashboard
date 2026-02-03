@@ -33,20 +33,25 @@ async function loadEventTypes() {
 }
 
 async function loadAudit() {
-  const startDate = document.getElementById('auditStartDate').value || undefined;
-  const endDate = document.getElementById('auditEndDate').value || undefined;
-  const eventType = document.getElementById('auditEventType').value.trim() || undefined;
-  const limit = document.getElementById('auditLimit').value || '50';
+  const startDateEl = document.getElementById('auditStartDate');
+  const endDateEl = document.getElementById('auditEndDate');
+  const eventTypeEl = document.getElementById('auditEventType');
+  const limitEl = document.getElementById('auditLimit');
+  const startDate = startDateEl ? startDateEl.value : undefined;
+  const endDate = endDateEl ? endDateEl.value : undefined;
+  const eventType = eventTypeEl ? eventTypeEl.value.trim() : undefined;
+  const limit = limitEl ? limitEl.value : '50';
   const statusEl = document.getElementById('auditStatus');
   const resultsPanel = document.getElementById('auditResultsPanel');
   const resultsContainer = document.getElementById('auditResultsContainer');
   const resultsSummary = document.getElementById('auditResultsSummary');
   const emptyState = document.getElementById('auditEmptyState');
+  if (!statusEl || !resultsContainer) return;
 
   statusEl.textContent = 'Загрузка...';
   statusEl.className = 'meta';
-  emptyState.style.display = 'block';
-  resultsPanel.style.display = 'none';
+  if (emptyState) emptyState.style.display = 'block';
+  if (resultsPanel) resultsPanel.style.display = 'none';
   try {
     const params = new URLSearchParams({ limit });
     if (startDate) params.set('startDate', startDate);
@@ -82,10 +87,10 @@ async function loadAudit() {
       </div>
     `;
   } catch (e) {
-    statusEl.textContent = e.message || 'Ошибка';
-    statusEl.className = 'meta error';
-    resultsPanel.style.display = 'none';
-    emptyState.style.display = 'block';
+    if (statusEl) statusEl.textContent = e.message || 'Ошибка';
+    if (statusEl) statusEl.className = 'meta error';
+    if (resultsPanel) resultsPanel.style.display = 'none';
+    if (emptyState) emptyState.style.display = 'block';
   }
 }
 

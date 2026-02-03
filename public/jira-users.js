@@ -42,22 +42,24 @@ function renderTable(users) {
 async function loadUsers() {
   const container = document.getElementById('usersContainer');
   const summary = document.getElementById('usersSummary');
+  if (!container) return;
   try {
     const r = await fetch('/api/jira-users', { credentials: 'same-origin' });
     if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const users = data.users || [];
-    summary.textContent = `Записей: ${users.length}`;
+    if (summary) summary.textContent = `Записей: ${users.length}`;
     container.innerHTML = renderTable(users);
   } catch (e) {
     container.innerHTML = '<span class="error">' + escapeHtml(e.message) + '</span>';
-    summary.textContent = '';
+    if (summary) summary.textContent = '';
   }
 }
 
 function init() {
-  document.getElementById('btnRefresh').addEventListener('click', loadUsers);
+  const btnRefresh = document.getElementById('btnRefresh');
+  if (btnRefresh) btnRefresh.addEventListener('click', loadUsers);
   document.getElementById('btnClearJira')?.addEventListener('click', async () => {
     if (!confirm('Очистить все данные Jira из БД? Данные API не затронуты. Действие нельзя отменить.')) return;
     try {
@@ -71,9 +73,10 @@ function init() {
       alert(e.message || 'Ошибка очистки');
     }
   });
-  document.getElementById('btnUpload').addEventListener('click', async () => {
+  const btnUpload = document.getElementById('btnUpload');
+  if (btnUpload) btnUpload.addEventListener('click', async () => {
     const input = document.getElementById('csvFile');
-    if (!input.files || !input.files[0]) {
+    if (!input || !input.files || !input.files[0]) {
       alert('Выберите файл CSV');
       return;
     }

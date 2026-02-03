@@ -22,6 +22,7 @@ function getEndpointLabel(path) {
 
 async function loadCoverage() {
   const el = document.getElementById('coverageContainer');
+  if (!el) return;
   try {
     const r = await fetch('/api/analytics/coverage', { credentials: 'same-origin' });
     if (r.status === 401) { window.location.href = '/login.html'; return; }
@@ -29,8 +30,10 @@ async function loadCoverage() {
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const cov = data.coverage || [];
     const select = document.getElementById('filterEndpoint');
-    const opts = select.querySelectorAll('option');
-    for (let i = opts.length - 1; i >= 1; i--) opts[i].remove();
+    if (select) {
+      const opts = select.querySelectorAll('option');
+      for (let i = opts.length - 1; i >= 1; i--) opts[i].remove();
+    }
     if (cov.length === 0) {
       el.innerHTML = '<span class="muted">БД пуста. Загрузите данные в разделе <a href="admin.html">Настройки и загрузка</a>.</span>';
       return;
@@ -50,16 +53,20 @@ async function loadCoverage() {
         </tbody>
       </table>
     `;
-    cov.forEach((c) => {
-      const opt = document.createElement('option');
-      opt.value = c.endpoint;
-      opt.textContent = getEndpointLabel(c.endpoint) + ' (' + c.days + ' дн.)';
-      select.appendChild(opt);
-    });
+    if (select) {
+      cov.forEach((c) => {
+        const opt = document.createElement('option');
+        opt.value = c.endpoint;
+        opt.textContent = getEndpointLabel(c.endpoint) + ' (' + c.days + ' дн.)';
+        select.appendChild(opt);
+      });
+    }
     const first = cov[0];
-    if (first && !document.getElementById('filterStartDate').value) {
-      document.getElementById('filterStartDate').value = first.min_date;
-      document.getElementById('filterEndDate').value = first.max_date;
+    const filterStart = document.getElementById('filterStartDate');
+    const filterEnd = document.getElementById('filterEndDate');
+    if (first && filterStart && filterEnd && !filterStart.value) {
+      filterStart.value = first.min_date;
+      filterEnd.value = first.max_date;
     }
   } catch (e) {
     el.innerHTML = '<span class="error">' + escapeHtml(e.message) + '</span>';
