@@ -10,7 +10,9 @@ const fs = require('fs');
 const db = require('./db');
 
 /** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
-const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || '';
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || path.join(DATA_DIR, 'sync.log');
+let syncLogDirEnsured = false;
 function syncLog(action, fields = {}) {
   const ts = new Date().toISOString();
   const parts = ['[SYNC]', ts, 'action=' + action];
@@ -21,13 +23,14 @@ function syncLog(action, fields = {}) {
     parts.push(k + '=' + escaped);
   });
   const line = parts.join(' ') + '\n';
-  console.log(line.trim());
-  if (SYNC_LOG_FILE) {
-    try {
-      fs.appendFileSync(SYNC_LOG_FILE, line, 'utf8');
-    } catch (e) {
-      console.error('[SYNC] log write failed:', e.message);
+  try {
+    if (!syncLogDirEnsured) {
+      fs.mkdirSync(path.dirname(SYNC_LOG_FILE), { recursive: true });
+      syncLogDirEnsured = true;
     }
+    fs.appendFileSync(SYNC_LOG_FILE, line, 'utf8');
+  } catch (e) {
+    console.error('[SYNC] log write failed:', e.message);
   }
 }
 
