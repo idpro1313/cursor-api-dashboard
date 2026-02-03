@@ -179,16 +179,22 @@ app.get('/api/auth/check', (req, res) => {
   res.json({ authenticated: !!login });
 });
 
-// Защищённые страницы настроек: только после входа. Перехват по пути без учёта регистра,
-// чтобы /Data.html или /DATA.HTML не обходили авторизацию через express.static (на Windows отдаёт тот же файл).
+// Защищённые страницы настроек: только после входа. Перехват по пути без учёта регистра.
 const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'jira-users.html', 'audit.html', 'settings.html'];
-app.use((req, res, next) => {
+
+function isProtectedPagePath(req) {
+  const pathname = (req.originalUrl || req.url || req.path || '').split('?')[0].replace(/\/$/, '') || '/';
+  const base = path.basename(pathname);
+  return SETTINGS_PAGES_LOWER.includes(base.toLowerCase());
+}
+
+function serveProtectedPageIfAuth(req, res, next) {
   if (req.method !== 'GET') return next();
-  const base = path.basename(req.path);
-  const lower = base.toLowerCase();
-  if (!SETTINGS_PAGES_LOWER.includes(lower)) return next();
+  if (!isProtectedPagePath(req)) return next();
+  const pathname = (req.originalUrl || req.url || req.path || '').split('?')[0];
+  const base = path.basename(pathname).toLowerCase();
   requireSettingsAuth(req, res, () => {
-    const file = path.join(__dirname, 'public', lower);
+    const file = path.join(__dirname, 'public', base);
     if (fs.existsSync(file)) {
       res.setHeader('Cache-Control', 'no-store');
       res.sendFile(file);
@@ -196,14 +202,34 @@ app.use((req, res, next) => {
       res.status(404).send('Not Found');
     }
   });
-});
+}
+
+// 1) Перехват защищённых страниц до любой статики (первая линия)
+app.use(serveProtectedPageIfAuth);
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Статика (защищённые страницы отдаются только маршрутами выше, не из static)
-app.use(express.static(path.join(__dirname, 'public'), {
+// 2) Статика: не отдавать защищённые HTML — только после проверки (вторая линия)
+const staticRoot = path.join(__dirname, 'public');
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (isProtectedPagePath(req)) {
+    return requireSettingsAuth(req, res, () => {
+      const base = path.basename((req.originalUrl || req.path || '').split('?')[0]).toLowerCase();
+      const file = path.join(staticRoot, base);
+      if (fs.existsSync(file)) {
+        res.setHeader('Cache-Control', 'no-store');
+        res.sendFile(file);
+      } else {
+        res.status(404).send('Not Found');
+      }
+    });
+  }
+  next();
+});
+app.use(express.static(staticRoot, {
   index: false,
   redirect: false,
 }));
