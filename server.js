@@ -277,10 +277,16 @@ async function cursorFetch(apiKey, apiPath, options = {}, logContext = {}) {
   throw new Error('Rate limit exceeded. Please try again later.');
 }
 
-/** Timestamp (ms или строка) -> YYYY-MM-DD */
+/** Timestamp (ms или строка) -> YYYY-MM-DD. Строки-числа ("1769701107073") — миллисекунды. */
 function toDateKey(ts) {
   if (ts == null) return null;
-  const ms = typeof ts === 'string' ? new Date(ts).getTime() : Number(ts);
+  let ms;
+  if (typeof ts === 'string') {
+    const n = Number(ts);
+    ms = (ts.trim() !== '' && !isNaN(n)) ? n : new Date(ts).getTime();
+  } else {
+    ms = Number(ts);
+  }
   if (isNaN(ms)) return null;
   return new Date(ms).toISOString().slice(0, 10);
 }
