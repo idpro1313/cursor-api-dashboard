@@ -179,29 +179,32 @@ app.get('/api/auth/check', (req, res) => {
   res.json({ authenticated: !!login });
 });
 
-// Защищённые страницы настроек: только после входа
+// Защищённые страницы настроек: только после входа (явные маршруты, чтобы static их не отдал)
 const SETTINGS_PAGES = ['admin.html', 'data.html', 'jira-users.html', 'audit.html', 'settings.html'];
-app.get(/^\/(admin|data|jira-users|audit|settings)\.html$/, requireSettingsAuth, (req, res, next) => {
-  const file = path.join(__dirname, 'public', req.path);
+function sendSettingsPageIfExists(req, res) {
+  const base = path.basename(req.path);
+  const file = path.join(__dirname, 'public', base);
   if (fs.existsSync(file)) {
+    res.setHeader('Cache-Control', 'no-store');
     res.sendFile(file);
   } else {
-    next();
+    res.status(404).send('Not Found');
   }
-});
+}
+app.get('/admin.html', requireSettingsAuth, sendSettingsPageIfExists);
+app.get('/data.html', requireSettingsAuth, sendSettingsPageIfExists);
+app.get('/jira-users.html', requireSettingsAuth, sendSettingsPageIfExists);
+app.get('/audit.html', requireSettingsAuth, sendSettingsPageIfExists);
+app.get('/settings.html', requireSettingsAuth, sendSettingsPageIfExists);
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Статика (защищённые страницы отдаются только маршрутами выше, не из static)
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
-  setHeaders: (res, pathname) => {
-    const base = path.basename(pathname);
-    if (SETTINGS_PAGES.includes(base)) {
-      res.setHeader('Cache-Control', 'no-store');
-    }
-  },
+  redirect: false,
 }));
 
 // Лимиты Cursor Admin API (запросов в минуту): большинство — 20, /teams/user-spend-limit — 60

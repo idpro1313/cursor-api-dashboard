@@ -662,6 +662,29 @@ function setupCostByProjectSort() {
   });
 }
 
+/** Сортировка по клику на заголовки таблицы «Стоимость по моделям». */
+function setupSummaryCostByModelSort() {
+  const block = document.getElementById('summaryCostByModelBlock');
+  if (!block || !summaryCostByModelData.entries.length) return;
+  const table = block.querySelector('.summary-cost-by-model-table');
+  if (!table) return;
+  const thead = table.querySelector('thead');
+  if (!thead) return;
+  thead.addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.getAttribute('data-sort');
+    if (key !== 'model' && key !== 'cost') return;
+    if (summaryCostByModelSort.key === key) {
+      summaryCostByModelSort.dir = summaryCostByModelSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      summaryCostByModelSort = { key, dir: key === 'cost' ? 'desc' : 'asc' };
+    }
+    block.innerHTML = renderSummaryCostByModelTable(summaryCostByModelData.entries, summaryCostByModelSort);
+    setupSummaryCostByModelSort();
+  });
+}
+
 /** Тепловая карта: строки = пользователи, столбцы = месяцы */
 function renderHeatmap(preparedUsers, months, viewMetric) {
   if (!months.length) return '<p class="muted">Нет месяцев в периоде.</p>';
@@ -810,17 +833,17 @@ async function load() {
   const tableSummary = document.getElementById('tableSummary');
 
   if (!startDate || !endDate) {
-    statusEl.textContent = 'Укажите начальную и конечную дату.';
-    statusEl.className = 'meta error';
+    if (statusEl) statusEl.textContent = 'Укажите начальную и конечную дату.';
+    if (statusEl) statusEl.className = 'meta error';
     return;
   }
-  statusEl.textContent = 'Загрузка...';
-  statusEl.className = 'meta';
-  summaryPanel.style.display = 'none';
-  contentPanel.style.display = 'none';
+  if (statusEl) statusEl.textContent = 'Загрузка...';
+  if (statusEl) statusEl.className = 'meta';
+  if (summaryPanel) summaryPanel.style.display = 'none';
+  if (contentPanel) contentPanel.style.display = 'none';
   document.getElementById('inactiveCursorPanel') && (document.getElementById('inactiveCursorPanel').style.display = 'none');
   document.getElementById('costByProjectPanel') && (document.getElementById('costByProjectPanel').style.display = 'none');
-  emptyState.style.display = 'block';
+  if (emptyState) emptyState.style.display = 'block';
   try {
     const r = await fetch('/api/users/activity-by-month?' + new URLSearchParams({ startDate, endDate }));
     const data = await r.json();
@@ -829,9 +852,9 @@ async function load() {
     const users = data.users || [];
     const months = data.months || [];
     if (!users.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» на <a href="index.html">главной</a>). Опционально можно загрузить <a href="jira-users.html">пользователей Jira</a> для отображения имён вместо email.</p>';
-      emptyState.style.display = 'none';
-      contentPanel.style.display = 'block';
+      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» на <a href="admin.html">Настройки и загрузка</a>). Опционально можно загрузить <a href="jira-users.html">пользователей Jira</a> для отображения имён вместо email.</p>';
+      if (emptyState) emptyState.style.display = 'none';
+      if (contentPanel) contentPanel.style.display = 'block';
       contentPanel.querySelector('#contentTitle').textContent = 'Активность по пользователям';
       statusEl.textContent = '';
       return;
@@ -846,9 +869,9 @@ async function load() {
 
     const preparedUsers = prepareUsers(data, sortBy, showOnlyActive);
     summaryStats.innerHTML = renderSummary(data, preparedUsers);
-    summaryPanel.style.display = 'block';
-    contentPanel.style.display = 'block';
-    emptyState.style.display = 'none';
+    if (summaryPanel) summaryPanel.style.display = 'block';
+    if (contentPanel) contentPanel.style.display = 'block';
+    if (emptyState) emptyState.style.display = 'none';
     setupSummaryCostByModelSort();
 
     const inactiveCursorPanel = document.getElementById('inactiveCursorPanel');
@@ -893,13 +916,13 @@ async function load() {
     statusEl.textContent = '';
   } catch (e) {
     statusEl.textContent = e.message || 'Ошибка загрузки';
-    statusEl.className = 'meta error';
-    summaryPanel.style.display = 'none';
-    contentPanel.style.display = 'none';
+    if (statusEl) statusEl.className = 'meta error';
+    if (summaryPanel) summaryPanel.style.display = 'none';
+    if (contentPanel) contentPanel.style.display = 'none';
     document.getElementById('inactiveCursorPanel') && (document.getElementById('inactiveCursorPanel').style.display = 'none');
     document.getElementById('costByProjectPanel') && (document.getElementById('costByProjectPanel').style.display = 'none');
-    emptyState.style.display = 'block';
-    tableSummary.textContent = '';
+    if (emptyState) emptyState.style.display = 'block';
+    if (tableSummary) tableSummary.textContent = '';
   }
 }
 
