@@ -127,8 +127,7 @@ function validateDateRangeForSync(startDate, endDate) {
 
 /**
  * Разбить заданный период на отрезки по 30 дней (лимит Cursor API).
- * Сдвиг между чанками — сразу на 30 дней (cur = конец_чанка + 1), а не на 1 день.
- * Вызывается только для диапазонов недостающих дат (getMissingChunks), не для всего периода.
+ * Следующий чанк начинается ровно на день после конца текущего (cur = chunkEnd + 1 день).
  */
 function dateChunks(startDate, endDate) {
   const start = new Date(startDate + 'T00:00:00Z');
@@ -143,7 +142,9 @@ function dateChunks(startDate, endDate) {
       startDate: cur.toISOString().slice(0, 10),
       endDate: chunkEnd.toISOString().slice(0, 10),
     });
-    cur.setUTCDate(chunkEnd.getUTCDate() + 1); // следующий чанк начинается сразу после текущего (шаг 30 дней)
+    // Следующий чанк = день после chunkEnd (не setUTCDate(day+1) — иначе при смене месяца cur уезжает назад)
+    cur.setTime(chunkEnd.getTime());
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return chunks;
 }
