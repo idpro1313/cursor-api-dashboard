@@ -96,10 +96,8 @@ async function init() {
   document.getElementById('btnSelectNone').onclick = () => document.querySelectorAll('.ep-check').forEach(c => c.checked = false);
 
   const syncStart = document.getElementById('syncStartDate');
-  if (syncStart) {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    syncStart.value = d.toISOString().slice(0, 10);
+  if (syncStart && !syncStart.value) {
+    syncStart.value = '2025-09-01';
   }
   document.getElementById('btnSync').addEventListener('click', runSync);
   document.getElementById('btnRefreshCoverage').addEventListener('click', loadCoverage);
@@ -158,7 +156,10 @@ async function runSync() {
     alert('Укажите начальную дату');
     return;
   }
-  const endDate = new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const endDate = yesterday.toISOString().slice(0, 10);
   const progressRow = document.getElementById('syncProgressRow');
   const progressText = document.getElementById('syncProgressText');
   const progressBar = document.getElementById('syncProgressBar');

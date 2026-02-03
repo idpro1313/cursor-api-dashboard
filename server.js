@@ -312,12 +312,51 @@ function dateToEpochMs(dateStr) {
   return new Date(dateStr + 'T00:00:00Z').getTime();
 }
 
-/** Подсчёт общего числа шагов синхронизации (для прогресса). */
-function getSyncTotalSteps(chunks) {
-  return SYNC_ENDPOINTS.reduce(
-    (acc, ep) => acc + (ep.syncType === 'snapshot' ? 1 : chunks.length),
-    0
-  );
+/** Вчера в YYYY-MM-DD (текущий день не загружаем — сутки не окончены). */
+function getYesterdayStr() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Список дат от start до end включительно (YYYY-MM-DD). */
+function datesInRange(startStr, endStr) {
+  const start = new Date(startStr + 'T00:00:00Z');
+  const end = new Date(endStr + 'T00:00:00Z');
+  const out = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
+}
+
+/** Для каждого daterange-эндпоинта возвращает только те чанки, по которым в БД ещё не все дни. */
+function getChunksToFetch(startDate, endCapped) {
+  const allChunks = dateChunks(startDate, endCapped);
+  const result = {};
+  for (const ep of SYNC_ENDPOINTS) {
+    if (ep.syncType !== 'daterange') continue;
+    const existingSet = new Set(db.getExistingDates(ep.path, startDate, endCapped));
+    const toFetch = allChunks.filter(({ startDate: cStart, endDate: cEnd }) => {
+      const chunkDates = datesInRange(cStart, cEnd);
+      const allPresent = chunkDates.every((d) => existingSet.has(d));
+      return !allPresent;
+    });
+    result[ep.path] = toFetch;
+  }
+  return result;
+}
+
+/** Подсчёт числа шагов синхронизации: снимки + только те чанки, что реально будем загружать. */
+function getSyncTotalSteps(chunksToFetchByEndpoint) {
+  let steps = 0;
+  for (const ep of SYNC_ENDPOINTS) {
+    if (ep.syncType === 'snapshot') steps += 1;
+    else steps += (chunksToFetchByEndpoint[ep.path] || []).length;
+  }
+  return steps;
 }
 
 function isFeatureNotEnabled(msg) {
@@ -325,14 +364,15 @@ function isFeatureNotEnabled(msg) {
 }
 
 /**
- * Выполняет синхронизацию в БД. onProgress({ currentStep, totalSteps, endpointLabel, chunkLabel, savedInStep, totalSaved }) вызывается после каждого шага.
+ * Выполняет синхронизацию в БД. Загружаются только те дни, которых ещё нет в БД; текущий день не загружается.
+ * onProgress({ currentStep, totalSteps, endpointLabel, chunkLabel, savedInStep, totalSaved }) вызывается после каждого шага.
  * Возвращает { message, saved, ok, errors, skipped }.
  */
 async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
-  const today = new Date().toISOString().slice(0, 10);
-  const end = endDate || today;
-  const chunks = dateChunks(startDate, end);
-  const totalSteps = getSyncTotalSteps(chunks);
+  const yesterday = getYesterdayStr();
+  const endCapped = !endDate || endDate > yesterday ? yesterday : endDate;
+  const chunksToFetch = getChunksToFetch(startDate, endCapped);
+  const totalSteps = getSyncTotalSteps(chunksToFetch);
   const results = { ok: [], errors: [], skipped: [], saved: 0 };
   let currentStep = 0;
 
@@ -340,7 +380,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
     try {
       let savedForEp = 0;
       if (ep.syncType === 'snapshot') {
-        const chunkEnd = today;
+        const chunkEnd = yesterday;
         const response = await cursorFetch(apiKey, ep.path, {
           method: ep.method,
           query: ep.method === 'GET' ? {} : undefined,
@@ -363,7 +403,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
           });
         }
       } else {
-        let chunkIndex = 0;
+        const chunks = chunksToFetch[ep.path] || [];
         for (const { startDate: chunkStart, endDate: chunkEnd } of chunks) {
           let response;
           if (ep.path === '/teams/audit-logs') {
@@ -410,7 +450,6 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
             }
             response = { usageEvents: allEvents, period: response.period };
           } else {
-            chunkIndex++;
             continue;
           }
           const rows = parseResponseToDays(ep.path, response, chunkEnd);
@@ -431,7 +470,6 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
               totalSaved: results.saved + savedForEp,
             });
           }
-          chunkIndex++;
         }
       }
       results.saved += savedForEp;

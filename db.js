@@ -79,6 +79,17 @@ function getAnalytics(options = {}) {
   }));
 }
 
+/** Возвращает массив дат (YYYY-MM-DD), по которым уже есть данные для эндпоинта в указанном диапазоне. */
+function getExistingDates(endpoint, startDate, endDate) {
+  const d = getDb();
+  const stmt = d.prepare(`
+    SELECT DISTINCT date FROM analytics
+    WHERE endpoint = ? AND date >= ? AND date <= ?
+    ORDER BY date
+  `);
+  return stmt.all(endpoint, startDate, endDate).map((r) => r.date);
+}
+
 function getCoverage() {
   const d = getDb();
   const stmt = d.prepare(`
@@ -124,6 +135,7 @@ module.exports = {
   upsertAnalytics,
   getAnalytics,
   getCoverage,
+  getExistingDates,
   getJiraUsers,
   replaceJiraUsers,
 };
