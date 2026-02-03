@@ -853,6 +853,8 @@ function getJiraProjectFromRow(row) {
   return null;
 }
 
+/** Приоритетное поле для выбора актуальной записи при дубликатах пользователя: самая свежая дата начала подписки. */
+const JIRA_SUBSCRIPTION_START_KEYS = ['Дата начала подписки', 'Subscription start date', 'Subscription start', 'Дата подписки', 'Start date'];
 const JIRA_DATE_KEYS = ['Дата', 'Date', 'Created', 'Создан', 'Обновлён', 'Updated', 'Дата изменения', 'Дата выдачи'];
 
 /** Дата из строки Jira в формате YYYY-MM-DD (для отображения подключения/отключения). */
@@ -866,9 +868,10 @@ function getJiraDateFromRow(row) {
   return null;
 }
 
-/** Ключ сортировки строки Jira (последняя запись = самый поздний статус). Возвращает timestamp или id. */
+/** Ключ сортировки строки Jira: запись с самой свежей датой начала подписки = актуальный статус. Сначала «Дата начала подписки», затем остальные даты. */
 function getJiraRowOrderKey(row, id) {
-  for (const k of JIRA_DATE_KEYS) {
+  const dateKeys = [...JIRA_SUBSCRIPTION_START_KEYS, ...JIRA_DATE_KEYS];
+  for (const k of dateKeys) {
     const v = row[k];
     if (v == null || String(v).trim() === '') continue;
     const d = new Date(String(v).trim());
@@ -1019,6 +1022,19 @@ app.get('/api/users/activity-by-month', (req, res) => {
       users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
     }
 
+    // lastActivityMonth и totalRequestsInPeriod по каждому пользователю
+    const lastMonthInRange = months.length ? months[months.length - 1] : null;
+    for (const u of users) {
+      let lastActivityMonth = null;
+      let totalRequests = 0;
+      for (const a of u.monthlyActivity || []) {
+        totalRequests += a.requests || 0;
+        if ((a.requests || 0) + (a.usageEventsCount || 0) > 0) lastActivityMonth = a.month;
+      }
+      u.lastActivityMonth = lastActivityMonth;
+      u.totalRequestsInPeriod = totalRequests;
+    }
+
     // Spending Data: траты по пользователям из последнего снимка /teams/spend
     const emailToSpendCents = new Map();
     const spendRows = db.getAnalytics({ endpoint: '/teams/spend' });
@@ -1057,7 +1073,53 @@ app.get('/api/users/activity-by-month', (req, res) => {
       }
     }
 
-    res.json({ users, months, totalTeamSpendCents, teamMembersCount, teamMembers });
+    // Активные в Jira, но не используют / редко используют Cursor (после назначения teamSpendCents)
+    const activeJiraButInactiveCursor = users.filter((u) => {
+      if (u.jiraStatus === 'archived' || u.jiraStatus == null) return false;
+      const noUse = (u.totalRequestsInPeriod || 0) === 0;
+      const noRecentUse = lastMonthInRange && (u.lastActivityMonth == null || u.lastActivityMonth < lastMonthInRange);
+      const rarelyUse = (u.totalRequestsInPeriod || 0) > 0 && (u.totalRequestsInPeriod || 0) < 5;
+      return noUse || noRecentUse || rarelyUse;
+    }).map((u) => ({
+      email: u.email,
+      displayName: u.displayName,
+      jiraProject: u.jiraProject,
+      jiraStatus: u.jiraStatus,
+      lastActivityMonth: u.lastActivityMonth,
+      totalRequestsInPeriod: u.totalRequestsInPeriod,
+      teamSpendCents: u.teamSpendCents,
+    }));
+
+    // Затраты по проекту помесячно (usageCostCents по месяцам)
+    const costByProjectByMonth = {};
+    for (const u of users) {
+      const projectKey = u.jiraProject && String(u.jiraProject).trim() ? String(u.jiraProject).trim() : '— Без проекта';
+      if (!costByProjectByMonth[projectKey]) costByProjectByMonth[projectKey] = {};
+      for (const a of u.monthlyActivity || []) {
+        const month = a.month;
+        if (!month) continue;
+        const cur = costByProjectByMonth[projectKey][month] || { usageCostCents: 0, usageEventsCount: 0 };
+        cur.usageCostCents = (cur.usageCostCents || 0) + (a.usageCostCents || 0);
+        cur.usageEventsCount = (cur.usageEventsCount || 0) + (a.usageEventsCount || 0);
+        costByProjectByMonth[projectKey][month] = cur;
+      }
+    }
+    const projectTotals = {};
+    for (const u of users) {
+      const projectKey = u.jiraProject && String(u.jiraProject).trim() ? String(u.jiraProject).trim() : '— Без проекта';
+      projectTotals[projectKey] = (projectTotals[projectKey] || 0) + (u.teamSpendCents || 0);
+    }
+
+    res.json({
+      users,
+      months,
+      totalTeamSpendCents,
+      teamMembersCount,
+      teamMembers,
+      activeJiraButInactiveCursor,
+      costByProjectByMonth,
+      projectTotals,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

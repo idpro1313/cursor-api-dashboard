@@ -109,6 +109,68 @@ function formatUserStatusAndDates(user) {
   return `<span class="user-meta-block">${parts.join(' ')}</span>`;
 }
 
+/** Подпись месяца YYYY-MM для заголовка таблицы */
+function formatMonthShort(monthStr) {
+  if (!monthStr || monthStr.length < 7) return monthStr || '—';
+  const [y, m] = monthStr.split('-').map(Number);
+  const d = new Date(y, (m || 1) - 1, 1);
+  return d.toLocaleDateString('ru-RU', { month: 'short', year: '2-digit' });
+}
+
+/** Блок: активные в Jira, но не/редко используют Cursor */
+function renderInactiveCursorList(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    return '<p class="muted">Нет таких пользователей за выбранный период.</p>';
+  }
+  const rows = list.map((u) => {
+    const name = escapeHtml(u.displayName || u.email || '—');
+    const email = escapeHtml(u.email || '');
+    const project = u.jiraProject ? escapeHtml(u.jiraProject) : '—';
+    const lastActive = u.lastActivityMonth ? formatMonthShort(u.lastActivityMonth) : 'нет активности';
+    const req = u.totalRequestsInPeriod != null ? u.totalRequestsInPeriod : 0;
+    const spend = u.teamSpendCents > 0 ? `$${formatCostCents(u.teamSpendCents)}` : '—';
+    return `<tr><td>${name}</td><td class="muted">${email}</td><td>${project}</td><td>${lastActive}</td><td>${req}</td><td>${spend}</td></tr>`;
+  }).join('');
+  return `
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Пользователь</th><th>Email</th><th>Проект</th><th>Последняя активность</th><th>Запросов за период</th><th>Spend API</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+/** Блок: затраты по проекту помесячно */
+function renderCostByProject(costByProjectByMonth, projectTotals, months) {
+  const projects = Object.keys(costByProjectByMonth || {}).sort();
+  if (!projects.length) {
+    return '<p class="muted">Нет данных по проектам. Загрузите <a href="jira-users.html">пользователей Jira</a> с полем «Проект».</p>';
+  }
+  const monthHeaders = (months || []).map((m) => `<th title="${m}">${formatMonthShort(m)}</th>`).join('');
+  const rows = projects.map((project) => {
+    const byMonth = costByProjectByMonth[project] || {};
+    const cells = (months || []).map((month) => {
+      const cur = byMonth[month];
+      const cents = cur && cur.usageCostCents ? cur.usageCostCents : 0;
+      return `<td class="num">${cents > 0 ? '$' + formatCostCents(cents) : '—'}</td>`;
+    }).join('');
+    const totalSpend = projectTotals && projectTotals[project] ? formatCostCents(projectTotals[project]) : '—';
+    return `<tr><th class="project-name">${escapeHtml(project)}</th>${cells}<td class="num" title="Spend API за период">${totalSpend !== '—' ? '$' + totalSpend : '—'}</td></tr>`;
+  }).join('');
+  const monthHeaderCells = (months || []).map((m) => `<th>${formatMonthShort(m)}</th>`).join('');
+  return `
+    <div class="table-wrap cost-by-project-table-wrap">
+      <table class="data-table cost-by-project-table">
+        <thead>
+          <tr><th>Проект</th>${monthHeaderCells}<th>Spend API (период)</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderSummary(data, preparedUsers) {
   const allUsers = data.users || [];
   let totalRequests = 0, totalLinesAdded = 0, totalLinesDeleted = 0, activeUserCount = 0;
@@ -164,7 +226,19 @@ function renderSummary(data, preparedUsers) {
     }
   }
   const costByModelEntries = Object.entries(totalByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
-  const costByModelHtml = costByModelEntries.length ? `<div class="summary-cost-by-model"><span class="summary-cost-by-model-label">Стоимость по моделям ($):</span> ${costByModelEntries.map(([model, cents]) => `<span class="summary-cost-by-model-item">${escapeHtml(model)}: $${formatCostCents(cents)}</span>`).join(', ')}</div>` : '';
+  const costByModelHtml = costByModelEntries.length ? `
+    <div class="summary-cost-by-model">
+      <div class="summary-cost-by-model-label">Стоимость по моделям ($)</div>
+      <div class="table-wrap summary-cost-by-model-table-wrap">
+        <table class="data-table summary-cost-by-model-table">
+          <thead><tr><th>Модель</th><th class="num">Стоимость ($)</th></tr></thead>
+          <tbody>
+            ${costByModelEntries.map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  ` : '';
   return `
     <div class="stat-card">
       <span class="stat-value">${allUsers.length}</span>
@@ -227,8 +301,8 @@ function renderCards(preparedUsers, months, viewMetric) {
     const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
     const tokenStats = (t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0) ? ` <span class="user-card-stat" title="input / output / cache write / cache read">токены: in ${(t.usageInputTokens || 0).toLocaleString('ru-RU')}, out ${(t.usageOutputTokens || 0).toLocaleString('ru-RU')}, cW ${(t.usageCacheWriteTokens || 0).toLocaleString('ru-RU')}, cR ${(t.usageCacheReadTokens || 0).toLocaleString('ru-RU')}</span>` : '';
     const teamSpendStat = (u.teamSpendCents > 0) ? ` <span class="user-card-stat">Spend API: $${formatCostCents(u.teamSpendCents)}</span>` : '';
-    const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${escapeHtml(model)}: $${formatCostCents(cents)}`).join(', ') : '';
-    const costByModelStats = byModel ? ` <span class="user-card-stat user-card-cost-by-model" title="Стоимость в $ по моделям">${byModel}</span>` : '';
+    const byModelRows = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('') : '';
+    const costByModelStats = byModelRows ? `<div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div>` : '';
     return `
       <div class="user-card">
         <div class="user-card-header">
@@ -384,6 +458,8 @@ async function load() {
   statusEl.className = 'meta';
   summaryPanel.style.display = 'none';
   contentPanel.style.display = 'none';
+  document.getElementById('inactiveCursorPanel') && (document.getElementById('inactiveCursorPanel').style.display = 'none');
+  document.getElementById('costByProjectPanel') && (document.getElementById('costByProjectPanel').style.display = 'none');
   emptyState.style.display = 'block';
   try {
     const r = await fetch('/api/users/activity-by-month?' + new URLSearchParams({ startDate, endDate }));
@@ -414,6 +490,19 @@ async function load() {
     contentPanel.style.display = 'block';
     emptyState.style.display = 'none';
 
+    const inactiveCursorPanel = document.getElementById('inactiveCursorPanel');
+    const inactiveCursorContainer = document.getElementById('inactiveCursorContainer');
+    const costByProjectPanel = document.getElementById('costByProjectPanel');
+    const costByProjectContainer = document.getElementById('costByProjectContainer');
+    if (inactiveCursorPanel && inactiveCursorContainer) {
+      inactiveCursorContainer.innerHTML = renderInactiveCursorList(data.activeJiraButInactiveCursor || []);
+      inactiveCursorPanel.style.display = 'block';
+    }
+    if (costByProjectPanel && costByProjectContainer) {
+      costByProjectContainer.innerHTML = renderCostByProject(data.costByProjectByMonth || {}, data.projectTotals || {}, data.months || []);
+      costByProjectPanel.style.display = 'block';
+    }
+
     const viewMetric = sortBy === 'lines' ? 'lines' : sortBy === 'activeDays' ? 'activeDays' : 'requests';
     tableContainer.style.display = 'none';
     heatmapContainer.style.display = 'none';
@@ -440,6 +529,8 @@ async function load() {
     statusEl.className = 'meta error';
     summaryPanel.style.display = 'none';
     contentPanel.style.display = 'none';
+    document.getElementById('inactiveCursorPanel') && (document.getElementById('inactiveCursorPanel').style.display = 'none');
+    document.getElementById('costByProjectPanel') && (document.getElementById('costByProjectPanel').style.display = 'none');
     emptyState.style.display = 'block';
     tableSummary.textContent = '';
   }

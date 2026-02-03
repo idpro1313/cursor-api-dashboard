@@ -71,6 +71,18 @@
     <div class="stats-grid" id="summaryStats"></div>
   </div>
 
+  <div class="panel" id="inactiveCursorPanel" style="display: none;">
+    <h2>Активные в Jira, но не используют / редко используют Cursor</h2>
+    <p class="meta">Пользователи со статусом «Активный» в Jira, у которых нет активности за период, нет активности в последнем месяце или мало запросов (&lt;5).</p>
+    <div id="inactiveCursorContainer"></div>
+  </div>
+
+  <div class="panel" id="costByProjectPanel" style="display: none;">
+    <h2>Затраты по проекту (помесячно)</h2>
+    <p class="meta">Сводка стоимости Usage Events по проектам Jira по месяцам. Итог по Spend API — за весь период по проекту.</p>
+    <div id="costByProjectContainer"></div>
+  </div>
+
   <div class="panel" id="contentPanel" style="display: none;">
     <h2 id="contentTitle">Активность по пользователям</h2>
     <div id="tableContainer"></div>

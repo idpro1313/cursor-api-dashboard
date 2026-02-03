@@ -275,6 +275,9 @@ a:hover { text-decoration: underline; }
 .data-table td { text-align: left; padding: 10px 12px; border: 1px solid var(--border); }
 .data-table th { background: var(--bg); color: var(--muted); font-weight: 600; }
 .data-table tbody tr:hover { background: var(--accent-light); }
+.data-table td.num { text-align: right; }
+.cost-by-project-table-wrap { overflow-x: auto; }
+.cost-by-project-table th.project-name { max-width: 200px; }
 .table-wrap { overflow-x: auto; margin: 8px 0; max-height: 420px; overflow-y: auto; }
 
 .data-card {
@@ -356,18 +359,25 @@ select {
   padding: 16px;
   transition: box-shadow 0.2s, border-color 0.2s;
   box-shadow: var(--shadow-sm);
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 .user-card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
-.user-card-header { margin-bottom: 10px; }
-.user-card-name { font-weight: 600; font-size: 1rem; color: var(--text); }
-.user-card-email { font-size: 0.8rem; color: var(--muted); display: block; margin-top: 2px; }
+.user-card-header { margin-bottom: 10px; min-width: 0; }
+.user-card-name { font-weight: 600; font-size: 1rem; color: var(--text); word-wrap: break-word; overflow-wrap: break-word; }
+.user-card-email { font-size: 0.8rem; color: var(--muted); display: block; margin-top: 2px; word-break: break-all; }
 .user-meta-block { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: 6px; vertical-align: middle; }
-.user-meta-dates { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
-.user-meta-project { font-size: 0.75rem; color: var(--accent); background: rgba(0, 102, 204, 0.08); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.user-meta-dates { font-size: 0.75rem; color: var(--muted); }
+.user-meta-project { font-size: 0.75rem; color: var(--accent); background: rgba(0, 102, 204, 0.08); padding: 2px 6px; border-radius: 4px; word-break: break-word; }
 .summary-cost-by-model { grid-column: 1 / -1; font-size: 0.85rem; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-.summary-cost-by-model-label { font-weight: 600; color: var(--text); margin-right: 8px; }
-.summary-cost-by-model-item { margin-right: 12px; white-space: nowrap; }
-.user-card-cost-by-model { font-size: 0.8rem; color: var(--muted); }
+.summary-cost-by-model-label { font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.summary-cost-by-model-table-wrap { margin-top: 4px; max-width: 100%; }
+.summary-cost-by-model-table { font-size: 0.85rem; }
+.user-card-cost-by-model-wrap { margin-top: 8px; }
+.user-card-cost-by-model-table { width: 100%; font-size: 0.75rem; color: var(--muted); border-collapse: collapse; }
+.user-card-cost-by-model-table th, .user-card-cost-by-model-table td { padding: 2px 8px 2px 0; text-align: left; border: none; }
+.user-card-cost-by-model-table th.num, .user-card-cost-by-model-table td.num { text-align: right; }
+.user-card-cost-by-model-table td { word-break: break-word; max-width: 180px; }
 .table-user-cost-by-model { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 .jira-status {
   font-size: 0.7rem;
