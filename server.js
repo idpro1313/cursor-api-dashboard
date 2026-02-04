@@ -16,7 +16,10 @@ const db = require('./db');
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const TEMP_DIR = process.env.TEMP_DIR ? path.resolve(process.env.TEMP_DIR) : path.join(__dirname, 'temp');
 const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || path.join(DATA_DIR, 'sync.log');
+/** Текущий лог-файл сессии загрузки (если идёт runSyncToDB). При set все записи syncLog идут в него. */
+let currentSyncLogFile = null;
 let syncLogDirEnsured = false;
+
 function syncLog(action, fields = {}) {
   const ts = new Date().toISOString();
   const parts = ['[SYNC]', ts, 'action=' + action];
@@ -28,15 +31,28 @@ function syncLog(action, fields = {}) {
     parts.push(k + '=' + escaped);
   });
   const line = parts.join(' ') + '\n';
+  const logFile = currentSyncLogFile || SYNC_LOG_FILE;
   try {
     if (!syncLogDirEnsured) {
-      fs.mkdirSync(path.dirname(SYNC_LOG_FILE), { recursive: true });
+      fs.mkdirSync(path.dirname(logFile), { recursive: true });
       syncLogDirEnsured = true;
     }
-    fs.appendFileSync(SYNC_LOG_FILE, line, 'utf8');
+    fs.appendFileSync(logFile, line, 'utf8');
   } catch (e) {
     console.error('[SYNC] log write failed:', e.message);
   }
+}
+
+/** Имя файла лога сессии с timestamp: sync-YYYYMMDD-HHmmss.log */
+function getSessionLogFilename() {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(now.getUTCDate()).padStart(2, '0');
+  const h = String(now.getUTCHours()).padStart(2, '0');
+  const min = String(now.getUTCMinutes()).padStart(2, '0');
+  const s = String(now.getUTCSeconds()).padStart(2, '0');
+  return `sync-${y}${m}${d}-${h}${min}${s}.log`;
 }
 
 function isApiKeyConfigured() {
@@ -634,6 +650,14 @@ function isFeatureNotEnabled(msg) {
  * Возвращает { message, saved, ok, errors, skipped }.
  */
 async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
+  const logDir = DATA_DIR;
+  const sessionLogPath = path.join(logDir, getSessionLogFilename());
+  const prevLogFile = currentSyncLogFile;
+  currentSyncLogFile = sessionLogPath;
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+  } catch (e) {}
+
   const yesterday = getYesterdayStr();
   const endCapped = !endDate || endDate > yesterday ? yesterday : endDate;
   const chunksToFetch = getChunksToFetch(startDate, endCapped);
@@ -641,8 +665,9 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
   const results = { ok: [], errors: [], skipped: [], saved: 0 };
   let currentStep = 0;
 
-  syncLog('start', { startDate, endDate, endCapped, totalSteps });
+  syncLog('start', { startDate, endDate, endCapped, totalSteps, sessionLog: path.basename(sessionLogPath) });
 
+  try {
   for (const ep of SYNC_ENDPOINTS) {
     try {
       let savedForEp = 0;
@@ -855,6 +880,9 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
     errors: results.errors,
     skipped: results.skipped,
   };
+  } finally {
+    currentSyncLogFile = prevLogFile;
+  }
 }
 
 app.post('/api/sync', requireSettingsAuth, async (req, res) => {
@@ -1475,7 +1503,24 @@ app.post('/api/jira-users/upload', requireSettingsAuth, (req, res) => {
 
 // --- Счета Cursor (PDF): парсинг таблицы между Description и Subtotal, сохранение в БД ---
 
-/** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal". */
+/** Парсинг суммы из строки (например "$1,234.56") в центы. */
+function parseCurrencyToCents(str) {
+  if (str == null || str === '') return null;
+  const s = String(str).replace(/[$,\s]/g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? null : Math.round(n * 100);
+}
+
+/** Парсинг числа (qty или unit price). */
+function parseNum(str) {
+  if (str == null || str === '') return null;
+  const s = String(str).replace(/\s/g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? null : n;
+}
+
+/** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal".
+ * Ожидаемые колонки: Description, Qty, Unit price, Amount. Если в строке 4+ колонок и последние три — числа, разбираем как qty, unit price, amount. */
 function extractInvoiceTableFromText(text) {
   if (typeof text !== 'string') return [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
@@ -1494,27 +1539,77 @@ function extractInvoiceTableFromText(text) {
   }
   const bodyLines = lines.slice(headerIdx + 1, subtotalIdx).filter((l) => l.length > 0);
   const rows = [];
+  /** Строки, составляющие описание текущей позиции (перенос описания на следующую строку в PDF). */
+  let pendingDescriptionLines = [];
+  let rowIndex = 0;
+
   for (let i = 0; i < bodyLines.length; i++) {
     const line = bodyLines[i];
     const columns = line.split(/\t+/).length > 1
       ? line.split(/\t+/).map((c) => c.trim())
       : line.split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
-    let description = '';
-    let amountCents = null;
-    if (columns.length >= 1) {
-      const last = columns[columns.length - 1];
-      const amountStr = String(last).replace(/[$,\s]/g, '').replace(',', '.');
-      const num = parseFloat(amountStr);
-      if (!Number.isNaN(num)) {
-        amountCents = Math.round(num * 100);
-        description = columns.slice(0, -1).join(' ').trim() || columns[0] || '';
-      } else {
-        description = columns.join(' ').trim();
-      }
+    if (columns.length < 1) {
+      if (pendingDescriptionLines.length > 0) pendingDescriptionLines.push(line);
+      continue;
     }
-    if (description || amountCents != null) {
-      rows.push({ row_index: i, description: description || null, amount_cents: amountCents, raw_columns: columns });
+    const last = columns[columns.length - 1];
+    const amountCents = parseCurrencyToCents(last);
+    const qtyVal = columns.length >= 3 ? parseNum(columns[columns.length - 3]) : null;
+    const unitVal = columns.length >= 2 ? parseNum(columns[columns.length - 2]) : null;
+
+    if (columns.length >= 4 && amountCents != null && qtyVal != null && unitVal != null) {
+      const descOnLine = columns.slice(0, -3).join(' ').trim();
+      const fullDescription = pendingDescriptionLines.length > 0
+        ? (pendingDescriptionLines.join(' ') + (descOnLine ? ' ' + descOnLine : '')).trim()
+        : descOnLine || null;
+      rows.push({
+        row_index: rowIndex++,
+        description: fullDescription || null,
+        quantity: qtyVal,
+        unit_price_cents: Math.round(unitVal * 100),
+        amount_cents: amountCents,
+        raw_columns: columns,
+      });
+      pendingDescriptionLines = [];
+    } else if (columns.length === 3 && amountCents != null && unitVal != null && qtyVal != null) {
+      /** Строка только из трёх чисел (Qty, Unit price, Amount) — описание было на предыдущих строках. */
+      const fullDescription = pendingDescriptionLines.length > 0 ? pendingDescriptionLines.join(' ').trim() || null : null;
+      rows.push({
+        row_index: rowIndex++,
+        description: fullDescription,
+        quantity: qtyVal,
+        unit_price_cents: Math.round(unitVal * 100),
+        amount_cents: amountCents,
+        raw_columns: columns,
+      });
+      pendingDescriptionLines = [];
+    } else if (columns.length >= 2 && amountCents != null && (unitVal != null || columns.length === 2)) {
+      const descOnLine = columns.length >= 3 ? columns.slice(0, -2).join(' ').trim() : columns.slice(0, -1).join(' ').trim();
+      const fullDescription = pendingDescriptionLines.length > 0
+        ? (pendingDescriptionLines.join(' ') + (descOnLine ? ' ' + descOnLine : '')).trim()
+        : descOnLine || null;
+      rows.push({
+        row_index: rowIndex++,
+        description: fullDescription || null,
+        quantity: columns.length >= 4 ? qtyVal : null,
+        unit_price_cents: unitVal != null ? Math.round(unitVal * 100) : null,
+        amount_cents: amountCents,
+        raw_columns: columns,
+      });
+      pendingDescriptionLines = [];
+    } else {
+      pendingDescriptionLines.push(line);
     }
+  }
+  if (pendingDescriptionLines.length > 0) {
+    rows.push({
+      row_index: rowIndex++,
+      description: pendingDescriptionLines.join(' ').trim() || null,
+      quantity: null,
+      unit_price_cents: null,
+      amount_cents: null,
+      raw_columns: pendingDescriptionLines,
+    });
   }
   return rows;
 }
@@ -1557,7 +1652,7 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
     const filename = req.file.originalname || 'invoice.pdf';
     const invoiceId = db.insertCursorInvoice(filename, null, fileHash);
     rows.forEach((r) => {
-      db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns);
+      db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents);
     });
     res.json({ ok: true, invoice_id: invoiceId, filename, items_count: rows.length });
   } catch (e) {
@@ -1584,7 +1679,7 @@ app.post('/api/invoices/parse-temp', requireSettingsAuth, async (req, res) => {
         const rows = await parseCursorInvoicePdf(buffer);
         const invoiceId = db.insertCursorInvoice(f, filePath, fileHash);
         rows.forEach((r) => {
-          db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns);
+          db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents);
         });
         results.parsed += 1;
       } catch (e) {

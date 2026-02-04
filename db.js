@@ -51,6 +51,8 @@ function getDb() {
       invoice_id INTEGER NOT NULL REFERENCES cursor_invoices(id) ON DELETE CASCADE,
       row_index INTEGER NOT NULL,
       description TEXT,
+      quantity REAL,
+      unit_price_cents INTEGER,
       amount_cents INTEGER,
       raw_columns TEXT,
       UNIQUE(invoice_id, row_index)
@@ -58,11 +60,17 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON cursor_invoice_items(invoice_id);
   `);
   try {
-    const info = db.prepare("PRAGMA table_info(cursor_invoices)").all();
-    if (info.length > 0 && info.every((c) => c.name !== 'file_hash')) {
+    const infoInv = db.prepare("PRAGMA table_info(cursor_invoices)").all();
+    if (infoInv.length > 0 && infoInv.every((c) => c.name !== 'file_hash')) {
       db.exec('ALTER TABLE cursor_invoices ADD COLUMN file_hash TEXT');
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_invoices_file_hash ON cursor_invoices(file_hash) WHERE file_hash IS NOT NULL');
     }
+  } catch (_) {}
+  try {
+    const infoItems = db.prepare("PRAGMA table_info(cursor_invoice_items)").all();
+    const names = (infoItems || []).map((c) => c.name);
+    if (!names.includes('quantity')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN quantity REAL');
+    if (!names.includes('unit_price_cents')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN unit_price_cents INTEGER');
   } catch (_) {}
   return db;
 }
@@ -211,12 +219,20 @@ function insertCursorInvoice(filename, filePath, fileHash) {
   return run.lastInsertRowid;
 }
 
-function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns) {
+function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents) {
   const d = getDb();
   d.prepare(`
-    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(invoiceId, rowIndex, description || null, amountCents != null ? amountCents : null, rawColumns ? JSON.stringify(rawColumns) : null);
+    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    invoiceId,
+    rowIndex,
+    description || null,
+    amountCents != null ? amountCents : null,
+    rawColumns ? JSON.stringify(rawColumns) : null,
+    quantity != null ? quantity : null,
+    unitPriceCents != null ? unitPriceCents : null
+  );
 }
 
 function getCursorInvoiceById(id) {
@@ -238,7 +254,7 @@ function getCursorInvoices() {
 function getCursorInvoiceItems(invoiceId) {
   const d = getDb();
   const rows = d.prepare(`
-    SELECT id, invoice_id, row_index, description, amount_cents, raw_columns
+    SELECT id, invoice_id, row_index, description, quantity, unit_price_cents, amount_cents, raw_columns
     FROM cursor_invoice_items WHERE invoice_id = ? ORDER BY row_index
   `).all(invoiceId);
   return rows.map((r) => ({
