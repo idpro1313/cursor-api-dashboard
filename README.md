@@ -49,6 +49,27 @@ docker compose up --build
 | `CURSOR_API_KEY` | API key команды (если не вводить в интерфейсе). |
 | `CORS_ORIGIN` | Разрешённые origins через запятую. |
 | `SESSION_SECRET` | Секрет для подписи сессии (опционально). |
+| `USE_PADDLE_OCR` | Если `1` или `true`, перед встроенным парсером вызывается скрипт [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) для разбора PDF-счетов (требуется Python и `paddleocr[doc-parser]`). |
+| `PADDLE_OCR_SCRIPT` | Путь к скрипту `scripts/parse_invoice_paddleocr.py` (по умолчанию `./scripts/parse_invoice_paddleocr.py`). |
+| `PADDLE_OCR_PYTHON` | Исполняемый файл Python (по умолчанию `python3`). |
+
+### Опционально: парсинг счетов через PaddleOCR
+
+Для более точного разбора сложных PDF-счетов можно использовать [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) (PP-StructureV3). Установите Python 3.8+ и зависимости:
+
+```bash
+pip install "paddleocr[doc-parser]"
+```
+
+Задайте переменные и запустите приложение:
+
+```bash
+export USE_PADDLE_OCR=1
+export PADDLE_OCR_SCRIPT=/path/to/cursor-api-dashboard/scripts/parse_invoice_paddleocr.py
+npm start
+```
+
+Если скрипт завершится с ошибкой или вернёт пустой результат, будет использован встроенный парсер (по структуре PDF и по тексту). В Docker-образе Python и PaddleOCR не устанавливаются — для использования PaddleOCR поднимайте отдельный контейнер с Python или запускайте Node локально с установленным PaddleOCR.
 
 ## Структура данных
 
