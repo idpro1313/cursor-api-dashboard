@@ -1,11 +1,11 @@
-# Порядок слоёв для кэширования: при изменении только кода пересобираются
-# только слои ниже изменённых файлов (npm install не перезапускается).
+# Cursor API Dashboard — образ приложения
+# В образ включена Java 17 (JRE) для парсинга PDF-счетов через OpenDataLoader.
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Сборка better-sqlite3 в Alpine требует python3 и make/g++
-RUN apk add --no-cache python3 make g++ sqlite-dev
+# Сборка better-sqlite3 + Java 17 для OpenDataLoader PDF
+RUN apk add --no-cache python3 make g++ sqlite-dev openjdk17-jre-headless
 
 COPY package.json ./
 RUN npm install --omit=dev

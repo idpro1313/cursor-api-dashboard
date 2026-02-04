@@ -1,17 +1,18 @@
 # Документация: Cursor API Dashboard
 
-Веб-приложение для работы с [Cursor Admin API](https://cursor.com/docs/account/teams/admin-api): прокси запросов, сохранение аналитики в локальную БД и дашборды по использованию Cursor командой.
+Веб-приложение для работы с [Cursor Admin API](https://cursor.com/docs/account/teams/admin-api): прокси запросов, сохранение аналитики в локальную БД, дашборды по использованию Cursor командой и загрузка PDF-счетов Cursor с парсингом через OpenDataLoader.
 
 ---
 
 ## 1. Назначение и возможности
 
 - **Прокси к Cursor Admin API** — запросы к API выполняются с сервера, API key не передаётся в браузер.
-- **Синхронизация в БД** — загрузка данных по эндпоинтам (members, audit-logs, daily-usage-data, spend, filtered-usage-events) с указанной даты по вчера с сохранением в SQLite. Уже загруженные дни не запрашиваются повторно; текущий день не загружается.
+- **Синхронизация в БД** — загрузка данных по эндпоинтам (audit-logs, daily-usage-data, filtered-usage-events) с указанной даты по вчера с сохранением в SQLite. Уже загруженные дни не запрашиваются повторно; текущий день не загружается.
 - **Просмотр данных в БД** — фильтрация по эндпоинту и диапазону дат, просмотр покрытия.
 - **Пользователи Jira** — загрузка CSV (экспорт из Jira) для сопоставления с активностью Cursor по email.
 - **Дашборд по пользователям** — статистика использования Cursor по месяцам: запросы, дни активности, строки кода, применения/принятия; виды: карточки, тепловая карта, таблица.
-- **Доступ к настройкам по логину и паролю** — разделы «Настройки и загрузка», «Данные в БД», «Пользователи Jira», «Аудит» вынесены на отдельную страницу настроек; доступ по логину и паролю. Учётные данные хранятся в файле `data/auth.json`.
+- **Счета Cursor (PDF)** — загрузка PDF-счетов, парсинг таблицы позиций через [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (требуется Java 11+). Извлекаются строки с полями Description, Qty, Unit price, Tax, Amount. Логирование каждого разбора в отдельный файл в `data/invoice-logs/`.
+- **Доступ к настройкам по логину и паролю** — разделы «Настройки и загрузка», «Данные в БД», «Пользователи Jira», «Счета», «Аудит» вынесены на отдельную страницу настроек; доступ по логину и паролю. Учётные данные хранятся в файле `data/auth.json`.
 
 ---
 
@@ -22,9 +23,12 @@
 | Сервер | Node.js 18+ (рекомендуется 20), Express |
 | БД | SQLite (better-sqlite3) |
 | Фронт | HTML, CSS, JavaScript (без фреймворков) |
+| Парсинг PDF-счетов | [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (`@opendataloader/pdf`), **требуется Java 11+** в PATH при включённом `USE_OPENDATALOADER` |
 | Контейнеризация | Docker, Docker Compose |
 
 **Внешние зависимости:** Cursor Admin API (нужен API key команды из [cursor.com/settings](https://cursor.com/settings)). Ключ хранится в общей БД (таблица `settings`). При запуске выгрузки проверяется наличие ключа; при недействительном ключе (401 от Cursor API) предлагается ввести и сохранить новый.
+
+**Парсинг счетов:** при включённом `USE_OPENDATALOADER` (по умолчанию и локально, и в Docker) для загрузки PDF-счетов нужна **Java 11+** в PATH. В Docker-образ входит Java 17 (JRE), парсинг включён по умолчанию; отключить в контейнере можно переменной `USE_OPENDATALOADER=0`. Резервных парсеров нет.
 
 ---
 
@@ -32,8 +36,8 @@
 
 ```
 cursor-api-dashboard/
-├── server.js           # Сервер: API, прокси, синхронизация
-├── db.js               # Работа с SQLite (analytics, jira_users)
+├── server.js           # Сервер: API, прокси, синхронизация, парсинг PDF-счетов (OpenDataLoader)
+├── db.js               # Работа с SQLite (analytics, jira_users, cursor_invoices)
 ├── package.json
 ├── Dockerfile
 ├── docker-compose.yml
@@ -51,18 +55,23 @@ cursor-api-dashboard/
 │   ├── data.js
 │   ├── jira-users.html # Пользователи Jira (CSV)
 │   ├── jira-users.js
+│   ├── invoices.html   # Счета Cursor (загрузка PDF, просмотр позиций)
+│   ├── invoices.js
 │   ├── audit.html      # Аудит (события Audit Logs)
 │   ├── audit.js
 │   ├── users-dashboard.js    # Логика дашборда (index.html)
+│   ├── team-snapshot.html
+│   ├── team-snapshot.js
 │   └── styles.css
+├── lib/                # Вспомогательные модули (при наличии)
 ├── scripts/
 │   └── deploy.sh       # Скрипт деплоя (git pull + docker compose)
 └── data/               # Локально: создаётся при первом запуске. В Docker — каталог хоста /var/cursor/data
-    ├── analytics.db    # SQLite
+    ├── analytics.db    # SQLite (analytics, jira_users, settings, cursor_invoices, cursor_invoice_items)
     ├── auth.json       # Логин и пароль для входа в настройки (создаётся при первом запуске: admin/admin)
     ├── session_secret  # Секрет для подписи сессии (создаётся автоматически)
-    ├── sync.log        # Лог синхронизации (при включённом SYNC_LOG_FILE)
-    └── (API key в БД, таблица settings)
+    ├── sync.log        # Лог синхронизации API (при SYNC_LOG_FILE)
+    └── invoice-logs/   # Логи парсинга счетов: один файл на счёт (имя_файла.pdf.log); при удалении счёта лог удаляется
 ```
 
 ---
@@ -117,7 +126,7 @@ chmod +x scripts/deploy.sh
 ### 5.2 Вход и страница настроек (`login.html`, `settings.html`)
 
 - **Вход:** логин и пароль из файла `data/auth.json`. При первом запуске создаётся файл с учётными данными по умолчанию (admin/admin). Сессия хранится в cookie (24 ч).
-- **После входа** открывается `settings.html` — список разделов: Настройки и загрузка, Данные в БД, Пользователи Jira, Аудит. Каждый пункт — ссылка на соответствующую страницу.
+- **После входа** открывается `settings.html` — список разделов: Настройки и загрузка, Данные в БД, Пользователи Jira, Счета, Аудит. Каждый пункт — ссылка на соответствующую страницу.
 
 ### 5.3 Настройки и загрузка (`admin.html`), только после входа
 
@@ -139,13 +148,19 @@ chmod +x scripts/deploy.sh
 
 - События Audit Logs из БД. Фильтры: период, тип события, лимит записей. Кнопка «Показать» — загрузка и отображение таблицы событий.
 
-### 5.7 Редирект
+### 5.7 Счета Cursor (`invoices.html`), только после входа
+
+- Загрузка PDF-счета: выбор файла, отправка на сервер. Парсинг выполняется **только** через OpenDataLoader; при отключённом парсере (`USE_OPENDATALOADER=0`), ошибке выполнения (нет Java или сбой OpenDataLoader) или пустом результате сервер возвращает ошибку клиенту (резервных парсеров нет).
+- Дубликаты: счёт с тем же SHA-256 хешем файла не принимается (409), отображается ссылка на уже загруженный счёт.
+- Список загруженных счетов с количеством позиций; просмотр позиций счёта (description, quantity, unit price, tax, amount); удаление счёта (при удалении удаляется и соответствующий лог в `data/invoice-logs/`).
+
+### 5.8 Редирект
 
 - Запрос к `/users-dashboard.html` — редирект 302 на `/index.html`.
 
 ---
 
-## 5.8 Что загружается в БД и что отображается на дашборде
+## 5.9 Что загружается в БД и что отображается на дашборде
 
 | Эндпоинт (загрузка) | Где отображается | Примечание |
 |--------------------|------------------|------------|
@@ -197,7 +212,16 @@ chmod +x scripts/deploy.sh
 - **Snapshot (один запрос за запуск):** `/teams/members`, `/teams/spend`.
 - **По периодам (чанки по 30 дней):** `/teams/audit-logs`, `/teams/daily-usage-data`, `/teams/filtered-usage-events`. Для каждого эндпоинта вычисляются даты, которых ещё нет в БД; по ним строятся непрерывные «дыры» и разбиваются на чанки по 30 дней. Таким образом за период больше 30 дней запрашиваются только недостающие диапазоны, без повторной загрузки уже имеющихся данных.
 
-### 6.3 Аналитика и пользователи
+### 6.4 Счета Cursor (только после входа)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| POST | `/api/invoices/upload` | Тело: `multipart/form-data`, поле `pdf` — файл PDF. Парсинг через OpenDataLoader; при успехе — сохранение в БД, ответ `{ ok, invoice_id, filename, items_count }`. При дубликате по хешу файла — 409 и `existing_invoice`. При ошибке парсинга (OPENDATALOADER_DISABLED, OPENDATALOADER_ERROR, OPENDATALOADER_EMPTY) — 400 с сообщением. |
+| GET | `/api/invoices` | Список счетов: `{ invoices: [ { id, filename, parsed_at, items_count }, ... ] }`. |
+| GET | `/api/invoices/:id/items` | Позиции счёта: `{ items: [ { row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns }, ... ] }`. 404 если счёт не найден. |
+| DELETE | `/api/invoices/:id` | Удаление счёта и всех его позиций; удаляется также лог в `INVOICE_LOGS_DIR` (имя файла счёта + `.log`). Ответ `{ ok: true }` или 404. |
+
+### 6.5 Аналитика и пользователи
 
 | Метод | Путь | Описание |
 |-------|------|----------|
@@ -235,9 +259,38 @@ chmod +x scripts/deploy.sh
 
 При загрузке CSV таблица очищается и заполняется заново.
 
-### 7.3 Вспомогательные функции (db.js)
+### 7.3 Таблицы счетов Cursor
+
+**`cursor_invoices`**
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT. |
+| filename | TEXT | Имя загруженного файла. |
+| file_path | TEXT | Не используется (оставлено для совместимости). |
+| file_hash | TEXT | SHA-256 хеш файла; уникальный индекс для проверки дубликатов. |
+| parsed_at | TEXT | Время загрузки/парсинга. |
+
+**`cursor_invoice_items`**
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT. |
+| invoice_id | INTEGER | FK на cursor_invoices(id), ON DELETE CASCADE. |
+| row_index | INTEGER | Порядковый номер строки в таблице счёта. |
+| description | TEXT | Описание позиции. |
+| quantity | REAL | Количество. |
+| unit_price_cents | INTEGER | Цена за единицу в центах. |
+| tax_pct | REAL | Налог, %. |
+| amount_cents | INTEGER | Сумма в центах. |
+| raw_columns | TEXT | JSON массива сырых значений колонок. |
+
+Уникальность: `(invoice_id, row_index)`.
+
+### 7.4 Вспомогательные функции (db.js)
 
 - `getExistingDates(endpoint, startDate, endDate)` — массив дат (YYYY-MM-DD), по которым уже есть данные для эндпоинта в указанном диапазоне. Используется при синхронизации для построения недостающих диапазонов: запрашиваются только чанки по «дырам» (без повторной загрузки одних и тех же дней).
+- Для счетов: `getCursorInvoices`, `getCursorInvoiceById`, `getCursorInvoiceItems`, `getCursorInvoiceByFileHash`, `insertCursorInvoice`, `insertCursorInvoiceItem`, `deleteCursorInvoice`. При полной очистке БД (`clearAllData`) удаляются также `cursor_invoices` и `cursor_invoice_items`.
 
 ---
 
@@ -257,13 +310,17 @@ chmod +x scripts/deploy.sh
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `PORT` | Порт HTTP-сервера. | 3333 |
-| `DATA_DIR` | Каталог для `analytics.db` (API key хранится в той же БД). | `./data` (от корня приложения) |
+| `DATA_DIR` | Каталог для БД, auth.json, session_secret, sync.log, invoice-logs. | `./data` (от корня приложения) |
 | `CURSOR_API_KEY` | API key команды Cursor (если не хранить в БД и не вводить на сайте). | — |
 | `CORS_ORIGIN` | Разрешённые origins через запятую. | все |
 | `PROXY_TIMEOUT_MS` | Таймаут запроса к Cursor API, мс. | 60000 |
 | `RATE_LIMIT_MAX` | Максимум запросов с одного IP в минуту к нашему серверу. | 120 |
 | `SYNC_LOG_FILE` | Путь к файлу лога синхронизации (append). | `data/sync.log` |
 | `SESSION_SECRET` | Секрет для подписи сессии (если не использовать файл `data/session_secret`). | генерируется в файл |
+| `USE_OPENDATALOADER` | Включить парсинг PDF-счетов через OpenDataLoader. Требуется **Java 11+** в PATH (в Docker-образе установлена Java 17). Отключить: `0` или `false`. | включено (если не `0`/`false`) |
+| `OPENDATALOADER_TABLE_METHOD` | Метод детекции таблиц OpenDataLoader: `default` (по границам) или `cluster`. | не задаётся |
+| `OPENDATALOADER_USE_STRUCT_TREE` | Если `1` или `true` — использовать структуру тегов PDF (tagged PDF) для порядка чтения. | не задаётся |
+| `INVOICE_LOGS_DIR` | Каталог логов парсинга счетов. Для каждого счёта — файл `имя_файла.pdf.log`; при удалении счёта лог удаляется. | `DATA_DIR/invoice-logs` |
 
 ---
 
@@ -292,6 +349,16 @@ chmod +x scripts/deploy.sh
 
 ---
 
+## 9.2 Парсинг PDF-счетов (OpenDataLoader) и логирование
+
+**Парсер:** используется только [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (пакет `@opendataloader/pdf`). Вызов по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Резервных парсеров нет: при `USE_OPENDATALOADER=0`, ошибке выполнения (например отсутствие Java) или пустом результате загрузка счёта возвращает ошибку клиенту.
+
+**Извлечение таблицы:** в JSON ищется таблица с заголовками Description, Qty, Unit price (опционально), Tax (опционально), Amount. Функция `extractInvoiceRowsFromOdlTable()` определяет индексы колонок по заголовкам и для каждой строки данных извлекает: description, quantity, unit_price_cents, tax_pct, amount_cents. Поддерживаются форматы с колонкой Tax и без неё. Числа и валютные суммы парсятся с учётом символа `$` и запятых; применяется нормализация текста (в т.ч. склейка сумм, разорванных переносами строк, и нестандартных пробелов).
+
+**Логирование:** для каждого загружаемого счёта создаётся/перезаписывается файл в `INVOICE_LOGS_DIR` с именем `имя_файла.pdf.log` (недопустимые символы в имени заменяются на `_`). В лог пишутся: timestamp, filename, parser (`opendataloader`), rows_count, код ошибки (если есть), длина и содержимое извлечённого JSON (обрезано до 50K символов). При удалении счёта через API соответствующий лог-файл удаляется.
+
+---
+
 ## 10. Лимиты Cursor Admin API
 
 - Большинство эндпоинтов: **20 запросов в минуту** на команду.
@@ -314,3 +381,6 @@ chmod +x scripts/deploy.sh
 
 - [Cursor Admin API](https://cursor.com/docs/account/teams/admin-api)
 - [API Overview (аутентификация, лимиты)](https://cursor.com/docs/api)
+- [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) — парсинг PDF-счетов
+- [OpenDataLoader Quick Start (Node.js)](https://opendataloader.org/docs/quick-start-nodejs)
+- [OpenDataLoader JSON Schema](https://opendataloader.org/docs/json-schema)

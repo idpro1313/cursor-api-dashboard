@@ -1,3 +1,7 @@
+# Cursor API Dashboard — контейнер приложения
+# Запуск: docker compose up --build
+# Данные хранятся в каталоге хоста (см. volumes), в контейнере — в /data
+
 services:
   app:
     build: .
@@ -6,13 +10,21 @@ services:
     environment:
       - PORT=3333
       - DATA_DIR=/data
-      # Опционально: API key через переменную (без ввода на сайте)
+      # API key (опционально; можно ввести в веб-интерфейсе)
       # - CURSOR_API_KEY=your_key_here
-      # Парсер PDF-счетов: в образе нет Java — отключаем OpenDataLoader (будет структура + pdf-parse)
-      - USE_OPENDATALOADER=0
+      # Парсинг PDF-счетов включён по умолчанию (образ собирается с Java 17). Отключить: USE_OPENDATALOADER=0
+      # Опционально: раскомментировать и задать при необходимости
+      # - CORS_ORIGIN=http://localhost:3333
+      # - SESSION_SECRET=your-secret-for-cookie-signing
+      # - SYNC_LOG_FILE=/data/sync.log
+      # - INVOICE_LOGS_DIR=/data/invoice-logs
+      # - RATE_LIMIT_MAX=120
+      # - PROXY_TIMEOUT_MS=60000
+      # - OPENDATALOADER_TABLE_METHOD=cluster
+      # - OPENDATALOADER_USE_STRUCT_TREE=1
     volumes:
-      # Каталог данных на хосте. deploy.sh задаёт HOST_DATA_DIR (на 2 уровня выше scripts/).
-      # Без deploy: по умолчанию /var/cursor/data. На Windows — можно перейти на именованный том.
+      # Каталог данных на хосте. deploy.sh задаёт HOST_DATA_DIR (по умолчанию на 2 уровня выше scripts/ → …/data).
+      # Без deploy: по умолчанию /var/cursor/data. На Windows — можно использовать именованный том (см. ниже).
       - ${HOST_DATA_DIR:-/var/cursor/data}:/data
       # - cursor_data:/data
 

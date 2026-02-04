@@ -4,8 +4,10 @@
 # Использование:
 #   chmod +x scripts/deploy.sh
 #   ./scripts/deploy.sh
-# Каталог данных по умолчанию: на 2 уровня выше скрипта (scripts/ → проект → data).
+#
+# Каталог данных на хосте по умолчанию: на 2 уровня выше скрипта (scripts/ → проект → …/data).
 # Переопределение: PROJECT_DIR=/path/to/project или DATA_DIR=/path/to/data ./scripts/deploy.sh
+# Переменные окружения контейнера задаются в docker-compose.yml (в образе есть Java 17, парсинг PDF-счетов включён по умолчанию).
 set -e
 
 # Каталог проекта (где лежит docker-compose.yml). По умолчанию — родитель папки scripts

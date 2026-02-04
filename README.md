@@ -56,11 +56,11 @@ docker compose up --build
 
 ### Парсинг PDF-счетов (OpenDataLoader)
 
-Используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf): вызов `convert()` по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в формате JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Из JSON извлекается таблица с заголовками Description / Qty / Unit price / Tax / Amount. **Требуется Java 11+** в PATH. В Docker по умолчанию OpenDataLoader отключён (в образе нет Java).
+Используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf): вызов `convert()` по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в формате JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Из JSON извлекается таблица с заголовками Description / Qty / Unit price / Tax / Amount. **Требуется Java 11+** в PATH (локально); в Docker-образ включена Java 17, парсинг включён по умолчанию.
 
 ## Структура данных
 
-- **data/analytics.db** — SQLite: таблицы `analytics` (данные по эндпоинтам и датам), `jira_users` (CSV Jira), `settings` (API key).
+- **data/analytics.db** — SQLite: таблицы `analytics` (данные по эндпоинтам и датам), `jira_users` (CSV Jira), `settings` (API key), `cursor_invoices` и `cursor_invoice_items` (загруженные PDF-счета и позиции).
 - **data/auth.json** — логин и пароль для входа в настройки (`{"login": "admin", "password": "admin"}`).
 - **data/session_secret** — секрет сессии (создаётся автоматически).
 - **data/sync.log** — лог синхронизации API (при загрузке данных в БД).

@@ -1,8 +1,16 @@
+# Зависимости и репозиторий
 node_modules
 .git
 .gitignore
+
+# Документация (не нужна в образе)
 *.md
+
+# Локальные данные и секреты (в контейнере используют volume /data)
 .env
 .env.*
 data
 temp
+export.csv
+api-key.txt
+**/api-key.txt

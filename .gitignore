@@ -3,6 +3,7 @@ data/
 temp/
 .env
 .env.*
+!.env.example
 export.csv
 
 # API key не коммитить
