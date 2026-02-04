@@ -1636,12 +1636,17 @@ function parseQtyUnitAmountAtEnd(line) {
   }
   if (tokens.length >= 3) {
     const last = tokens[tokens.length - 1];
-    const mid = parseNum(tokens[tokens.length - 2]);
+    const midToken = tokens[tokens.length - 2];
+    const mid = parseNum(midToken);
     const qtyVal = parseNum(tokens[tokens.length - 3]);
     const amountCents = parseCurrencyToCents(last);
     if (amountCents != null && qtyVal != null && looksLikeQty(qtyVal)) {
       const suffix = tokens.slice(-3).join(' ');
       const descEndIndex = Math.max(0, trimmed.length - suffix.length);
+      const looksLikeUnitPrice = midToken && /[.$]/.test(String(midToken));
+      if (mid != null && looksLikeUnitPrice) {
+        return { qtyVal, unitVal: mid, taxPct: null, amountCents, descEndIndex };
+      }
       if (mid != null && mid >= 0 && mid <= 100) {
         return { qtyVal, unitVal: null, taxPct: mid, amountCents, descEndIndex };
       }
@@ -1749,12 +1754,21 @@ function findAllQtyUnitAmountInLine(line) {
   });
 }
 
+/** Нормализация текста от pypdf: склеивает суммы, разорванные переносом строки (например "$1,\n120.00" → "$1,120.00"). */
+function normalizePypdfInvoiceText(text) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/(\$\d+),\s*\r?\n\s*(\d+\.\d{2})\b/g, '$1,$2')
+    .replace(/(\$\d+),\s*\r?\n\s*(\d+)\b/g, '$1,$2');
+}
+
 /** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal".
  * Новая позиция начинается, когда в строке появляется Qty в конце (три значения: Qty, Unit price, Amount).
  * Поддерживаются форматы с пробелами и без: "1 1.43 1.43" и ")1$1.43$1.43". */
 function extractInvoiceTableFromText(text) {
   if (typeof text !== 'string') return [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const normalized = normalizePypdfInvoiceText(text);
+  const lines = normalized.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   let headerIdx = -1;
   let subtotalIdx = -1;
   for (let i = 0; i < lines.length; i++) {
