@@ -785,12 +785,30 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
               syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, chunkLabel, records: stepSaved, days: stepSaved, empty: true });
             }
           } else {
+            const savedDates = new Set();
             for (const { date, payload } of rows) {
               db.upsertAnalytics(ep.path, date, payload);
               savedForEp++;
               stepSaved++;
+              savedDates.add(date);
             }
-            syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, chunkLabel, records: stepSaved, days: rows.length });
+            // API для Audit Logs и Usage Events возвращает только дни с событиями. Дни без событий
+            // не приходят — дописываем их пустыми, чтобы они не считались «отсутствующими» при следующей синхронизации.
+            const daysInChunk = datesInRange(chunkStart, chunkEnd);
+            const emptyPayload =
+              ep.path === '/teams/audit-logs' ? { events: [], params: response.params || {} }
+                : ep.path === '/teams/daily-usage-data' ? { data: [], period: response.period || {} }
+                  : ep.path === '/teams/filtered-usage-events' ? { totalUsageEventsCount: response.totalUsageEventsCount ?? 0, pagination: response.pagination || null, usageEvents: [], period: response.period || {} }
+                    : null;
+            if (emptyPayload) {
+              for (const date of daysInChunk) {
+                if (savedDates.has(date)) continue;
+                db.upsertAnalytics(ep.path, date, emptyPayload);
+                savedForEp++;
+                stepSaved++;
+              }
+            }
+            syncLog('saved', { endpoint: ep.path, endpointLabel: ep.label, chunkLabel, records: stepSaved, days: rows.length, filledEmpty: stepSaved - rows.length });
           }
           currentStep++;
           if (onProgress) {
@@ -803,7 +821,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
               chunkLabel,
               savedInStep: stepSaved,
               totalSaved: results.saved + savedForEp,
-              daysInStep: rows.length,
+              daysInStep: stepSaved,
             });
           }
         }
