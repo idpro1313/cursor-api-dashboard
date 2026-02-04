@@ -1543,10 +1543,10 @@ function parseCurrencyToCents(str) {
   return Number.isNaN(n) ? null : Math.round(n * 100);
 }
 
-/** Парсинг числа (qty или unit price). */
+/** Парсинг числа (qty или unit price). Поддержка формата с $ (например $20.00 из pypdf). */
 function parseNum(str) {
   if (str == null || str === '') return null;
-  const s = String(str).replace(/\s/g, '').replace(',', '.');
+  const s = String(str).replace(/[$,\s]/g, '').replace(',', '.');
   const n = parseFloat(s);
   return Number.isNaN(n) ? null : n;
 }
@@ -1857,15 +1857,19 @@ function extractInvoiceTableFromText(text) {
     }
   }
   if (pendingDescriptionLines.length > 0) {
-    rows.push({
-      row_index: rowIndex++,
-      description: cleanDescription(pendingDescriptionLines.join(' ').trim()),
-      quantity: null,
-      unit_price_cents: null,
-      tax_pct: null,
-      amount_cents: null,
-      raw_columns: pendingDescriptionLines,
-    });
+    const desc = cleanDescription(pendingDescriptionLines.join(' ').trim());
+    const hasRealContent = desc && desc.replace(/\s/g, '').length > 0 && !/^[\s\uFFFD\u200B-\u200D\uFEFF]*$/u.test(desc);
+    if (hasRealContent) {
+      rows.push({
+        row_index: rowIndex++,
+        description: desc,
+        quantity: null,
+        unit_price_cents: null,
+        tax_pct: null,
+        amount_cents: null,
+        raw_columns: pendingDescriptionLines,
+      });
+    }
   }
   return rows;
 }
