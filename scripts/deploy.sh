@@ -50,5 +50,9 @@ else
 fi
 $DCC up -d
 
+# После пересборки старый образ остаётся как dangling (<none>:<none>). Удаляем его.
+echo "--- Удаление старого образа контейнера ---"
+docker image prune -f
+
 echo "--- Готово ---"
 $DCC ps

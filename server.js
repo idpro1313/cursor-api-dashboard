@@ -56,12 +56,10 @@ function isPathAllowed(apiPath) {
   return ALLOWED_PATH_PREFIXES.some((p) => apiPath.startsWith(p));
 }
 
-// Эндпоинты Admin API для синхронизации в БД (рекомендации: https://cursor.com/docs/account/teams/admin-api)
+// Эндпоинты Admin API для синхронизации в БД. Team Members и Spending Data не храним — запрашиваются при отображении дашборда.
 const SYNC_ENDPOINTS = [
-  { path: '/teams/members', method: 'GET', syncType: 'snapshot', label: 'Team Members' },
   { path: '/teams/audit-logs', method: 'GET', syncType: 'daterange', paginated: true, label: 'Audit Logs' },
   { path: '/teams/daily-usage-data', method: 'POST', syncType: 'daterange', bodyEpoch: true, label: 'Daily Usage Data' },
-  { path: '/teams/spend', method: 'POST', syncType: 'snapshot', label: 'Spending Data' },
   { path: '/teams/filtered-usage-events', method: 'POST', syncType: 'daterange', paginated: true, label: 'Usage Events' },
 ];
 
@@ -1061,8 +1059,8 @@ function getJiraRowOrderKey(row, id) {
   return id;
 }
 
-/** Агрегация активности по пользователям и месяцам (Daily Usage Data + Usage Events Data). */
-app.get('/api/users/activity-by-month', (req, res) => {
+/** Агрегация активности по пользователям и месяцам (Daily Usage Data + Usage Events Data). Team Members и Spending Data запрашиваются при отображении дашборда (не из БД). */
+app.get('/api/users/activity-by-month', async (req, res) => {
   try {
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
@@ -1216,19 +1214,36 @@ app.get('/api/users/activity-by-month', (req, res) => {
       u.totalRequestsInPeriod = totalRequests;
     }
 
-    // Spending Data: траты по пользователям из последнего снимка /teams/spend
+    // Team Members и Spending Data: запрос при отображении дашборда (не из БД)
     const emailToSpendCents = new Map();
-    const spendRows = db.getAnalytics({ endpoint: '/teams/spend' });
-    if (spendRows.length > 0) {
-      const latest = spendRows.sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
-      const spendList = latest?.payload?.teamMemberSpend;
-      if (Array.isArray(spendList)) {
-        for (const s of spendList) {
-          const email = (s.userEmail || s.email || s.user_email || '').toString().trim().toLowerCase();
-          if (!email) continue;
-          const cents = Number(s.cents ?? s.totalCents ?? s.spendCents ?? s.amount ?? 0) || 0;
-          emailToSpendCents.set(email, (emailToSpendCents.get(email) || 0) + cents);
+    let teamMembersCount = 0;
+    let teamMembers = [];
+    const apiKey = getApiKey(req);
+    if (apiKey) {
+      try {
+        const [membersResp, spendResp] = await Promise.all([
+          cursorFetch(apiKey, '/teams/members', { method: 'GET' }),
+          cursorFetch(apiKey, '/teams/spend', { method: 'POST', body: {} }),
+        ]);
+        const list = membersResp?.teamMembers;
+        if (Array.isArray(list)) {
+          teamMembersCount = list.length;
+          teamMembers = list.map((m) => ({
+            email: (m.email || m.userEmail || m.user_email || '').toString().trim().toLowerCase(),
+            name: (m.name || m.displayName || m.display_name || m.email || '').toString().trim(),
+          })).filter((m) => m.email || m.name);
         }
+        const spendList = spendResp?.teamMemberSpend;
+        if (Array.isArray(spendList)) {
+          for (const s of spendList) {
+            const email = (s.userEmail || s.email || s.user_email || '').toString().trim().toLowerCase();
+            if (!email) continue;
+            const cents = Number(s.cents ?? s.totalCents ?? s.spendCents ?? s.amount ?? 0) || 0;
+            emailToSpendCents.set(email, (emailToSpendCents.get(email) || 0) + cents);
+          }
+        }
+      } catch (_) {
+        // при ошибке API оставляем пустые сводки
       }
     }
     let totalTeamSpendCents = 0;
@@ -1236,22 +1251,6 @@ app.get('/api/users/activity-by-month', (req, res) => {
       const cents = emailToSpendCents.get(u.email) || 0;
       u.teamSpendCents = cents;
       totalTeamSpendCents += cents;
-    }
-
-    // Team Members: последний снимок /teams/members для сводки
-    let teamMembersCount = 0;
-    let teamMembers = [];
-    const membersRows = db.getAnalytics({ endpoint: '/teams/members' });
-    if (membersRows.length > 0) {
-      const latest = membersRows.sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
-      const list = latest?.payload?.teamMembers;
-      if (Array.isArray(list)) {
-        teamMembersCount = list.length;
-        teamMembers = list.map((m) => ({
-          email: (m.email || m.userEmail || m.user_email || '').toString().trim().toLowerCase(),
-          name: (m.name || m.displayName || m.display_name || m.email || '').toString().trim(),
-        })).filter((m) => m.email || m.name);
-      }
     }
 
     // Активные в Jira, но не используют / редко используют Cursor (после назначения teamSpendCents)
