@@ -9,9 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
-const pdfParse = require('pdf-parse');
 const db = require('./db');
-const invoicePdfParser = require('./lib/invoice-pdf-parser');
 
 /** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
@@ -1989,47 +1987,42 @@ function extractInvoiceTableFromText(text) {
   return rows;
 }
 
-/** Парсинг PDF-буфера: OpenDataLoader PDF → структура → pdf-parse. Требуется Java 11+ для OpenDataLoader. */
+/** Парсинг PDF-буфера: только OpenDataLoader PDF. Требуется Java 11+. */
 async function parseCursorInvoicePdf(buffer) {
   const useOpenDataLoader = process.env.USE_OPENDATALOADER !== '0' && process.env.USE_OPENDATALOADER !== 'false';
-  if (useOpenDataLoader) {
-    try {
-      const { convert } = require('@opendataloader/pdf');
-      const os = require('os');
-      const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
-      fs.mkdirSync(tmpDir, { recursive: true });
-      const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
-      const tmpOut = path.join(tmpDir, 'out-' + Date.now());
-      fs.writeFileSync(tmpPdf, buffer);
-      await convert([tmpPdf], { outputDir: tmpOut, format: 'markdown' });
-      let text = '';
-      const files = fs.readdirSync(tmpOut, { withFileTypes: true });
-      for (const e of files) {
-        if (e.isFile() && e.name.toLowerCase().endsWith('.md')) {
-          text = fs.readFileSync(path.join(tmpOut, e.name), 'utf8');
-          break;
-        }
-      }
-      try {
-        fs.unlinkSync(tmpPdf);
-        fs.rmSync(tmpOut, { recursive: true, force: true });
-      } catch (_) {}
-      if (text && text.length > 0) {
-        const rows = extractInvoiceTableFromPypdfText(text);
-        if (rows.length > 0) return { rows, parser: 'opendataloader', pypdfText: text };
-        return { rows: [], parser: 'opendataloader', pypdfText: text, error: 'OPENDATALOADER_EMPTY' };
-      }
-      return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
-    } catch (_) {}
+  if (!useOpenDataLoader) {
+    return { rows: [], parser: null, pypdfText: null, error: 'OPENDATALOADER_DISABLED' };
   }
   try {
-    const rows = await invoicePdfParser.parseCursorInvoicePdfFromStructure(buffer);
-    if (rows && rows.length > 0) return { rows, parser: 'structure', pypdfText: null };
-  } catch (_) {}
-  const data = await pdfParse(buffer);
-  const text = data.text || '';
-  const rows = extractInvoiceTableFromText(text);
-  return { rows, parser: 'pdf-parse', pypdfText: null };
+    const { convert } = require('@opendataloader/pdf');
+    const os = require('os');
+    const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
+    const tmpOut = path.join(tmpDir, 'out-' + Date.now());
+    fs.writeFileSync(tmpPdf, buffer);
+    await convert([tmpPdf], { outputDir: tmpOut, format: 'markdown' });
+    let text = '';
+    const files = fs.readdirSync(tmpOut, { withFileTypes: true });
+    for (const e of files) {
+      if (e.isFile() && e.name.toLowerCase().endsWith('.md')) {
+        text = fs.readFileSync(path.join(tmpOut, e.name), 'utf8');
+        break;
+      }
+    }
+    try {
+      fs.unlinkSync(tmpPdf);
+      fs.rmSync(tmpOut, { recursive: true, force: true });
+    } catch (_) {}
+    if (text && text.length > 0) {
+      const rows = extractInvoiceTableFromPypdfText(text);
+      if (rows.length > 0) return { rows, parser: 'opendataloader', pypdfText: text };
+      return { rows: [], parser: 'opendataloader', pypdfText: text, error: 'OPENDATALOADER_EMPTY' };
+    }
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
+  } catch (_) {
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR' };
+  }
 }
 
 const uploadPdf = multer({
@@ -2070,10 +2063,10 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
       error: parseResult.error,
     });
     if (parseResult.error) {
-      return res.status(400).json({
-        error: parseResult.error === 'OPENDATALOADER_ERROR' ? 'Ошибка OpenDataLoader (требуется Java 11+).' : 'Таблица строк не распознана.',
-        code: parseResult.error,
-      });
+      const msg = parseResult.error === 'OPENDATALOADER_DISABLED' ? 'Парсер отключён (USE_OPENDATALOADER=0).'
+        : parseResult.error === 'OPENDATALOADER_ERROR' ? 'Ошибка OpenDataLoader (требуется Java 11+).'
+        : 'Таблица строк не распознана.';
+      return res.status(400).json({ error: msg, code: parseResult.error });
     }
     const invoiceId = db.insertCursorInvoice(filename, null, fileHash);
     rows.forEach((r) => {
