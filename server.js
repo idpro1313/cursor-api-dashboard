@@ -1838,11 +1838,11 @@ function extractInvoiceTableFromText(text) {
   return rows;
 }
 
-/** Парсинг PDF-буфера: опционально PaddleOCR → таблица по структуре → по тексту. */
+/** Парсинг PDF-буфера: опционально pypdf (извлечение текста) → таблица по структуре → по тексту (pdf-parse). */
 async function parseCursorInvoicePdf(buffer) {
-  const usePaddle = process.env.USE_PADDLE_OCR === '1' || process.env.USE_PADDLE_OCR === 'true';
-  const scriptPath = process.env.PADDLE_OCR_SCRIPT || path.join(__dirname, 'scripts', 'parse_invoice_paddleocr.py');
-  if (usePaddle && scriptPath && fs.existsSync(scriptPath)) {
+  const usePypdf = process.env.USE_PYPDF === '1' || process.env.USE_PYPDF === 'true';
+  const pypdfScript = process.env.PYPDF_SCRIPT || path.join(__dirname, 'scripts', 'parse_invoice_pypdf.py');
+  if (usePypdf && pypdfScript && fs.existsSync(pypdfScript)) {
     try {
       const { spawn } = require('child_process');
       const os = require('os');
@@ -1850,28 +1850,29 @@ async function parseCursorInvoicePdf(buffer) {
       fs.mkdirSync(tmpDir, { recursive: true });
       const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
       fs.writeFileSync(tmpPdf, buffer);
-      const py = process.env.PADDLE_OCR_PYTHON || 'python3';
-      const rows = await new Promise((resolve, reject) => {
-        const proc = spawn(py, [scriptPath, tmpPdf], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const py = process.env.PYPDF_PYTHON || 'python3';
+      const text = await new Promise((resolve) => {
+        const proc = spawn(py, [pypdfScript, tmpPdf], { stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '';
-        let err = '';
         proc.stdout.on('data', (c) => { out += c.toString(); });
-        proc.stderr.on('data', (c) => { err += c.toString(); });
         proc.on('close', (code) => {
           try {
             fs.unlinkSync(tmpPdf);
           } catch (_) {}
           if (code !== 0) return resolve(null);
           try {
-            const parsed = JSON.parse(out.trim());
-            resolve(Array.isArray(parsed) && parsed.length > 0 ? parsed : null);
+            const decoded = JSON.parse(out.trim());
+            resolve(decoded && typeof decoded.text === 'string' ? decoded.text : null);
           } catch (_) {
             resolve(null);
           }
         });
         proc.on('error', () => resolve(null));
       });
-      if (rows && rows.length > 0) return rows;
+      if (text && text.length > 0) {
+        const rows = extractInvoiceTableFromText(text);
+        if (rows && rows.length > 0) return rows;
+      }
     } catch (_) {}
   }
   try {
