@@ -1519,8 +1519,16 @@ function parseNum(str) {
   return Number.isNaN(n) ? null : n;
 }
 
+/** Проверяет, что значение похоже на Qty (небольшое число, обычно 1–100). Исключает длинные целые вроде номера токенов. */
+function looksLikeQty(num) {
+  if (num == null || num < 0) return false;
+  if (num > 0 && num < 10000) return true;
+  return false;
+}
+
 /** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal".
- * Ожидаемые колонки: Description, Qty, Unit price, Amount. Если в строке 4+ колонок и последние три — числа, разбираем как qty, unit price, amount. */
+ * Новая позиция начинается, когда в строке появляется Qty — т.е. в конце строки есть три значения: Qty, Unit price, Amount.
+ * Разбор по токенам (по пробелам), чтобы корректно находить три числа в конце даже при одном пробеле между ними. */
 function extractInvoiceTableFromText(text) {
   if (typeof text !== 'string') return [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
@@ -1539,62 +1547,35 @@ function extractInvoiceTableFromText(text) {
   }
   const bodyLines = lines.slice(headerIdx + 1, subtotalIdx).filter((l) => l.length > 0);
   const rows = [];
-  /** Строки, составляющие описание текущей позиции (перенос описания на следующую строку в PDF). */
+  /** Строки описания текущей позиции (перенос текста на следующую строку в PDF). */
   let pendingDescriptionLines = [];
   let rowIndex = 0;
 
   for (let i = 0; i < bodyLines.length; i++) {
     const line = bodyLines[i];
-    const columns = line.split(/\t+/).length > 1
-      ? line.split(/\t+/).map((c) => c.trim())
-      : line.split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
-    if (columns.length < 1) {
-      if (pendingDescriptionLines.length > 0) pendingDescriptionLines.push(line);
+    const tokens = line.split(/\s+/).filter((t) => t.length > 0);
+    if (tokens.length < 3) {
+      pendingDescriptionLines.push(line);
       continue;
     }
-    const last = columns[columns.length - 1];
-    const amountCents = parseCurrencyToCents(last);
-    const qtyVal = columns.length >= 3 ? parseNum(columns[columns.length - 3]) : null;
-    const unitVal = columns.length >= 2 ? parseNum(columns[columns.length - 2]) : null;
+    const amountCents = parseCurrencyToCents(tokens[tokens.length - 1]);
+    const unitVal = parseNum(tokens[tokens.length - 2]);
+    const qtyVal = parseNum(tokens[tokens.length - 3]);
+    const hasQtyAtEnd = amountCents != null && unitVal != null && qtyVal != null && looksLikeQty(qtyVal);
 
-    if (columns.length >= 4 && amountCents != null && qtyVal != null && unitVal != null) {
-      const descOnLine = columns.slice(0, -3).join(' ').trim();
+    if (hasQtyAtEnd) {
+      /** В строке есть Qty в конце — это первая (или единственная) строка новой позиции. */
+      const descOnLine = tokens.slice(0, -3).join(' ').trim();
       const fullDescription = pendingDescriptionLines.length > 0
         ? (pendingDescriptionLines.join(' ') + (descOnLine ? ' ' + descOnLine : '')).trim()
-        : descOnLine || null;
+        : (descOnLine || null);
       rows.push({
         row_index: rowIndex++,
         description: fullDescription || null,
         quantity: qtyVal,
         unit_price_cents: Math.round(unitVal * 100),
         amount_cents: amountCents,
-        raw_columns: columns,
-      });
-      pendingDescriptionLines = [];
-    } else if (columns.length === 3 && amountCents != null && unitVal != null && qtyVal != null) {
-      /** Строка только из трёх чисел (Qty, Unit price, Amount) — описание было на предыдущих строках. */
-      const fullDescription = pendingDescriptionLines.length > 0 ? pendingDescriptionLines.join(' ').trim() || null : null;
-      rows.push({
-        row_index: rowIndex++,
-        description: fullDescription,
-        quantity: qtyVal,
-        unit_price_cents: Math.round(unitVal * 100),
-        amount_cents: amountCents,
-        raw_columns: columns,
-      });
-      pendingDescriptionLines = [];
-    } else if (columns.length >= 2 && amountCents != null && (unitVal != null || columns.length === 2)) {
-      const descOnLine = columns.length >= 3 ? columns.slice(0, -2).join(' ').trim() : columns.slice(0, -1).join(' ').trim();
-      const fullDescription = pendingDescriptionLines.length > 0
-        ? (pendingDescriptionLines.join(' ') + (descOnLine ? ' ' + descOnLine : '')).trim()
-        : descOnLine || null;
-      rows.push({
-        row_index: rowIndex++,
-        description: fullDescription || null,
-        quantity: columns.length >= 4 ? qtyVal : null,
-        unit_price_cents: unitVal != null ? Math.round(unitVal * 100) : null,
-        amount_cents: amountCents,
-        raw_columns: columns,
+        raw_columns: tokens,
       });
       pendingDescriptionLines = [];
     } else {
