@@ -49,14 +49,14 @@ docker compose up --build
 | `CURSOR_API_KEY` | API key команды (если не вводить в интерфейсе). |
 | `CORS_ORIGIN` | Разрешённые origins через запятую. |
 | `SESSION_SECRET` | Секрет для подписи сессии (опционально). |
-| `USE_OPENDATALOADER` | По умолчанию включено: для извлечения текста из PDF-счетов используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf). Требуется **Java 11+** в PATH. Отключить: `0` или `false`. |
+| `USE_OPENDATALOADER` | По умолчанию включено: парсинг PDF-счетов через [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf). Требуется **Java 11+** в PATH. Отключить: `0` или `false`. |
+| `OPENDATALOADER_TABLE_METHOD` | Метод детекции таблиц: `default` (по границам) или `cluster`. По умолчанию не задаётся. |
+| `OPENDATALOADER_USE_STRUCT_TREE` | Если `1` или `true` — использовать структуру тегов PDF (tagged PDF) для порядка чтения. |
 | `INVOICE_LOGS_DIR` | Каталог логов загрузки счетов (по умолчанию `DATA_DIR/invoice-logs`). Для каждого счёта создаётся файл с именем как у файла счёта + `.log`; при удалении счёта лог удаляется. |
 
 ### Парсинг PDF-счетов (OpenDataLoader)
 
-По умолчанию используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf): локальный парсер без GPU. **Требуется Java 11+** в PATH. Зависимость в `package.json` (`@opendataloader/pdf`).
-
-Если OpenDataLoader недоступен (нет Java или ошибка), используются встроенные парсеры по структуре PDF и pdf-parse. В Docker по умолчанию OpenDataLoader отключён (в образе нет Java).
+Используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf): вызов `convert()` по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в формате JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Из JSON извлекается таблица с заголовками Description / Qty / Unit price / Tax / Amount. **Требуется Java 11+** в PATH. В Docker по умолчанию OpenDataLoader отключён (в образе нет Java).
 
 ## Структура данных
 

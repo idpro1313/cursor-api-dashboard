@@ -1539,7 +1539,95 @@ app.post('/api/jira-users/upload', requireSettingsAuth, (req, res) => {
   }
 });
 
-// --- Счета Cursor (PDF): парсинг таблицы между Description и Subtotal, сохранение в БД ---
+// --- Счета Cursor (PDF): парсинг по OpenDataLoader JSON (schema: https://opendataloader.org/docs/json-schema) ---
+
+/** Рекурсивно извлечь текст из элемента OpenDataLoader (paragraph.content, table cell → kids → content). */
+function getTextFromOdlElement(el) {
+  if (!el) return '';
+  if (typeof el.content === 'string') return el.content.trim();
+  if (Array.isArray(el.kids)) return el.kids.map(getTextFromOdlElement).filter(Boolean).join(' ').trim();
+  return '';
+}
+
+/** Найти таблицу счёта в документе OpenDataLoader: первая таблица с заголовком Description и Qty/Amount. Ищем в doc.kids и рекурсивно в kids вложенных элементов. */
+function findInvoiceTableInOdlDoc(doc) {
+  function walk(el) {
+    if (!el) return null;
+    if (el.type === 'table' && Array.isArray(el.rows) && el.rows.length > 1) {
+      const headerCells = el.rows[0].cells || [];
+      const headerText = headerCells.map((c) => getTextFromOdlElement(c)).join(' ').toLowerCase();
+      if (headerText.includes('description') && (headerText.includes('qty') || headerText.includes('amount'))) {
+        return el;
+      }
+    }
+    if (Array.isArray(el.kids)) {
+      for (const k of el.kids) {
+        const found = walk(k);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  if (doc && Array.isArray(doc.kids)) {
+    for (const k of doc.kids) {
+      const found = walk(k);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Извлечь строки счёта из таблицы OpenDataLoader (schema: table.rows[].cells[], в ячейках kids с content). */
+function extractInvoiceRowsFromOdlTable(table) {
+  const rows = table.rows || [];
+  if (rows.length < 2) return [];
+  const headerRow = rows[0];
+  const headerCells = headerRow.cells || [];
+  const colCount = headerCells.length;
+  const headerTexts = headerCells.map((c) => getTextFromOdlElement(c).toLowerCase());
+  let idxDesc = -1; let idxQty = -1; let idxUnit = -1; let idxTax = -1; let idxAmount = -1;
+  for (let i = 0; i < headerTexts.length; i++) {
+    const h = headerTexts[i];
+    if (h.includes('description')) idxDesc = i;
+    if (h === 'qty' || h.includes('qty')) idxQty = i;
+    if (h.includes('unit') || (h.includes('price') && !h.includes('unit'))) idxUnit = i;
+    if (h === 'tax' || h.includes('tax')) idxTax = i;
+    if (h.includes('amount')) idxAmount = i;
+  }
+  if (idxDesc < 0 || idxQty < 0 || idxAmount < 0) return [];
+  if (idxAmount < 0) idxAmount = colCount - 1;
+
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const cells = row.cells || [];
+    const getCell = (idx) => (idx >= 0 && idx < cells.length ? getTextFromOdlElement(cells[idx]) : '');
+    const desc = getCell(idxDesc).trim() || null;
+    const qtyStr = getCell(idxQty).trim();
+    const unitStr = idxUnit >= 0 ? getCell(idxUnit).trim() : '';
+    const taxStr = idxTax >= 0 ? getCell(idxTax).trim() : '';
+    const amountStr = getCell(idxAmount).trim();
+
+    const qtyVal = parseNum(qtyStr);
+    const unitVal = unitStr ? parseNum(unitStr) : null;
+    const taxPct = taxStr ? parseNum(taxStr.replace(/%/g, '')) : null;
+    const amountCents = amountStr ? parseCurrencyToCents(amountStr) : null;
+
+    if (amountCents == null && !desc) continue;
+    const hasValidQty = qtyVal != null && looksLikeQty(qtyVal);
+    const taxVal = taxPct != null && taxPct >= 0 && taxPct <= 100 ? taxPct : null;
+    out.push({
+      row_index: out.length,
+      description: desc || null,
+      quantity: hasValidQty ? qtyVal : null,
+      unit_price_cents: unitVal != null ? Math.round(unitVal * 100) : null,
+      tax_pct: taxVal,
+      amount_cents: amountCents,
+      raw_columns: idxTax >= 0 ? [qtyVal, unitVal, taxVal, amountCents] : [qtyVal, unitVal, amountCents],
+    });
+  }
+  return out;
+}
 
 /** Парсинг суммы из строки (например "$1,234.56", "-$116.99") в центы. */
 function parseCurrencyToCents(str) {
@@ -1987,7 +2075,10 @@ function extractInvoiceTableFromText(text) {
   return rows;
 }
 
-/** Парсинг PDF-буфера: только OpenDataLoader PDF. Требуется Java 11+. */
+/** Парсинг PDF-буфера через OpenDataLoader PDF.
+ * API: https://opendataloader.org/docs/quick-start-nodejs
+ * JSON-схема: https://opendataloader.org/docs/json-schema
+ * Требуется Java 11+ в PATH. */
 async function parseCursorInvoicePdf(buffer) {
   const useOpenDataLoader = process.env.USE_OPENDATALOADER !== '0' && process.env.USE_OPENDATALOADER !== 'false';
   if (!useOpenDataLoader) {
@@ -2001,12 +2092,26 @@ async function parseCursorInvoicePdf(buffer) {
     const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
     const tmpOut = path.join(tmpDir, 'out-' + Date.now());
     fs.writeFileSync(tmpPdf, buffer);
-    await convert([tmpPdf], { outputDir: tmpOut, format: 'markdown' });
-    let text = '';
+    const convertOptions = {
+      outputDir: tmpOut,
+      format: 'json',
+      quiet: true,
+    };
+    if (process.env.OPENDATALOADER_TABLE_METHOD === 'cluster') {
+      convertOptions.tableMethod = 'cluster';
+    }
+    if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
+      convertOptions.useStructTree = true;
+    }
+    await convert([tmpPdf], convertOptions);
+    let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
     for (const e of files) {
-      if (e.isFile() && e.name.toLowerCase().endsWith('.md')) {
-        text = fs.readFileSync(path.join(tmpOut, e.name), 'utf8');
+      if (e.isFile() && e.name.toLowerCase().endsWith('.json')) {
+        const raw = fs.readFileSync(path.join(tmpOut, e.name), 'utf8');
+        try {
+          doc = JSON.parse(raw);
+        } catch (_) {}
         break;
       }
     }
@@ -2014,10 +2119,17 @@ async function parseCursorInvoicePdf(buffer) {
       fs.unlinkSync(tmpPdf);
       fs.rmSync(tmpOut, { recursive: true, force: true });
     } catch (_) {}
-    if (text && text.length > 0) {
-      const rows = extractInvoiceTableFromPypdfText(text);
-      if (rows.length > 0) return { rows, parser: 'opendataloader', pypdfText: text };
-      return { rows: [], parser: 'opendataloader', pypdfText: text, error: 'OPENDATALOADER_EMPTY' };
+    if (doc && Array.isArray(doc.kids)) {
+      const table = findInvoiceTableInOdlDoc(doc);
+      if (table) {
+        const rows = extractInvoiceRowsFromOdlTable(table);
+        if (rows.length > 0) {
+          const pypdfText = JSON.stringify(doc).slice(0, 50000);
+          return { rows, parser: 'opendataloader', pypdfText };
+        }
+      }
+      const pypdfText = JSON.stringify(doc).slice(0, 50000);
+      return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY' };
     }
     return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
   } catch (_) {
