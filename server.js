@@ -1798,13 +1798,16 @@ function extractInvoiceTableFromPypdfText(text) {
   let rowIndex = 0;
   let descriptionLines = [];
 
+  // Нормализация неразрывных/узких пробелов (pypdf может выдать \u00A0, \u202F и т.д.), иначе строка не матчится
+  const norm = (s) => (typeof s === 'string' ? s.replace(/\u00A0|\u202F|\u2009|\u2007/g, ' ') : s);
+
   // Строка данных с Tax: "Qty Tax% Amount" (например "33 21% $113.55" или "34 21%  $116.99")
-  const dataLineWithTaxRe = /^\s*(\d+)\s+(\d+)%?\s+(\$?[\d,.]+)\s*$/;
+  const dataLineWithTaxRe = /^\s*(\d+)\s+(\d+)\s*%?\s*[\s\u00A0\u202F\u2009]*(\$?[\d,.]+)\s*$/;
   // Строка данных без Tax: "Qty Unit_price Amount" (например "0 $20.00 $0.00")
   const dataLineNoTaxRe = /^\s*(\d+)\s+(\$?[\d,.]+)\s+(\$?[\d,.]+)\s*$/;
 
   for (let i = 0; i < bodyLines.length; i++) {
-    const line = bodyLines[i];
+    const line = norm(bodyLines[i]);
     let matched = false;
 
     const taxMatch = line.match(dataLineWithTaxRe);
