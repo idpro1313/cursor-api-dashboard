@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "parse-pdf": "node server.js --parse-pdf"
   },
   "dependencies": {
     "better-sqlite3": "^11.6.0",

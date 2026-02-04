@@ -1503,7 +1503,7 @@ app.post('/api/jira-users/upload', requireSettingsAuth, (req, res) => {
 
 // --- Счета Cursor (PDF): парсинг таблицы между Description и Subtotal, сохранение в БД ---
 
-/** Парсинг суммы из строки (например "$1,234.56") в центы. */
+/** Парсинг суммы из строки (например "$1,234.56", "-$116.99") в центы. */
 function parseCurrencyToCents(str) {
   if (str == null || str === '') return null;
   const s = String(str).replace(/[$,\s]/g, '').replace(',', '.');
@@ -1576,7 +1576,6 @@ function stripInvoiceTableHeaderPrefix(desc) {
 
 /** Регулярка: тройка Qty$Unit$Amount или четвёрка Qty$Unit$Tax$Amount (Tax в %). Четвёртая группа опциональна. */
 const RE_QTY_UNIT_AMOUNT_NO_SPACE = /\)?(\d+)\$([\d,.]+)\$([\d,.]+)(?:\$([\d,.]+))?/g;
-
 /** Ищет в конце строки три или четыре числа: Qty, Unit price, [Tax %], Amount.
  * Возвращает { qtyVal, unitVal, taxPct, amountCents, descEndIndex } или null. */
 function parseQtyUnitAmountAtEnd(line) {
@@ -1594,12 +1593,19 @@ function parseQtyUnitAmountAtEnd(line) {
     }
   }
   if (tokens.length >= 3) {
-    const amountCents = parseCurrencyToCents(tokens[tokens.length - 1]);
-    const unitVal = parseNum(tokens[tokens.length - 2]);
+    const last = tokens[tokens.length - 1];
+    const mid = parseNum(tokens[tokens.length - 2]);
     const qtyVal = parseNum(tokens[tokens.length - 3]);
-    if (amountCents != null && unitVal != null && qtyVal != null && looksLikeQty(qtyVal)) {
+    const amountCents = parseCurrencyToCents(last);
+    if (amountCents != null && qtyVal != null && looksLikeQty(qtyVal)) {
       const suffix = tokens.slice(-3).join(' ');
-      return { qtyVal, unitVal, taxPct: null, amountCents, descEndIndex: Math.max(0, trimmed.length - suffix.length) };
+      const descEndIndex = Math.max(0, trimmed.length - suffix.length);
+      if (mid != null && mid >= 0 && mid <= 100) {
+        return { qtyVal, unitVal: null, taxPct: mid, amountCents, descEndIndex };
+      }
+      if (mid != null) {
+        return { qtyVal, unitVal: mid, taxPct: null, amountCents, descEndIndex };
+      }
     }
   }
   const fourMatch = trimmed.match(/(\d+)\$([\d,.]+)\$([\d,.]+)\$([\d,.]+)\s*$/);
@@ -1634,15 +1640,32 @@ function parseQtyUnitAmountAtEnd(line) {
       }
     }
   }
+  const qtyTaxAmountMatch = trimmed.match(/(\d+)\s*(\d+)%?\s*\$?\s*(-?\$?[\d,.]+)\s*$/);
+  if (qtyTaxAmountMatch) {
+    const qtyVal = parseNum(qtyTaxAmountMatch[1]);
+    const taxPct = parseNum(qtyTaxAmountMatch[2]);
+    const amountCents = parseCurrencyToCents(qtyTaxAmountMatch[3]);
+    if (qtyVal != null && amountCents != null && looksLikeQty(qtyVal) && taxPct != null && taxPct >= 0 && taxPct <= 100) {
+      return { qtyVal, unitVal: null, taxPct, amountCents, descEndIndex: trimmed.length - qtyTaxAmountMatch[0].length };
+    }
+  }
+  const qtyTaxAmountConcatenated = trimmed.match(/(\d+)(\d+)%\$(-?\$?[\d,.]+)\s*$/);
+  if (qtyTaxAmountConcatenated) {
+    const qtyVal = parseNum(qtyTaxAmountConcatenated[1]);
+    const taxPct = parseNum(qtyTaxAmountConcatenated[2]);
+    const amountCents = parseCurrencyToCents(qtyTaxAmountConcatenated[3]);
+    if (qtyVal != null && amountCents != null && looksLikeQty(qtyVal) && taxPct != null && taxPct >= 0 && taxPct <= 100) {
+      return { qtyVal, unitVal: null, taxPct, amountCents, descEndIndex: trimmed.length - qtyTaxAmountConcatenated[0].length };
+    }
+  }
   return null;
 }
 
-/** Находит в строке все вхождения паттерна Qty$Unit$Amount или Qty$Unit$Tax$Amount (Tax в %). Возвращает массив { index, desc, qtyVal, unitVal, taxPct, amountCents }. */
+/** Находит в строке все вхождения паттерна Qty$Unit$Amount, Qty$Unit$Tax$Amount или Qty Tax% Amount (без Unit price). Возвращает массив { index, desc, qtyVal, unitVal, taxPct, amountCents }. */
 function findAllQtyUnitAmountInLine(line) {
-  const out = [];
+  const matches = [];
   const re = new RegExp(RE_QTY_UNIT_AMOUNT_NO_SPACE.source, 'g');
   let match;
-  let lastEnd = 0;
   while ((match = re.exec(line)) !== null) {
     const qtyVal = parseNum(match[1]);
     const unitVal = parseNum(match[2]);
@@ -1651,13 +1674,37 @@ function findAllQtyUnitAmountInLine(line) {
     const amountCents = hasTax ? parseCurrencyToCents(match[4]) : parseCurrencyToCents(match[3]);
     if (qtyVal != null && unitVal != null && amountCents != null && looksLikeQty(qtyVal)) {
       if (!hasTax || (taxPct != null && taxPct >= 0 && taxPct <= 100)) {
-        const desc = line.slice(lastEnd, match.index).trim();
-        out.push({ index: match.index, desc, qtyVal, unitVal, taxPct: hasTax ? taxPct : null, amountCents });
-        lastEnd = match.index + match[0].length;
+        matches.push({ index: match.index, len: match[0].length, qtyVal, unitVal, taxPct: hasTax ? taxPct : null, amountCents });
       }
     }
   }
-  return out;
+  const reQtyTax = /(\d+)\s*(\d+)%?\s*\$?(-?[\d,.]+)/g;
+  while ((match = reQtyTax.exec(line)) !== null) {
+    const qtyVal = parseNum(match[1]);
+    const taxPct = parseNum(match[2]);
+    const amountCents = parseCurrencyToCents(match[3]);
+    if (qtyVal != null && amountCents != null && looksLikeQty(qtyVal) && taxPct != null && taxPct >= 0 && taxPct <= 100) {
+      const overlapping = matches.some((m) => match.index < m.index + m.len && match.index + match[0].length > m.index);
+      if (!overlapping) matches.push({ index: match.index, len: match[0].length, qtyVal, unitVal: null, taxPct, amountCents });
+    }
+  }
+  const reQtyTaxConcatenated = /(\d+)(\d+)%\$(-?\$?[\d,.]+)/g;
+  while ((match = reQtyTaxConcatenated.exec(line)) !== null) {
+    const qtyVal = parseNum(match[1]);
+    const taxPct = parseNum(match[2]);
+    const amountCents = parseCurrencyToCents(match[3]);
+    if (qtyVal != null && amountCents != null && looksLikeQty(qtyVal) && taxPct != null && taxPct >= 0 && taxPct <= 100) {
+      const overlapping = matches.some((m) => match.index < m.index + m.len && match.index + match[0].length > m.index);
+      if (!overlapping) matches.push({ index: match.index, len: match[0].length, qtyVal, unitVal: null, taxPct, amountCents });
+    }
+  }
+  matches.sort((a, b) => a.index - b.index);
+  let lastEnd = 0;
+  return matches.map((m) => {
+    const desc = line.slice(lastEnd, m.index).trim();
+    lastEnd = m.index + m.len;
+    return { index: m.index, desc, qtyVal: m.qtyVal, unitVal: m.unitVal, taxPct: m.taxPct, amountCents: m.amountCents };
+  });
 }
 
 /** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal".
@@ -1702,7 +1749,7 @@ function extractInvoiceTableFromText(text) {
           row_index: rowIndex++,
           description: cleanDescription(fullDescription),
           quantity: m.qtyVal,
-          unit_price_cents: Math.round(m.unitVal * 100),
+          unit_price_cents: m.unitVal != null ? Math.round(m.unitVal * 100) : null,
           tax_pct: m.taxPct,
           amount_cents: m.amountCents,
           raw_columns: m.taxPct != null ? [m.qtyVal, m.unitVal, m.taxPct, m.amountCents] : [m.qtyVal, m.unitVal, m.amountCents],
@@ -1718,7 +1765,7 @@ function extractInvoiceTableFromText(text) {
         row_index: rowIndex++,
         description: cleanDescription(fullDescription),
         quantity: m.qtyVal,
-        unit_price_cents: Math.round(m.unitVal * 100),
+        unit_price_cents: m.unitVal != null ? Math.round(m.unitVal * 100) : null,
         tax_pct: m.taxPct,
         amount_cents: m.amountCents,
         raw_columns: m.taxPct != null ? [m.qtyVal, m.unitVal, m.taxPct, m.amountCents] : [m.qtyVal, m.unitVal, m.amountCents],
@@ -1735,7 +1782,7 @@ function extractInvoiceTableFromText(text) {
           row_index: rowIndex++,
           description: cleanDescription(fullDescription),
           quantity: parsed.qtyVal,
-          unit_price_cents: Math.round(parsed.unitVal * 100),
+          unit_price_cents: parsed.unitVal != null ? Math.round(parsed.unitVal * 100) : null,
           tax_pct: parsed.taxPct,
           amount_cents: parsed.amountCents,
           raw_columns: parsed.taxPct != null ? [parsed.qtyVal, parsed.unitVal, parsed.taxPct, parsed.amountCents] : [parsed.qtyVal, parsed.unitVal, parsed.amountCents],
@@ -1896,6 +1943,25 @@ setInterval(() => {
 }, 60000);
 
 const PORT = process.env.PORT || 3333;
+if (process.argv[2] === '--parse-pdf' && process.argv[3]) {
+  const pdfPath = path.resolve(process.argv[3]);
+  if (!fs.existsSync(pdfPath)) {
+    console.error('File not found:', pdfPath);
+    process.exit(1);
+  }
+  const buf = fs.readFileSync(pdfPath);
+  parseCursorInvoicePdf(buf)
+    .then((rows) => {
+      console.log(JSON.stringify(rows, null, 2));
+      process.exit(0);
+    })
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
+  return;
+}
+
 app.listen(PORT, () => {
   getAuthCredentials(); // создать data/auth.json при первом запуске при необходимости
   console.log('Cursor API Dashboard: http://localhost:' + PORT);
