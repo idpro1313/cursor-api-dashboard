@@ -1138,10 +1138,11 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageCostByModel: {} };
+          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         rec.activeDays += 1;
+        if (dateStr && (!rec.lastDate || dateStr > rec.lastDate)) rec.lastDate = dateStr;
         rec.requests += Number(r.composer_requests ?? r.composerRequests ?? 0) + Number(r.chat_requests ?? r.chatRequests ?? 0) + Number(r.agent_requests ?? r.agentRequests ?? 0);
         rec.linesAdded += Number(r.total_lines_added ?? r.totalLinesAdded ?? 0) + Number(r.accepted_lines_added ?? r.acceptedLinesAdded ?? 0);
         rec.linesDeleted += Number(r.total_lines_deleted ?? r.totalLinesDeleted ?? 0) + Number(r.accepted_lines_deleted ?? r.acceptedLinesDeleted ?? 0);
@@ -1171,10 +1172,11 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
+          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         rec.usageEventsCount += 1;
+        if (dateStr && (!rec.lastDate || dateStr > rec.lastDate)) rec.lastDate = dateStr;
         rec.usageRequestsCosts += Number(e.requestsCosts ?? 0);
         const tu = e.tokenUsage || {};
         const tokenCents = Number(tu.totalCents ?? 0) || 0;
@@ -1217,7 +1219,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
       const jiraProject = getJiraProjectFromRow(jira);
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
+        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
         if (!rec) return def;
         return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) } };
       });
@@ -1233,23 +1235,29 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const email of cursorOnlyEmails) {
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
+        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
         if (!rec) return def;
         return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) } };
       });
       users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
     }
 
-    // lastActivityMonth и totalRequestsInPeriod по каждому пользователю
+    // lastActivityMonth, lastActivityDate и totalRequestsInPeriod по каждому пользователю
     const lastMonthInRange = months.length ? months[months.length - 1] : null;
     for (const u of users) {
       let lastActivityMonth = null;
+      let lastActivityDate = null;
       let totalRequests = 0;
       for (const a of u.monthlyActivity || []) {
         totalRequests += a.requests || 0;
-        if ((a.requests || 0) + (a.usageEventsCount || 0) > 0) lastActivityMonth = a.month;
+        if ((a.requests || 0) + (a.usageEventsCount || 0) > 0) {
+          lastActivityMonth = a.month;
+          const d = a.lastDate || null;
+          if (d && (!lastActivityDate || d > lastActivityDate)) lastActivityDate = d;
+        }
       }
       u.lastActivityMonth = lastActivityMonth;
+      u.lastActivityDate = lastActivityDate;
       u.totalRequestsInPeriod = totalRequests;
     }
 
@@ -1276,6 +1284,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
       jiraConnectedAt: u.jiraConnectedAt,
       jiraDisconnectedAt: u.jiraDisconnectedAt,
       lastActivityMonth: u.lastActivityMonth,
+      lastActivityDate: u.lastActivityDate,
       totalRequestsInPeriod: u.totalRequestsInPeriod,
       teamSpendCents: u.teamSpendCents,
     }));
@@ -1294,10 +1303,14 @@ app.get('/api/users/activity-by-month', (req, res) => {
         costByProjectByMonth[projectKey][month] = cur;
       }
     }
+    // Сумма за отображаемый период по каждому проекту (usageCostCents по месяцам)
     const projectTotals = {};
-    for (const u of users) {
-      const projectKey = u.jiraProject && String(u.jiraProject).trim() ? String(u.jiraProject).trim() : '— Без проекта';
-      projectTotals[projectKey] = (projectTotals[projectKey] || 0) + (u.teamSpendCents || 0);
+    for (const [projectKey, byMonth] of Object.entries(costByProjectByMonth)) {
+      let sum = 0;
+      for (const cur of Object.values(byMonth)) {
+        sum += cur.usageCostCents || 0;
+      }
+      projectTotals[projectKey] = sum;
     }
 
     res.json({

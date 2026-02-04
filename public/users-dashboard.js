@@ -214,12 +214,14 @@ function sortInactiveCursorList(list, key, dir) {
     let va = a[key];
     let vb = b[key];
     if (key === 'lastActivityMonth') {
-      const na = !va || String(va).trim() === '';
-      const nb = !vb || String(vb).trim() === '';
+      const da = a.lastActivityDate || a.lastActivityMonth || '';
+      const db = b.lastActivityDate || b.lastActivityMonth || '';
+      const na = !da || String(da).trim() === '';
+      const nb = !db || String(db).trim() === '';
       if (na && nb) return 0;
       if (na) return asc ? -1 : 1;
       if (nb) return asc ? 1 : -1;
-      return asc ? (va || '').localeCompare(vb || '') : (vb || '').localeCompare(va || '');
+      return asc ? (da || '').localeCompare(db || '') : (db || '').localeCompare(da || '');
     }
     if (key === 'totalRequestsInPeriod' || key === 'teamSpendCents') {
       va = Number(va) || 0;
@@ -265,7 +267,7 @@ function renderInactiveCursorList(list, sortState) {
     const email = escapeHtml(u.email || '');
     const project = u.jiraProject ? escapeHtml(u.jiraProject) : '—';
     const connectedAt = u.jiraConnectedAt ? formatJiraDate(u.jiraConnectedAt) : '—';
-    const lastActive = u.lastActivityMonth ? formatMonthShort(u.lastActivityMonth) : 'нет активности';
+    const lastActive = u.lastActivityDate ? formatJiraDate(u.lastActivityDate) : (u.lastActivityMonth ? formatMonthShort(u.lastActivityMonth) : 'нет активности');
     const req = u.totalRequestsInPeriod != null ? u.totalRequestsInPeriod : 0;
     const spend = u.teamSpendCents > 0 ? `$${formatCostCents(u.teamSpendCents)}` : '—';
     return `<tr><td>${name}</td><td class="muted">${email}</td><td>${project}</td><td>${connectedAt}</td><td>${lastActive}</td><td>${req}</td><td>${spend}</td></tr>`;
@@ -334,7 +336,7 @@ function renderCostByProject(costByProjectByMonth, projectTotals, months, sortSt
       return `<td class="num">${cents > 0 ? '$' + formatCostCents(cents) : '—'}</td>`;
     }).join('');
     const totalSpend = projectTotals && projectTotals[project] ? formatCostCents(projectTotals[project]) : '—';
-    return `<tr><th class="project-name">${escapeHtml(project)}</th>${cells}<td class="num" title="Расходы текущего месяца">${totalSpend !== '—' ? '$' + totalSpend : '—'}</td></tr>`;
+    return `<tr><th class="project-name">${escapeHtml(project)}</th>${cells}<td class="num" title="Сумма за отображаемый период">${totalSpend !== '—' ? '$' + totalSpend : '—'}</td></tr>`;
   }).join('');
   return `
     <div class="table-block-with-copy">
@@ -348,7 +350,7 @@ function renderCostByProject(costByProjectByMonth, projectTotals, months, sortSt
             <tr>
               <th class="sortable" data-sort="project" title="Сортировать">Проект${projectArrow}</th>
               ${monthHeaders}
-              <th class="sortable" data-sort="spend" title="Сортировать">Расходы текущего месяца${spendArrow}</th>
+              <th class="sortable" data-sort="spend" title="Сортировать">Сумма за период${spendArrow}</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
