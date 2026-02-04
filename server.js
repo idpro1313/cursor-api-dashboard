@@ -1526,9 +1526,71 @@ function looksLikeQty(num) {
   return false;
 }
 
+/** Регулярка для тройки в конце без пробелов: )1$1.43$1.43 или 1$1.43$1.43. */
+const RE_QTY_UNIT_AMOUNT_NO_SPACE = /\)?(\d+)\$([\d,.]+)\$([\d,.]+)/g;
+
+/** Ищет в конце строки три числа: Qty, Unit price, Amount. Поддерживает форматы:
+ * "1 1.43 1.43", "1 $1.43 $1.43", а также без пробелов: ")1$1.43$1.43" (как в PDF Cursor).
+ * Возвращает { qtyVal, unitVal, amountCents, descEndIndex } или null. */
+function parseQtyUnitAmountAtEnd(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  const tokens = trimmed.split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length >= 3) {
+    const amountCents = parseCurrencyToCents(tokens[tokens.length - 1]);
+    const unitVal = parseNum(tokens[tokens.length - 2]);
+    const qtyVal = parseNum(tokens[tokens.length - 3]);
+    if (amountCents != null && unitVal != null && qtyVal != null && looksLikeQty(qtyVal)) {
+      const suffix = tokens.slice(-3).join(' ');
+      const descEndIndex = Math.max(0, trimmed.length - suffix.length);
+      return { qtyVal, unitVal, amountCents, descEndIndex };
+    }
+  }
+  const noSpaceMatch = trimmed.match(/(\d+)\$([\d,.]+)\$([\d,.]+)\s*$/);
+  if (noSpaceMatch) {
+    const qtyVal = parseNum(noSpaceMatch[1]);
+    const unitVal = parseNum(noSpaceMatch[2]);
+    const amountCents = parseCurrencyToCents(noSpaceMatch[3]);
+    if (qtyVal != null && unitVal != null && amountCents != null && looksLikeQty(qtyVal)) {
+      const descEndIndex = trimmed.length - noSpaceMatch[0].length;
+      return { qtyVal, unitVal, amountCents, descEndIndex };
+    }
+  }
+  const withParenMatch = trimmed.match(/\)(\d+)\$([\d,.]+)\$([\d,.]+)\s*$/);
+  if (withParenMatch) {
+    const qtyVal = parseNum(withParenMatch[1]);
+    const unitVal = parseNum(withParenMatch[2]);
+    const amountCents = parseCurrencyToCents(withParenMatch[3]);
+    if (qtyVal != null && unitVal != null && amountCents != null && looksLikeQty(qtyVal)) {
+      const descEndIndex = trimmed.length - withParenMatch[0].length;
+      return { qtyVal, unitVal, amountCents, descEndIndex };
+    }
+  }
+  return null;
+}
+
+/** Находит в строке все вхождения паттерна Qty$Unit$Amount (без пробелов). Возвращает массив { index, desc, qtyVal, unitVal, amountCents }. */
+function findAllQtyUnitAmountInLine(line) {
+  const out = [];
+  const re = new RegExp(RE_QTY_UNIT_AMOUNT_NO_SPACE.source, 'g');
+  let match;
+  let lastEnd = 0;
+  while ((match = re.exec(line)) !== null) {
+    const qtyVal = parseNum(match[1]);
+    const unitVal = parseNum(match[2]);
+    const amountCents = parseCurrencyToCents(match[3]);
+    if (qtyVal != null && unitVal != null && amountCents != null && looksLikeQty(qtyVal)) {
+      const desc = line.slice(lastEnd, match.index).trim();
+      out.push({ index: match.index, desc, qtyVal, unitVal, amountCents });
+      lastEnd = match.index + match[0].length;
+    }
+  }
+  return out;
+}
+
 /** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal".
- * Новая позиция начинается, когда в строке появляется Qty — т.е. в конце строки есть три значения: Qty, Unit price, Amount.
- * Разбор по токенам (по пробелам), чтобы корректно находить три числа в конце даже при одном пробеле между ними. */
+ * Новая позиция начинается, когда в строке появляется Qty в конце (три значения: Qty, Unit price, Amount).
+ * Поддерживаются форматы с пробелами и без: "1 1.43 1.43" и ")1$1.43$1.43". */
 function extractInvoiceTableFromText(text) {
   if (typeof text !== 'string') return [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
@@ -1547,39 +1609,61 @@ function extractInvoiceTableFromText(text) {
   }
   const bodyLines = lines.slice(headerIdx + 1, subtotalIdx).filter((l) => l.length > 0);
   const rows = [];
-  /** Строки описания текущей позиции (перенос текста на следующую строку в PDF). */
   let pendingDescriptionLines = [];
   let rowIndex = 0;
 
   for (let i = 0; i < bodyLines.length; i++) {
     const line = bodyLines[i];
-    const tokens = line.split(/\s+/).filter((t) => t.length > 0);
-    if (tokens.length < 3) {
-      pendingDescriptionLines.push(line);
-      continue;
-    }
-    const amountCents = parseCurrencyToCents(tokens[tokens.length - 1]);
-    const unitVal = parseNum(tokens[tokens.length - 2]);
-    const qtyVal = parseNum(tokens[tokens.length - 3]);
-    const hasQtyAtEnd = amountCents != null && unitVal != null && qtyVal != null && looksLikeQty(qtyVal);
-
-    if (hasQtyAtEnd) {
-      /** В строке есть Qty в конце — это первая (или единственная) строка новой позиции. */
-      const descOnLine = tokens.slice(0, -3).join(' ').trim();
+    const multi = findAllQtyUnitAmountInLine(line);
+    if (multi.length > 1) {
+      for (let k = 0; k < multi.length; k++) {
+        const m = multi[k];
+        const fullDescription = k === 0 && pendingDescriptionLines.length > 0
+          ? (pendingDescriptionLines.join(' ') + (m.desc ? ' ' + m.desc : '')).trim()
+          : (m.desc || null);
+        rows.push({
+          row_index: rowIndex++,
+          description: fullDescription || null,
+          quantity: m.qtyVal,
+          unit_price_cents: Math.round(m.unitVal * 100),
+          amount_cents: m.amountCents,
+          raw_columns: [m.qtyVal, m.unitVal, m.amountCents],
+        });
+      }
+      pendingDescriptionLines = [];
+    } else if (multi.length === 1) {
+      const m = multi[0];
       const fullDescription = pendingDescriptionLines.length > 0
-        ? (pendingDescriptionLines.join(' ') + (descOnLine ? ' ' + descOnLine : '')).trim()
-        : (descOnLine || null);
+        ? (pendingDescriptionLines.join(' ') + (m.desc ? ' ' + m.desc : '')).trim()
+        : (m.desc || null);
       rows.push({
         row_index: rowIndex++,
         description: fullDescription || null,
-        quantity: qtyVal,
-        unit_price_cents: Math.round(unitVal * 100),
-        amount_cents: amountCents,
-        raw_columns: tokens,
+        quantity: m.qtyVal,
+        unit_price_cents: Math.round(m.unitVal * 100),
+        amount_cents: m.amountCents,
+        raw_columns: [m.qtyVal, m.unitVal, m.amountCents],
       });
       pendingDescriptionLines = [];
     } else {
-      pendingDescriptionLines.push(line);
+      const parsed = parseQtyUnitAmountAtEnd(line);
+      if (parsed) {
+        const descOnLine = line.slice(0, parsed.descEndIndex).trim();
+        const fullDescription = pendingDescriptionLines.length > 0
+          ? (pendingDescriptionLines.join(' ') + (descOnLine ? ' ' + descOnLine : '')).trim()
+          : (descOnLine || null);
+        rows.push({
+          row_index: rowIndex++,
+          description: fullDescription || null,
+          quantity: parsed.qtyVal,
+          unit_price_cents: Math.round(parsed.unitVal * 100),
+          amount_cents: parsed.amountCents,
+          raw_columns: [parsed.qtyVal, parsed.unitVal, parsed.amountCents],
+        });
+        pendingDescriptionLines = [];
+      } else {
+        pendingDescriptionLines.push(line);
+      }
     }
   }
   if (pendingDescriptionLines.length > 0) {
