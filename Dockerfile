@@ -12,7 +12,6 @@ RUN npm install --omit=dev
 
 # Код приложения (отдельные слои — точечная инвалидация кэша)
 COPY server.js db.js ./
-COPY lib ./lib
 COPY scripts ./scripts
 COPY public ./public
 

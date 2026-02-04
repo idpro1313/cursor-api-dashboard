@@ -63,7 +63,6 @@ cursor-api-dashboard/
 │   ├── team-snapshot.html
 │   ├── team-snapshot.js
 │   └── styles.css
-├── lib/                # Вспомогательные модули (при наличии)
 ├── scripts/
 │   └── deploy.sh       # Скрипт деплоя (git pull + docker compose)
 └── data/               # Локально: создаётся при первом запуске. В Docker — каталог хоста /var/cursor/data
