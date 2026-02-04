@@ -1714,6 +1714,18 @@ app.get('/api/invoices/:id/items', requireSettingsAuth, (req, res) => {
   }
 });
 
+app.delete('/api/invoices/:id', requireSettingsAuth, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) return res.status(400).json({ error: 'Некорректный id.' });
+    const deleted = db.deleteCursorInvoice(id);
+    if (!deleted) return res.status(404).json({ error: 'Счёт не найден.' });
+    res.json({ ok: true, message: 'Счёт удалён.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Обработка ошибок multer (неверный тип файла и т.д.)
 app.use((err, req, res, next) => {
   if (err && err.code === 'LIMIT_FILE_SIZE') {

@@ -240,6 +240,16 @@ function getCursorInvoiceById(id) {
   return d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices WHERE id = ?').get(id) || null;
 }
 
+/** Удалить счёт и все его позиции. Возвращает true, если счёт был удалён. */
+function deleteCursorInvoice(id) {
+  const d = getDb();
+  const invoice = getCursorInvoiceById(id);
+  if (!invoice) return false;
+  d.prepare('DELETE FROM cursor_invoice_items WHERE invoice_id = ?').run(id);
+  d.prepare('DELETE FROM cursor_invoices WHERE id = ?').run(id);
+  return true;
+}
+
 function getCursorInvoices() {
   const d = getDb();
   const invoices = d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices ORDER BY parsed_at DESC').all();
@@ -297,4 +307,5 @@ module.exports = {
   getCursorInvoiceItems,
   getCursorInvoiceByFileHash,
   getCursorInvoiceById,
+  deleteCursorInvoice,
 };

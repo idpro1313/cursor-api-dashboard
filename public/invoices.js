@@ -41,6 +41,7 @@ async function loadInvoices() {
               ${escapeHtml(inv.filename)} — ${inv.items_count} поз.
             </button>
             <span class="muted">${escapeHtml(inv.parsed_at || '')}</span>
+            <button type="button" class="btn btn-small btn-danger invoice-delete" data-id="${inv.id}" title="Удалить счёт">Удалить</button>
           </li>
         `).join('')}
       </ul>
@@ -48,9 +49,32 @@ async function loadInvoices() {
     listEl.querySelectorAll('.invoice-link').forEach((btn) => {
       btn.addEventListener('click', () => showInvoiceItems(parseInt(btn.getAttribute('data-id'), 10), btn.textContent.split(' — ')[0]));
     });
+    listEl.querySelectorAll('.invoice-delete').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteInvoice(parseInt(btn.getAttribute('data-id'), 10), btn.closest('li'));
+      });
+    });
   } catch (e) {
     listEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
     summaryEl.textContent = '';
+  }
+}
+
+async function deleteInvoice(id, liEl) {
+  if (!confirm('Удалить этот счёт из списка? Позиции будут удалены безвозвратно.')) return;
+  try {
+    const r = await fetch('/api/invoices/' + id, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    document.getElementById('invoiceDetail').style.display = 'none';
+    loadInvoices();
+  } catch (e) {
+    alert(e.message || 'Ошибка удаления');
   }
 }
 
