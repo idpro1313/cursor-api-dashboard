@@ -42,6 +42,44 @@ function getJiraDisplayName(row) {
   return row['Пользователь, которому выдан доступ'] || row['Display Name'] || row['Username'] || row['Name'] || '';
 }
 
+/** Статус из Jira → 'active' | 'archived'. */
+function getJiraStatusFromRow(row) {
+  if (!row) return null;
+  const statusKeys = ['Статус', 'Status', 'Состояние', 'State'];
+  let raw = '';
+  for (const k of statusKeys) {
+    if (row[k] != null && String(row[k]).trim() !== '') {
+      raw = String(row[k]).trim().toLowerCase();
+      break;
+    }
+  }
+  if (!raw) return 'active';
+  const archivedTerms = ['архив', 'archived', 'неактив', 'inactive', 'отключ', 'disabled', 'закрыт', 'closed'];
+  return archivedTerms.some((t) => raw.includes(t)) ? 'archived' : 'active';
+}
+
+/** Сырое значение даты начала подписки из Jira. */
+function getJiraSubscriptionStartFromRow(row) {
+  if (!row) return '';
+  const keys = ['Дата начала подписки', 'Subscription start date', 'Subscription start', 'Дата подписки', 'Start date'];
+  for (const k of keys) {
+    const v = row[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+/** Сырое значение даты окончания подписки из Jira. */
+function getJiraSubscriptionEndFromRow(row) {
+  if (!row) return '';
+  const keys = ['Дата окончания подписки', 'Subscription end date', 'Subscription end', 'End date', 'Дата отключения'];
+  for (const k of keys) {
+    const v = row[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
 /** Объединить Team Members + Spending + Jira в один массив строк для таблицы */
 function mergeTableRows(snapshotData, jiraUsers) {
   const members = snapshotData.teamMembers || [];
@@ -61,8 +99,11 @@ function mergeTableRows(snapshotData, jiraUsers) {
     const jira = jiraByEmail.get(email);
     const name = (jira && getJiraDisplayName(jira)) || m.name || email;
     const project = (jira && getJiraProjectFromRow(jira)) || '—';
+    const status = jira ? getJiraStatusFromRow(jira) : null;
+    const subscriptionStart = (jira && getJiraSubscriptionStartFromRow(jira)) || '—';
+    const subscriptionEnd = (jira && getJiraSubscriptionEndFromRow(jira)) || '—';
     const cents = spendByEmail.get(email) || 0;
-    rows.push({ name, email, project, cents });
+    rows.push({ name, email, project, status, subscriptionStart, subscriptionEnd, cents });
   }
   for (const [email, cents] of spendByEmail) {
     if (seen.has(email)) continue;
@@ -70,7 +111,10 @@ function mergeTableRows(snapshotData, jiraUsers) {
     const jira = jiraByEmail.get(email);
     const name = (jira && getJiraDisplayName(jira)) || email;
     const project = (jira && getJiraProjectFromRow(jira)) || '—';
-    rows.push({ name, email, project, cents });
+    const status = jira ? getJiraStatusFromRow(jira) : null;
+    const subscriptionStart = (jira && getJiraSubscriptionStartFromRow(jira)) || '—';
+    const subscriptionEnd = (jira && getJiraSubscriptionEndFromRow(jira)) || '—';
+    rows.push({ name, email, project, status, subscriptionStart, subscriptionEnd, cents });
   }
   return rows;
 }
@@ -97,7 +141,7 @@ function sortRows(rows, key, dir) {
   const arr = [...rows];
   const asc = dir === 'asc';
   arr.sort((a, b) => {
-    if (key === 'name' || key === 'email' || key === 'project') {
+    if (key === 'name' || key === 'email' || key === 'project' || key === 'status' || key === 'subscriptionStart' || key === 'subscriptionEnd') {
       const va = (a[key] || '').toString().toLowerCase();
       const vb = (b[key] || '').toString().toLowerCase();
       const cmp = va.localeCompare(vb, 'ru');
@@ -111,19 +155,32 @@ function sortRows(rows, key, dir) {
   return arr;
 }
 
+function formatStatus(status) {
+  if (status === 'archived') return 'Архивный';
+  if (status === 'active') return 'Активный';
+  return '—';
+}
+
 function renderTable(rows) {
   tableRows = rows;
   const sorted = sortRows(rows, tableSortState.key, tableSortState.dir);
-  const nameArrow = tableSortState.key === 'name' ? (tableSortState.dir === 'asc' ? ' ↑' : ' ↓') : '';
-  const emailArrow = tableSortState.key === 'email' ? (tableSortState.dir === 'asc' ? ' ↑' : ' ↓') : '';
-  const projectArrow = tableSortState.key === 'project' ? (tableSortState.dir === 'asc' ? ' ↑' : ' ↓') : '';
-  const spendArrow = tableSortState.key === 'cents' ? (tableSortState.dir === 'asc' ? ' ↑' : ' ↓') : '';
+  const arrow = (key) => (tableSortState.key === key ? (tableSortState.dir === 'asc' ? ' ↑' : ' ↓') : '');
+  const nameArrow = arrow('name');
+  const emailArrow = arrow('email');
+  const projectArrow = arrow('project');
+  const statusArrow = arrow('status');
+  const startArrow = arrow('subscriptionStart');
+  const endArrow = arrow('subscriptionEnd');
+  const spendArrow = arrow('cents');
 
   const bodyRows = sorted.map((r) => `
     <tr>
       <td>${escapeHtml(r.name || '—')}</td>
       <td class="muted">${escapeHtml(r.email)}</td>
       <td>${escapeHtml(r.project || '—')}</td>
+      <td>${escapeHtml(formatStatus(r.status))}</td>
+      <td>${escapeHtml(r.subscriptionStart === '—' ? '—' : r.subscriptionStart)}</td>
+      <td>${escapeHtml(r.subscriptionEnd === '—' ? '—' : r.subscriptionEnd)}</td>
       <td class="num">${r.cents > 0 ? '$' + formatCostCents(r.cents) : '—'}</td>
     </tr>
   `).join('');
@@ -141,6 +198,9 @@ function renderTable(rows) {
               <th class="sortable" data-sort="name" title="Сортировать">Имя${nameArrow}</th>
               <th class="sortable" data-sort="email" title="Сортировать">Email${emailArrow}</th>
               <th class="sortable" data-sort="project" title="Сортировать">Проект (Jira)${projectArrow}</th>
+              <th class="sortable" data-sort="status" title="Сортировать">Статус${statusArrow}</th>
+              <th class="sortable" data-sort="subscriptionStart" title="Сортировать">Дата начала подписки${startArrow}</th>
+              <th class="sortable" data-sort="subscriptionEnd" title="Сортировать">Дата окончания подписки${endArrow}</th>
               <th class="sortable num" data-sort="cents" title="Сортировать">Расходы${spendArrow}</th>
             </tr>
           </thead>
