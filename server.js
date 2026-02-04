@@ -16,6 +16,8 @@ const invoicePdfParser = require('./lib/invoice-pdf-parser');
 /** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || path.join(DATA_DIR, 'sync.log');
+const INVOICE_PARSE_LOG_FILE = process.env.INVOICE_PARSE_LOG_FILE || path.join(DATA_DIR, 'invoice-parse.log');
+let invoiceParseLogDirEnsured = false;
 /** Текущий лог-файл сессии загрузки (если идёт runSyncToDB). При set все записи syncLog идут в него. */
 let currentSyncLogFile = null;
 let syncLogDirEnsured = false;
@@ -40,6 +42,36 @@ function syncLog(action, fields = {}) {
     fs.appendFileSync(logFile, line, 'utf8');
   } catch (e) {
     console.error('[SYNC] log write failed:', e.message);
+  }
+}
+
+/** Запись в лог распознавания счетов: дата, файл, парсер, данные от pypdf, число строк. */
+function invoiceParseLog(entry) {
+  const logFile = INVOICE_PARSE_LOG_FILE;
+  try {
+    if (!invoiceParseLogDirEnsured) {
+      fs.mkdirSync(path.dirname(logFile), { recursive: true });
+      invoiceParseLogDirEnsured = true;
+    }
+    const ts = new Date().toISOString();
+    const lines = [
+      '---',
+      `[${ts}] filename=${entry.filename || '(unknown)'} parser=${entry.parser || '?'} rows_count=${entry.rows_count ?? '?'}${entry.error ? ' error=' + entry.error : ''}`,
+    ];
+    if (entry.pypdf_text !== undefined && entry.pypdf_text !== null) {
+      const raw = String(entry.pypdf_text);
+      const maxLen = 50000;
+      const truncated = raw.length > maxLen ? raw.slice(0, maxLen) + '\n...[обрезано ' + (raw.length - maxLen) + ' символов]' : raw;
+      lines.push(`pypdf_text_length=${raw.length}`);
+      lines.push('pypdf_text:');
+      lines.push(truncated);
+    } else if (entry.parser === 'pypdf') {
+      lines.push('pypdf_text: (пусто или ошибка)');
+    }
+    lines.push('');
+    fs.appendFileSync(logFile, lines.join('\n'), 'utf8');
+  } catch (e) {
+    console.error('[invoice-parse] log write failed:', e.message);
   }
 }
 
@@ -1838,7 +1870,9 @@ function extractInvoiceTableFromText(text) {
   return rows;
 }
 
-/** Парсинг PDF-буфера: опционально pypdf (извлечение текста) → таблица по структуре → по тексту (pdf-parse). */
+/** Парсинг PDF-буфера: опционально pypdf (извлечение текста) → таблица по структуре → по тексту (pdf-parse).
+ * При включённом pypdf и пустом результате дальнейший парсинг не выполняется, возвращается error: 'PYPDF_ERROR' | 'PYPDF_EMPTY'.
+ * Возвращает { rows, parser, pypdfText, error? }: error — только при использовании pypdf и неудаче. */
 async function parseCursorInvoicePdf(buffer) {
   const usePypdf = process.env.USE_PYPDF !== '0' && process.env.USE_PYPDF !== 'false';
   const pypdfScript = process.env.PYPDF_SCRIPT || path.join(__dirname, 'scripts', 'parse_invoice_pypdf.py');
@@ -1851,7 +1885,7 @@ async function parseCursorInvoicePdf(buffer) {
       const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
       fs.writeFileSync(tmpPdf, buffer);
       const py = process.env.PYPDF_PYTHON || 'python3';
-      const text = await new Promise((resolve) => {
+      const result = await new Promise((resolve) => {
         const proc = spawn(py, [pypdfScript, tmpPdf], { stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '';
         proc.stdout.on('data', (c) => { out += c.toString(); });
@@ -1859,29 +1893,41 @@ async function parseCursorInvoicePdf(buffer) {
           try {
             fs.unlinkSync(tmpPdf);
           } catch (_) {}
-          if (code !== 0) return resolve(null);
-          try {
-            const decoded = JSON.parse(out.trim());
-            resolve(decoded && typeof decoded.text === 'string' ? decoded.text : null);
-          } catch (_) {
-            resolve(null);
+          let text = null;
+          if (code === 0) {
+            try {
+              const decoded = JSON.parse(out.trim());
+              text = decoded && typeof decoded.text === 'string' ? decoded.text : null;
+            } catch (_) {}
           }
+          resolve({ exitCode: code, text });
         });
-        proc.on('error', () => resolve(null));
+        proc.on('error', () => resolve({ exitCode: -1, text: null }));
       });
-      if (text && text.length > 0) {
-        const rows = extractInvoiceTableFromText(text);
-        if (rows && rows.length > 0) return rows;
+      if (result.exitCode !== 0) {
+        return { rows: [], parser: 'pypdf', pypdfText: null, error: 'PYPDF_ERROR' };
       }
-    } catch (_) {}
+      const text = result.text;
+      if (!text || text.length === 0) {
+        return { rows: [], parser: 'pypdf', pypdfText: null, error: 'PYPDF_EMPTY' };
+      }
+      const rows = extractInvoiceTableFromText(text);
+      if (rows.length === 0) {
+        return { rows: [], parser: 'pypdf', pypdfText: text, error: 'PYPDF_EMPTY' };
+      }
+      return { rows, parser: 'pypdf', pypdfText: text };
+    } catch (_) {
+      return { rows: [], parser: 'pypdf', pypdfText: null, error: 'PYPDF_ERROR' };
+    }
   }
   try {
     const rows = await invoicePdfParser.parseCursorInvoicePdfFromStructure(buffer);
-    if (rows && rows.length > 0) return rows;
+    if (rows && rows.length > 0) return { rows, parser: 'structure', pypdfText: null };
   } catch (_) {}
   const data = await pdfParse(buffer);
   const text = data.text || '';
-  return extractInvoiceTableFromText(text);
+  const rows = extractInvoiceTableFromText(text);
+  return { rows, parser: 'pdf-parse', pypdfText: null };
 }
 
 const uploadPdf = multer({
@@ -1911,8 +1957,22 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
         existing_invoice: { id: existing.id, filename: existing.filename, parsed_at: existing.parsed_at },
       });
     }
-    const rows = await parseCursorInvoicePdf(req.file.buffer);
+    const parseResult = await parseCursorInvoicePdf(req.file.buffer);
+    const rows = parseResult.rows;
     const filename = req.file.originalname || 'invoice.pdf';
+    invoiceParseLog({
+      filename,
+      parser: parseResult.parser,
+      pypdf_text: parseResult.pypdfText,
+      rows_count: rows.length,
+      error: parseResult.error,
+    });
+    if (parseResult.error) {
+      return res.status(400).json({
+        error: parseResult.error === 'PYPDF_ERROR' ? 'Ошибка pypdf (скрипт завершился с ошибкой).' : 'Пустой результат pypdf: таблица строк не распознана.',
+        code: parseResult.error,
+      });
+    }
     const invoiceId = db.insertCursorInvoice(filename, null, fileHash);
     rows.forEach((r) => {
       db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents, r.tax_pct);
