@@ -52,7 +52,7 @@ docker compose up --build
 | `USE_PYPDF` | По умолчанию включено: для извлечения текста из PDF-счетов вызывается [pypdf](https://github.com/py-pdf/pypdf). Отключить: `0` или `false`. |
 | `PYPDF_SCRIPT` | Путь к скрипту `scripts/parse_invoice_pypdf.py` (по умолчанию `./scripts/parse_invoice_pypdf.py`). |
 | `PYPDF_PYTHON` | Исполняемый файл Python (по умолчанию `python3`). |
-| `INVOICE_PARSE_LOG_FILE` | Путь к лог-файлу распознавания счетов (по умолчанию `DATA_DIR/invoice-parse.log`). |
+| `INVOICE_LOGS_DIR` | Каталог логов загрузки счетов (по умолчанию `DATA_DIR/invoice-logs`). Для каждого счёта создаётся файл с именем как у файла счёта + `.log`; при удалении счёта лог удаляется. |
 
 ### Извлечение текста из PDF через pypdf (по умолчанию)
 
@@ -70,7 +70,7 @@ pip install pypdf
 - **data/auth.json** — логин и пароль для входа в настройки (`{"login": "admin", "password": "admin"}`).
 - **data/session_secret** — секрет сессии (создаётся автоматически).
 - **data/sync.log** — лог синхронизации API (при загрузке данных в БД).
-- **data/invoice-parse.log** — лог распознавания каждого загруженного счёта: парсер (pypdf/structure/pdf-parse), данные от pypdf (извлечённый текст), число строк.
+- **data/invoice-logs/** — лог загрузки по каждому счёту отдельно (имя файла = имя счёта + `.log`); при удалении счёта соответствующий лог удаляется.
 
 Подробнее: [DOCUMENTATION.md](DOCUMENTATION.md).
 

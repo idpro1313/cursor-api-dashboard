@@ -16,8 +16,15 @@ const invoicePdfParser = require('./lib/invoice-pdf-parser');
 /** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || path.join(DATA_DIR, 'sync.log');
-const INVOICE_PARSE_LOG_FILE = process.env.INVOICE_PARSE_LOG_FILE || path.join(DATA_DIR, 'invoice-parse.log');
-let invoiceParseLogDirEnsured = false;
+const INVOICE_LOGS_DIR = process.env.INVOICE_LOGS_DIR || path.join(DATA_DIR, 'invoice-logs');
+let invoiceLogsDirEnsured = false;
+
+/** Путь к лог-файлу загрузки счёта: имя лога = имя файла счёта + .log (символы \/:*?"<>| заменяются на _). */
+function getInvoiceLogPath(filename) {
+  if (!filename || typeof filename !== 'string') return path.join(INVOICE_LOGS_DIR, 'unknown.log');
+  const safe = filename.replace(/[\s\\/:*?"<>|]/g, '_').trim() || 'invoice';
+  return path.join(INVOICE_LOGS_DIR, safe + (safe.endsWith('.log') ? '' : '.log'));
+}
 /** Текущий лог-файл сессии загрузки (если идёт runSyncToDB). При set все записи syncLog идут в него. */
 let currentSyncLogFile = null;
 let syncLogDirEnsured = false;
@@ -45,18 +52,19 @@ function syncLog(action, fields = {}) {
   }
 }
 
-/** Запись в лог распознавания счетов: дата, файл, парсер, данные от pypdf, число строк. */
+/** Запись в лог загрузки счёта: отдельный файл на каждый счёт (имя = имя файла счёта + .log), содержимое перезаписывается. */
 function invoiceParseLog(entry) {
-  const logFile = INVOICE_PARSE_LOG_FILE;
+  const filename = entry.filename || 'invoice.pdf';
+  const logFile = getInvoiceLogPath(filename);
   try {
-    if (!invoiceParseLogDirEnsured) {
-      fs.mkdirSync(path.dirname(logFile), { recursive: true });
-      invoiceParseLogDirEnsured = true;
+    if (!invoiceLogsDirEnsured) {
+      fs.mkdirSync(INVOICE_LOGS_DIR, { recursive: true });
+      invoiceLogsDirEnsured = true;
     }
     const ts = new Date().toISOString();
     const lines = [
       '---',
-      `[${ts}] filename=${entry.filename || '(unknown)'} parser=${entry.parser || '?'} rows_count=${entry.rows_count ?? '?'}${entry.error ? ' error=' + entry.error : ''}`,
+      `[${ts}] filename=${filename} parser=${entry.parser || '?'} rows_count=${entry.rows_count ?? '?'}${entry.error ? ' error=' + entry.error : ''}`,
     ];
     if (entry.pypdf_text !== undefined && entry.pypdf_text !== null) {
       const raw = String(entry.pypdf_text);
@@ -69,7 +77,7 @@ function invoiceParseLog(entry) {
       lines.push('pypdf_text: (пусто или ошибка)');
     }
     lines.push('');
-    fs.appendFileSync(logFile, lines.join('\n'), 'utf8');
+    fs.writeFileSync(logFile, lines.join('\n'), 'utf8');
   } catch (e) {
     console.error('[invoice-parse] log write failed:', e.message);
   }
@@ -1762,6 +1770,96 @@ function normalizePypdfInvoiceText(text) {
     .replace(/(\$\d+),\s*\r?\n\s*(\d+)\b/g, '$1,$2');
 }
 
+/** Парсинг таблицы в формате pypdf.
+ * Заголовок: "Description Qty Unit price Amount" или "Description Qty Unit price Tax Amount".
+ * Для каждой позиции — строки описания, затем одна строка данных:
+ *   без Tax: "Qty Unit_price Amount" (например "0 $20.00 $0.00");
+ *   с Tax:   "Qty Tax% Amount" (например "33 21% $113.55", Unit price в строке нет).
+ * Тело таблицы заканчивается на строке с "Subtotal" (после неё может идти сумма). */
+function extractInvoiceTableFromPypdfText(text) {
+  if (typeof text !== 'string') return [];
+  const normalized = normalizePypdfInvoiceText(text);
+  const lines = normalized.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+
+  let headerIdx = -1;
+  let subtotalIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const lower = lines[i].toLowerCase();
+    if (headerIdx < 0 && lower.includes('description') && (lower.includes('qty') || lower.includes('amount'))) headerIdx = i;
+    if (lower.includes('subtotal')) {
+      subtotalIdx = i;
+      break;
+    }
+  }
+  if (headerIdx < 0 || subtotalIdx < 0 || subtotalIdx <= headerIdx + 1) return [];
+
+  const bodyLines = lines.slice(headerIdx + 1, subtotalIdx).filter((l) => l.length > 0);
+  const rows = [];
+  let rowIndex = 0;
+  let descriptionLines = [];
+
+  // Строка данных с Tax: "Qty Tax% Amount" (например "33 21% $113.55" или "34 21%  $116.99")
+  const dataLineWithTaxRe = /^\s*(\d+)\s+(\d+)%?\s+(\$?[\d,.]+)\s*$/;
+  // Строка данных без Tax: "Qty Unit_price Amount" (например "0 $20.00 $0.00")
+  const dataLineNoTaxRe = /^\s*(\d+)\s+(\$?[\d,.]+)\s+(\$?[\d,.]+)\s*$/;
+
+  for (let i = 0; i < bodyLines.length; i++) {
+    const line = bodyLines[i];
+    let matched = false;
+
+    const taxMatch = line.match(dataLineWithTaxRe);
+    if (taxMatch) {
+      const qtyVal = parseNum(taxMatch[1]);
+      const taxPct = parseNum(taxMatch[2]);
+      const amountCents = parseCurrencyToCents(taxMatch[3]);
+      if (qtyVal != null && looksLikeQty(qtyVal) && taxPct != null && taxPct >= 0 && taxPct <= 100 && amountCents != null) {
+        const desc = descriptionLines.filter(Boolean).join(' ').trim();
+        const cleaned = stripInvoicePageMarker(stripInvoiceTableHeaderPrefix(desc) || '') || null;
+        rows.push({
+          row_index: rowIndex++,
+          description: cleaned,
+          quantity: qtyVal,
+          unit_price_cents: null,
+          tax_pct: taxPct,
+          amount_cents: amountCents,
+          raw_columns: [qtyVal, taxPct, amountCents],
+        });
+        descriptionLines = [];
+        matched = true;
+      }
+    }
+
+    if (!matched) {
+      const noTaxMatch = line.match(dataLineNoTaxRe);
+      if (noTaxMatch) {
+        const qtyVal = parseNum(noTaxMatch[1]);
+        const unitVal = parseNum(noTaxMatch[2]);
+        const amountCents = parseCurrencyToCents(noTaxMatch[3]);
+        if (qtyVal != null && looksLikeQty(qtyVal) && unitVal != null && amountCents != null) {
+          const desc = descriptionLines.filter(Boolean).join(' ').trim();
+          const cleaned = stripInvoicePageMarker(stripInvoiceTableHeaderPrefix(desc) || '') || null;
+          rows.push({
+            row_index: rowIndex++,
+            description: cleaned,
+            quantity: qtyVal,
+            unit_price_cents: unitVal != null ? Math.round(unitVal * 100) : null,
+            tax_pct: null,
+            amount_cents: amountCents,
+            raw_columns: [qtyVal, unitVal, amountCents],
+          });
+          descriptionLines = [];
+          matched = true;
+        }
+      }
+    }
+
+    if (!matched) {
+      descriptionLines.push(line);
+    }
+  }
+  return rows;
+}
+
 /** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal".
  * Новая позиция начинается, когда в строке появляется Qty в конце (три значения: Qty, Unit price, Amount).
  * Поддерживаются форматы с пробелами и без: "1 1.43 1.43" и ")1$1.43$1.43". */
@@ -1929,7 +2027,7 @@ async function parseCursorInvoicePdf(buffer) {
       if (!text || text.length === 0) {
         return { rows: [], parser: 'pypdf', pypdfText: null, error: 'PYPDF_EMPTY' };
       }
-      const rows = extractInvoiceTableFromText(text);
+      const rows = extractInvoiceTableFromPypdfText(text);
       if (rows.length === 0) {
         return { rows: [], parser: 'pypdf', pypdfText: text, error: 'PYPDF_EMPTY' };
       }
@@ -2027,8 +2125,13 @@ app.delete('/api/invoices/:id', requireSettingsAuth, (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id) || id < 1) return res.status(400).json({ error: 'Некорректный id.' });
-    const deleted = db.deleteCursorInvoice(id);
-    if (!deleted) return res.status(404).json({ error: 'Счёт не найден.' });
+    const invoice = db.getCursorInvoiceById(id);
+    if (!invoice) return res.status(404).json({ error: 'Счёт не найден.' });
+    db.deleteCursorInvoice(id);
+    const logPath = getInvoiceLogPath(invoice.filename);
+    try {
+      if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
+    } catch (_) {}
     res.json({ ok: true, message: 'Счёт удалён.' });
   } catch (e) {
     res.status(500).json({ error: e.message });
