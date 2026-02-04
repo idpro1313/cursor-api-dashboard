@@ -1532,6 +1532,16 @@ function isInvoicePageMarker(line) {
   return /^Page\s+\d+\s+of\s+\d+\s*$/i.test(line.trim());
 }
 
+/** Строка похожа на диапазон дат (Jan 5 – Feb 5, 2026) — не считать её строкой с Qty/Amount. */
+function looksLikeDateLine(line) {
+  if (!line || typeof line !== 'string') return false;
+  const lower = line.trim().toLowerCase();
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  if (months.some((m) => lower.includes(m))) return true;
+  if (lower.includes('2026') || lower.includes('2025')) return true;
+  return false;
+}
+
 /** Удаляет из текста маркеры страниц (Page N of M). */
 function stripInvoicePageMarker(desc) {
   if (!desc || typeof desc !== 'string') return desc;
@@ -1735,11 +1745,24 @@ function extractInvoiceTableFromText(text) {
     return stripInvoicePageMarker(stripInvoiceTableHeaderPrefix(desc) || '') || null;
   }
 
+  function pendingHasDateLine() {
+    return pendingDescriptionLines.some((l) => looksLikeDateLine(l));
+  }
+
   for (let i = 0; i < bodyLines.length; i++) {
     const line = bodyLines[i];
     if (isInvoicePageMarker(line)) continue;
+    if (looksLikeDateLine(line)) {
+      pendingDescriptionLines.push(line);
+      continue;
+    }
     const multi = findAllQtyUnitAmountInLine(line);
     if (multi.length > 1) {
+      const skipAsDateRow = multi.some((m) => m.amountCents != null && m.amountCents > 0 && m.amountCents < 1000) && pendingHasDateLine();
+      if (skipAsDateRow) {
+        pendingDescriptionLines.push(line);
+        continue;
+      }
       for (let k = 0; k < multi.length; k++) {
         const m = multi[k];
         const fullDescription = k === 0 && pendingDescriptionLines.length > 0
@@ -1758,6 +1781,10 @@ function extractInvoiceTableFromText(text) {
       pendingDescriptionLines = [];
     } else if (multi.length === 1) {
       const m = multi[0];
+      if (m.amountCents != null && m.amountCents > 0 && m.amountCents < 1000 && pendingHasDateLine()) {
+        pendingDescriptionLines.push(line);
+        continue;
+      }
       const fullDescription = pendingDescriptionLines.length > 0
         ? (pendingDescriptionLines.join(' ') + (m.desc ? ' ' + m.desc : '')).trim()
         : (m.desc || null);
@@ -1774,6 +1801,10 @@ function extractInvoiceTableFromText(text) {
     } else {
       const parsed = parseQtyUnitAmountAtEnd(line);
       if (parsed) {
+        if (parsed.amountCents != null && parsed.amountCents > 0 && parsed.amountCents < 1000 && pendingHasDateLine()) {
+          pendingDescriptionLines.push(line);
+          continue;
+        }
         const descOnLine = line.slice(0, parsed.descEndIndex).trim();
         const fullDescription = pendingDescriptionLines.length > 0
           ? (pendingDescriptionLines.join(' ') + (descOnLine ? ' ' + descOnLine : '')).trim()
