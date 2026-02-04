@@ -1519,10 +1519,10 @@ function parseNum(str) {
   return Number.isNaN(n) ? null : n;
 }
 
-/** Проверяет, что значение похоже на Qty (небольшое число, обычно 1–100). Исключает длинные целые вроде номера токенов. */
+/** Проверяет, что значение похоже на Qty (0 или небольшое число до 10000). Исключает длинные целые вроде номера токенов. */
 function looksLikeQty(num) {
   if (num == null || num < 0) return false;
-  if (num > 0 && num < 10000) return true;
+  if (num >= 0 && num < 10000) return true;
   return false;
 }
 
