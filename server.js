@@ -8,10 +8,13 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
 const db = require('./db');
 
 /** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const TEMP_DIR = process.env.TEMP_DIR ? path.resolve(process.env.TEMP_DIR) : path.join(__dirname, 'temp');
 const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || path.join(DATA_DIR, 'sync.log');
 let syncLogDirEnsured = false;
 function syncLog(action, fields = {}) {
@@ -178,7 +181,7 @@ app.get('/api/auth/check', (req, res) => {
 });
 
 // Защищённые страницы настроек: только после входа. Перехват по пути без учёта регистра.
-const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'jira-users.html', 'audit.html', 'settings.html'];
+const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'jira-users.html', 'invoices.html', 'audit.html', 'settings.html'];
 
 function isProtectedPagePath(req) {
   const pathname = (req.originalUrl || req.url || req.path || '').split('?')[0].replace(/\/$/, '') || '/';
@@ -254,10 +257,11 @@ async function waitCursorRateLimit(apiPath) {
   const now = Date.now();
   const windowStart = now - CURSOR_RATE_WINDOW_MS;
   timestamps = timestamps.filter((t) => t > windowStart);
-  while (timestamps.length >= limit) {
+  while (timestamps.length >= limit && limit > 0) {
+    if (timestamps.length === 0) break;
     const oldest = Math.min(...timestamps);
     const waitMs = oldest + CURSOR_RATE_WINDOW_MS - now + 50;
-    await new Promise((r) => setTimeout(r, Math.max(50, waitMs)));
+    await new Promise((r) => setTimeout(r, Math.min(60000, Math.max(50, waitMs))));
     const n = Date.now();
     timestamps = timestamps.filter((t) => t > n - CURSOR_RATE_WINDOW_MS);
   }
@@ -1449,6 +1453,167 @@ app.post('/api/jira-users/upload', requireSettingsAuth, (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message || 'Ошибка разбора CSV' });
   }
+});
+
+// --- Счета Cursor (PDF): парсинг таблицы между Description и Subtotal, сохранение в БД ---
+
+/** Извлечь из текста PDF таблицу: строки между заголовком с "Description" и строкой "Subtotal". */
+function extractInvoiceTableFromText(text) {
+  if (typeof text !== 'string') return [];
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  let headerIdx = -1;
+  let subtotalIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const lower = lines[i].toLowerCase();
+    if (headerIdx < 0 && lower.includes('description')) headerIdx = i;
+    if (lower.includes('subtotal')) {
+      subtotalIdx = i;
+      break;
+    }
+  }
+  if (headerIdx < 0 || subtotalIdx < 0 || subtotalIdx <= headerIdx + 1) {
+    return [];
+  }
+  const bodyLines = lines.slice(headerIdx + 1, subtotalIdx).filter((l) => l.length > 0);
+  const rows = [];
+  for (let i = 0; i < bodyLines.length; i++) {
+    const line = bodyLines[i];
+    const columns = line.split(/\t+/).length > 1
+      ? line.split(/\t+/).map((c) => c.trim())
+      : line.split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
+    let description = '';
+    let amountCents = null;
+    if (columns.length >= 1) {
+      const last = columns[columns.length - 1];
+      const amountStr = String(last).replace(/[$,\s]/g, '').replace(',', '.');
+      const num = parseFloat(amountStr);
+      if (!Number.isNaN(num)) {
+        amountCents = Math.round(num * 100);
+        description = columns.slice(0, -1).join(' ').trim() || columns[0] || '';
+      } else {
+        description = columns.join(' ').trim();
+      }
+    }
+    if (description || amountCents != null) {
+      rows.push({ row_index: i, description: description || null, amount_cents: amountCents, raw_columns: columns });
+    }
+  }
+  return rows;
+}
+
+/** Парсинг PDF-буфера: текст через pdf-parse, затем извлечение таблицы. */
+async function parseCursorInvoicePdf(buffer) {
+  const data = await pdfParse(buffer);
+  const text = data.text || '';
+  return extractInvoiceTableFromText(text);
+}
+
+const uploadPdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const isPdf = file.mimetype === 'application/pdf' || (file.originalname && String(file.originalname).toLowerCase().endsWith('.pdf'));
+    if (isPdf) {
+      cb(null, true);
+    } else {
+      cb(new Error('Разрешены только файлы PDF'), false);
+    }
+  },
+});
+
+app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), async (req, res) => {
+  if (!req.file || !req.file.buffer) {
+    return res.status(400).json({ error: 'Загрузите файл PDF (поле pdf).' });
+  }
+  try {
+    const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const existing = db.getCursorInvoiceByFileHash(fileHash);
+    if (existing) {
+      return res.status(409).json({
+        error: 'Этот счёт уже был загружен.',
+        alreadyUploaded: true,
+        existing_invoice: { id: existing.id, filename: existing.filename, parsed_at: existing.parsed_at },
+      });
+    }
+    const rows = await parseCursorInvoicePdf(req.file.buffer);
+    const filename = req.file.originalname || 'invoice.pdf';
+    const invoiceId = db.insertCursorInvoice(filename, null, fileHash);
+    rows.forEach((r) => {
+      db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns);
+    });
+    res.json({ ok: true, invoice_id: invoiceId, filename, items_count: rows.length });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Ошибка парсинга PDF' });
+  }
+});
+
+app.post('/api/invoices/parse-temp', requireSettingsAuth, async (req, res) => {
+  try {
+    if (!fs.existsSync(TEMP_DIR)) {
+      return res.json({ ok: true, parsed: 0, message: 'Папка temp не найдена.', errors: [] });
+    }
+    const files = fs.readdirSync(TEMP_DIR).filter((f) => f.toLowerCase().endsWith('.pdf'));
+    const results = { parsed: 0, errors: [] };
+    for (const f of files) {
+      const filePath = path.join(TEMP_DIR, f);
+      try {
+        const buffer = fs.readFileSync(filePath);
+        const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+        if (db.getCursorInvoiceByFileHash(fileHash)) {
+          results.errors.push({ file: f, error: 'Уже загружен (дубликат)' });
+          continue;
+        }
+        const rows = await parseCursorInvoicePdf(buffer);
+        const invoiceId = db.insertCursorInvoice(f, filePath, fileHash);
+        rows.forEach((r) => {
+          db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns);
+        });
+        results.parsed += 1;
+      } catch (e) {
+        results.errors.push({ file: f, error: e.message });
+      }
+    }
+    res.json({ ok: true, ...results, message: `Обработано PDF: ${results.parsed}, ошибок: ${results.errors.length}.` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/invoices', requireSettingsAuth, (req, res) => {
+  try {
+    const list = db.getCursorInvoices();
+    res.json({ invoices: list });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/invoices/:id/items', requireSettingsAuth, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) return res.status(400).json({ error: 'Некорректный id.' });
+    const invoice = db.getCursorInvoiceById(id);
+    if (!invoice) return res.status(404).json({ error: 'Счёт не найден.' });
+    const items = db.getCursorInvoiceItems(id);
+    res.json({ items });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Обработка ошибок multer (неверный тип файла и т.д.)
+app.use((err, req, res, next) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'Файл слишком большой (макс. 15 МБ).' });
+  }
+  if (err && err.message && (err.message.includes('PDF') || err.message.includes('pdf'))) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err) {
+    console.error('Upload/request error:', err.message || err);
+    return res.status(500).json({ error: err.message || 'Ошибка сервера' });
+  }
+  next();
 });
 
 // Периодическая очистка старых записей rate limit

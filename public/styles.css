@@ -175,6 +175,10 @@ input:focus {
 }
 .btn-link:hover { color: var(--accent-hover); }
 
+.invoices-list { list-style: none; margin: 0; padding: 0; }
+.invoices-list li { margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
+.invoices-list .invoice-link { text-align: left; padding: 0; font-weight: 500; }
+
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 

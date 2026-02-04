@@ -4,13 +4,17 @@
 # Использование:
 #   chmod +x scripts/deploy.sh
 #   ./scripts/deploy.sh
-# Или из каталога проекта с другим путём:
-#   PROJECT_DIR=/opt/cursor-dashboard ./scripts/deploy.sh
+# Каталог данных по умолчанию: на 2 уровня выше скрипта (scripts/ → проект → data).
+# Переопределение: PROJECT_DIR=/path/to/project или DATA_DIR=/path/to/data ./scripts/deploy.sh
 set -e
 
 # Каталог проекта (где лежит docker-compose.yml). По умолчанию — родитель папки scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(dirname "$SCRIPT_DIR")}"
+# Каталог данных — на два уровня выше скрипта (например .../scripts/ → .../data)
+# Скрипт в /opt/cursor/cursor-api-dashboard/scripts/ → данные в /opt/cursor/data
+DATA_DIR_PARENT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+DATA_DIR="${DATA_DIR:-$DATA_DIR_PARENT/data}"
 
 cd "$PROJECT_DIR"
 
@@ -31,8 +35,8 @@ else
   DCC="docker-compose"
 fi
 
-# Каталог данных на хосте (монтируется в контейнер)
-DATA_DIR="${DATA_DIR:-/var/cursor/data}"
+# Создание каталога данных на хосте (монтируется в контейнер). Путь передаётся в docker-compose через HOST_DATA_DIR
+export HOST_DATA_DIR="$DATA_DIR"
 if [ ! -d "$DATA_DIR" ]; then
   echo "--- Создание каталога данных: $DATA_DIR ---"
   sudo mkdir -p "$DATA_DIR"

@@ -17,4 +17,5 @@ COPY public ./public
 EXPOSE 3333
 
 ENV PORT=3333
+ENV NODE_ENV=production
 CMD ["node", "server.js"]

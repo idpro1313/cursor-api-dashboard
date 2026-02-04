@@ -6,8 +6,16 @@ services:
     environment:
       - PORT=3333
       - DATA_DIR=/data
+      # Папка temp внутри тома данных (для parse-temp и временных файлов)
+      - TEMP_DIR=/data/temp
       # Опционально: API key через переменную (без ввода на сайте)
       # - CURSOR_API_KEY=your_key_here
     volumes:
-      # Каталог данных на хосте: /var/cursor/data (БД analytics.db, настройки)
-      - /var/cursor/data:/data
+      # Каталог данных на хосте. deploy.sh задаёт HOST_DATA_DIR (на 2 уровня выше scripts/).
+      # Без deploy: по умолчанию /var/cursor/data. На Windows — можно перейти на именованный том.
+      - ${HOST_DATA_DIR:-/var/cursor/data}:/data
+      # - cursor_data:/data
+
+# Раскомментировать при использовании именованного тома (например на Windows):
+# volumes:
+#   cursor_data:

@@ -1,0 +1,141 @@
+/**
+ * Страница «Счета Cursor» — загрузка PDF через страницу и отображение счетов
+ */
+function escapeHtml(s) {
+  if (s == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+function formatCents(cents) {
+  if (cents == null) return '—';
+  return '$' + (cents / 100).toFixed(2).replace(/\.?0+$/, '') || '0';
+}
+
+function showResult(el, message, isError) {
+  el.style.display = 'block';
+  el.className = isError ? 'sync-result error' : 'sync-result ok';
+  el.textContent = message;
+}
+
+async function loadInvoices() {
+  const listEl = document.getElementById('invoicesList');
+  const summaryEl = document.getElementById('invoicesSummary');
+  try {
+    const r = await fetch('/api/invoices', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    const invoices = data.invoices || [];
+    summaryEl.textContent = `Счетов: ${invoices.length}`;
+    if (invoices.length === 0) {
+      listEl.innerHTML = '<p class="muted">Нет загруженных счетов.</p>';
+      return;
+    }
+    listEl.innerHTML = `
+      <ul class="invoices-list">
+        ${invoices.map((inv) => `
+          <li>
+            <button type="button" class="btn-link invoice-link" data-id="${inv.id}">
+              ${escapeHtml(inv.filename)} — ${inv.items_count} поз.
+            </button>
+            <span class="muted">${escapeHtml(inv.parsed_at || '')}</span>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+    listEl.querySelectorAll('.invoice-link').forEach((btn) => {
+      btn.addEventListener('click', () => showInvoiceItems(parseInt(btn.getAttribute('data-id'), 10), btn.textContent.split(' — ')[0]));
+    });
+  } catch (e) {
+    listEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
+    summaryEl.textContent = '';
+  }
+}
+
+async function showInvoiceItems(id, title) {
+  const detailEl = document.getElementById('invoiceDetail');
+  const titleEl = document.getElementById('invoiceDetailTitle');
+  const tableEl = document.getElementById('invoiceItemsTable');
+  try {
+    const r = await fetch('/api/invoices/' + id + '/items', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const data = await r.json();
+    if (!r.ok) {
+      tableEl.innerHTML = '<p class="error">' + escapeHtml(data.error || r.statusText) + '</p>';
+      detailEl.style.display = 'block';
+      if (titleEl) titleEl.textContent = title || 'Позиции счёта';
+      return;
+    }
+    const items = data.items || [];
+    titleEl.textContent = title || 'Позиции счёта';
+    if (items.length === 0) {
+      tableEl.innerHTML = '<p class="muted">Нет позиций.</p>';
+    } else {
+      const rows = items.map((it) => `
+        <tr>
+          <td>${escapeHtml(it.description || '—')}</td>
+          <td class="num">${formatCents(it.amount_cents)}</td>
+        </tr>
+      `).join('');
+      tableEl.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th>Description</th><th class="num">Amount</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+    detailEl.style.display = 'block';
+  } catch (e) {
+    tableEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
+    detailEl.style.display = 'block';
+  }
+}
+
+async function uploadPdf() {
+  const input = document.getElementById('pdfFile');
+  const resultEl = document.getElementById('uploadResult');
+  if (!input.files || !input.files[0]) {
+    showResult(resultEl, 'Выберите файл PDF.', true);
+    return;
+  }
+  const formData = new FormData();
+  formData.append('pdf', input.files[0]);
+  resultEl.style.display = 'block';
+  resultEl.textContent = 'Загрузка...';
+  try {
+    const r = await fetch('/api/invoices/upload', {
+      method: 'POST',
+      body: formData,
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const data = await r.json();
+    if (!r.ok) {
+      if (r.status === 409 && data.alreadyUploaded) {
+        const name = data.existing_invoice && data.existing_invoice.filename ? data.existing_invoice.filename : '';
+        showResult(resultEl, (data.error || 'Этот счёт уже был загружен.') + (name ? ' Файл: ' + name : ''), true);
+      } else {
+        throw new Error(data.error || r.statusText);
+      }
+      return;
+    }
+    showResult(resultEl, `Загружено: ${data.filename}, позиций: ${data.items_count}.`);
+    input.value = '';
+    loadInvoices();
+  } catch (e) {
+    showResult(resultEl, e.message || 'Ошибка', true);
+  }
+}
+
+function init() {
+  document.getElementById('btnUploadPdf').addEventListener('click', uploadPdf);
+  loadInvoices();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
