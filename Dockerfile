@@ -4,15 +4,16 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Репозиторий community нужен для openjdk17 (в main его нет)
-RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+# Репозиторий community для openjdk17 (версия Alpine — как в базовом образе)
+RUN V=$(cat /etc/alpine-release 2>/dev/null | sed -n 's/^\([0-9]*\.[0-9]*\).*/\1/p') && \
+    echo "http://dl-cdn.alpinelinux.org/alpine/v${V:-3.19}/community" >> /etc/apk/repositories
 
 # Сборка better-sqlite3 + Java 17 для OpenDataLoader PDF
 RUN apk add --no-cache python3 make g++ sqlite-dev openjdk17-jre-headless
 
-# OpenDataLoader ищет Java по JAVA_HOME или PATH
+# Java в PATH: пакет ставит java в /usr/lib/jvm/java-17-openjdk/bin, добавляем в начало PATH
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-ENV PATH="${JAVA_HOME}/bin:${PATH}"
+ENV PATH=/usr/lib/jvm/java-17-openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RUN java -version
 
 COPY package.json ./

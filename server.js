@@ -2085,6 +2085,19 @@ async function parseCursorInvoicePdf(buffer) {
     return { rows: [], parser: null, pypdfText: null, error: 'OPENDATALOADER_DISABLED' };
   }
   try {
+    // В Alpine/Docker Java может быть в /usr/lib/jvm/...; задаём JAVA_HOME, если не задан
+    if (!process.env.JAVA_HOME && process.platform === 'linux') {
+      const candidates = ['/usr/lib/jvm/java-17-openjdk', '/usr/lib/jvm/java-11-openjdk', '/usr/lib/jvm/default-jvm'];
+      for (const dir of candidates) {
+        try {
+          if (fs.existsSync(path.join(dir, 'bin', 'java'))) {
+            process.env.JAVA_HOME = dir;
+            process.env.PATH = path.join(dir, 'bin') + path.delimiter + (process.env.PATH || '');
+            break;
+          }
+        } catch (_) {}
+      }
+    }
     const { convert } = require('@opendataloader/pdf');
     const os = require('os');
     const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
@@ -2132,7 +2145,12 @@ async function parseCursorInvoicePdf(buffer) {
       return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY' };
     }
     return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
-  } catch (_) {
+  } catch (err) {
+    const msg = err && (err.message || String(err));
+    console.error('[OpenDataLoader]', msg || err);
+    if (msg && /java|JAVA|not found|ENOENT|spawn/i.test(msg)) {
+      console.error('[OpenDataLoader] Убедитесь, что Java 11+ установлена и в PATH (или задайте JAVA_HOME).');
+    }
     return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR' };
   }
 }
