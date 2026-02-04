@@ -372,6 +372,13 @@ select {
   text-align: center;
 }
 .stat-card-highlight { border-color: var(--accent); background: var(--accent-light); }
+.stat-card-link {
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.stat-card-link:hover { border-color: var(--accent); background: var(--accent-light); }
+.stat-card-link .stat-value { color: var(--accent); }
 .stat-value { display: block; font-size: 1.4rem; font-weight: 700; color: var(--text); }
 .stat-value.stat-green { color: var(--green); }
 .stat-value.stat-red { color: var(--red); }

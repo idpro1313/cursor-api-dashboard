@@ -421,21 +421,12 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-label">стоимость (Usage Events)</span>
     </div>
   ` : '';
-  const teamMembersCount = data.teamMembersCount ?? 0;
-  const teamMembers = data.teamMembers || [];
-  const teamMembersCard = teamMembersCount > 0 ? `
-    <div class="stat-card" title="${escapeHtml(teamMembers.slice(0, 15).map((m) => m.name || m.email).join(', '))}">
-      <span class="stat-value">${teamMembersCount}</span>
-      <span class="stat-label">участников в команде</span>
-    </div>
-  ` : '';
-  const totalTeamSpendCents = data.totalTeamSpendCents ?? 0;
-  const spendApiCard = totalTeamSpendCents > 0 ? `
-    <div class="stat-card">
-      <span class="stat-value">$${formatCostCents(totalTeamSpendCents)}</span>
-      <span class="stat-label">расходы текущего месяца</span>
-    </div>
-  ` : '';
+  const snapshotLinkCard = `
+    <a href="team-snapshot.html" class="stat-card stat-card-link" title="Отдельный дашборд: запрос Team Members и Spending Data к Cursor API">
+      <span class="stat-value">→</span>
+      <span class="stat-label">Участники и расходы</span>
+    </a>
+  `;
   const totalByModel = {};
   for (const u of withActivity) {
     const t = u.totals || getUserTotals(u);
@@ -454,7 +445,7 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-value">${allUsers.length}</span>
       <span class="stat-label">всего в Jira</span>
     </div>
-    ${teamMembersCard}
+    ${snapshotLinkCard}
     <div class="stat-card">
       <span class="stat-value">${activeUserCount}</span>
       <span class="stat-label">с активностью в Cursor</span>
@@ -472,7 +463,6 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-label">строк удалено</span>
     </div>
     ${usageCards}
-    ${spendApiCard}
     <div class="stat-card stat-card-highlight">
       <span class="stat-value">${escapeHtml(topLabel)}</span>
       <span class="stat-label">самый активный по запросам</span>

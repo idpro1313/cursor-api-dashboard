@@ -1059,8 +1059,47 @@ function getJiraRowOrderKey(row, id) {
   return id;
 }
 
-/** Агрегация активности по пользователям и месяцам (Daily Usage Data + Usage Events Data). Team Members и Spending Data запрашиваются при отображении дашборда (не из БД). */
-app.get('/api/users/activity-by-month', async (req, res) => {
+/** Снимок Team Members и Spending Data из Cursor API (для отдельного дашборда). */
+app.get('/api/teams/snapshot', async (req, res) => {
+  try {
+    const apiKey = getApiKey(req);
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key не задан. Укажите X-API-Key или настройте ключ в Настройках.' });
+    }
+    const [membersResp, spendResp] = await Promise.all([
+      cursorFetch(apiKey, '/teams/members', { method: 'GET' }),
+      cursorFetch(apiKey, '/teams/spend', { method: 'POST', body: {} }),
+    ]);
+    const list = membersResp?.teamMembers;
+    const teamMembers = Array.isArray(list)
+      ? list.map((m) => ({
+          email: (m.email || m.userEmail || m.user_email || '').toString().trim().toLowerCase(),
+          name: (m.name || m.displayName || m.display_name || m.email || '').toString().trim(),
+        })).filter((m) => m.email || m.name)
+      : [];
+    const spendList = spendResp?.teamMemberSpend;
+    const teamMemberSpend = Array.isArray(spendList)
+      ? spendList.map((s) => {
+          const email = (s.userEmail || s.email || s.user_email || '').toString().trim().toLowerCase();
+          const cents = Number(s.cents ?? s.totalCents ?? s.spendCents ?? s.amount ?? 0) || 0;
+          return { email, cents };
+        }).filter((s) => s.email)
+      : [];
+    let totalSpendCents = 0;
+    for (const s of teamMemberSpend) totalSpendCents += s.cents;
+    res.json({
+      teamMembers,
+      teamMembersCount: teamMembers.length,
+      teamMemberSpend,
+      totalSpendCents,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Ошибка запроса к Cursor API' });
+  }
+});
+
+/** Агрегация активности по пользователям и месяцам только по данным из БД (Daily Usage Data + Usage Events Data). */
+app.get('/api/users/activity-by-month', (req, res) => {
   try {
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
@@ -1214,44 +1253,13 @@ app.get('/api/users/activity-by-month', async (req, res) => {
       u.totalRequestsInPeriod = totalRequests;
     }
 
-    // Team Members и Spending Data: запрос при отображении дашборда (не из БД)
-    const emailToSpendCents = new Map();
-    let teamMembersCount = 0;
-    let teamMembers = [];
-    const apiKey = getApiKey(req);
-    if (apiKey) {
-      try {
-        const [membersResp, spendResp] = await Promise.all([
-          cursorFetch(apiKey, '/teams/members', { method: 'GET' }),
-          cursorFetch(apiKey, '/teams/spend', { method: 'POST', body: {} }),
-        ]);
-        const list = membersResp?.teamMembers;
-        if (Array.isArray(list)) {
-          teamMembersCount = list.length;
-          teamMembers = list.map((m) => ({
-            email: (m.email || m.userEmail || m.user_email || '').toString().trim().toLowerCase(),
-            name: (m.name || m.displayName || m.display_name || m.email || '').toString().trim(),
-          })).filter((m) => m.email || m.name);
-        }
-        const spendList = spendResp?.teamMemberSpend;
-        if (Array.isArray(spendList)) {
-          for (const s of spendList) {
-            const email = (s.userEmail || s.email || s.user_email || '').toString().trim().toLowerCase();
-            if (!email) continue;
-            const cents = Number(s.cents ?? s.totalCents ?? s.spendCents ?? s.amount ?? 0) || 0;
-            emailToSpendCents.set(email, (emailToSpendCents.get(email) || 0) + cents);
-          }
-        }
-      } catch (_) {
-        // при ошибке API оставляем пустые сводки
-      }
-    }
-    let totalTeamSpendCents = 0;
+    // Team Members и Spending Data — только из БД не берём; отдельный дашборд /team-snapshot.html запрашивает их через API
     for (const u of users) {
-      const cents = emailToSpendCents.get(u.email) || 0;
-      u.teamSpendCents = cents;
-      totalTeamSpendCents += cents;
+      u.teamSpendCents = 0;
     }
+    const totalTeamSpendCents = 0;
+    const teamMembersCount = 0;
+    const teamMembers = [];
 
     // Активные в Jira, но не используют / редко используют Cursor (после назначения teamSpendCents)
     const activeJiraButInactiveCursor = users.filter((u) => {
