@@ -23,7 +23,13 @@
       <div class="settings-header">
         <nav class="nav-links">
           <a href="index.html">Дашборд</a>
+          <a href="team-snapshot.html">Участники и расходы</a>
           <a href="settings.html" class="current">Настройки</a>
+          <a href="admin.html">Загрузка в БД</a>
+          <a href="data.html">Данные в БД</a>
+          <a href="jira-users.html">Jira</a>
+          <a href="invoices.html">Счета</a>
+          <a href="audit.html">Аудит</a>
         </nav>
         <button type="button" class="btn btn-secondary" id="btnLogout">Выйти</button>
       </div>
@@ -31,10 +37,10 @@
   </header>
   <main class="site-wrap">
     <h2 style="margin-top: 0;">Разделы настроек</h2>
-    <p class="muted">Выберите раздел для настройки загрузки данных, просмотра БД, пользователей Jira или аудита.</p>
+    <p class="muted">Выберите раздел: загрузка данных, просмотр БД, Jira, счета или аудит.</p>
     <div class="settings-grid">
       <a href="admin.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Настройки и загрузка</h2>
+        <h2>Загрузка в БД</h2>
         <p>API key, загрузка данных из Cursor API в БД, покрытие.</p>
         <span class="btn">Открыть →</span>
       </a>
@@ -46,6 +52,11 @@
       <a href="jira-users.html" class="settings-card" style="text-decoration: none; color: inherit;">
         <h2>Пользователи Jira</h2>
         <p>Загрузка CSV и просмотр списка пользователей из Jira.</p>
+        <span class="btn">Открыть →</span>
+      </a>
+      <a href="invoices.html" class="settings-card" style="text-decoration: none; color: inherit;">
+        <h2>Счета</h2>
+        <p>Загрузка PDF-счетов Cursor и просмотр позиций.</p>
         <span class="btn">Открыть →</span>
       </a>
       <a href="audit.html" class="settings-card" style="text-decoration: none; color: inherit;">
