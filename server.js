@@ -11,10 +11,10 @@ const crypto = require('crypto');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const db = require('./db');
+const invoicePdfParser = require('./lib/invoice-pdf-parser');
 
 /** Логирование процесса загрузки по API (для анализа ошибок). Формат: [SYNC] ISO_TIMESTAMP key=value ... */
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
-const TEMP_DIR = process.env.TEMP_DIR ? path.resolve(process.env.TEMP_DIR) : path.join(__dirname, 'temp');
 const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || path.join(DATA_DIR, 'sync.log');
 /** Текущий лог-файл сессии загрузки (если идёт runSyncToDB). При set все записи syncLog идут в него. */
 let currentSyncLogFile = null;
@@ -1807,8 +1807,12 @@ function extractInvoiceTableFromText(text) {
   return rows;
 }
 
-/** Парсинг PDF-буфера: текст через pdf-parse, затем извлечение таблицы. */
+/** Парсинг PDF-буфера: сначала таблица по структуре (координаты), при неудаче — по тексту. */
 async function parseCursorInvoicePdf(buffer) {
+  try {
+    const rows = await invoicePdfParser.parseCursorInvoicePdfFromStructure(buffer);
+    if (rows && rows.length > 0) return rows;
+  } catch (_) {}
   const data = await pdfParse(buffer);
   const text = data.text || '';
   return extractInvoiceTableFromText(text);
@@ -1850,38 +1854,6 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
     res.json({ ok: true, invoice_id: invoiceId, filename, items_count: rows.length });
   } catch (e) {
     res.status(400).json({ error: e.message || 'Ошибка парсинга PDF' });
-  }
-});
-
-app.post('/api/invoices/parse-temp', requireSettingsAuth, async (req, res) => {
-  try {
-    if (!fs.existsSync(TEMP_DIR)) {
-      return res.json({ ok: true, parsed: 0, message: 'Папка temp не найдена.', errors: [] });
-    }
-    const files = fs.readdirSync(TEMP_DIR).filter((f) => f.toLowerCase().endsWith('.pdf'));
-    const results = { parsed: 0, errors: [] };
-    for (const f of files) {
-      const filePath = path.join(TEMP_DIR, f);
-      try {
-        const buffer = fs.readFileSync(filePath);
-        const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
-        if (db.getCursorInvoiceByFileHash(fileHash)) {
-          results.errors.push({ file: f, error: 'Уже загружен (дубликат)' });
-          continue;
-        }
-        const rows = await parseCursorInvoicePdf(buffer);
-        const invoiceId = db.insertCursorInvoice(f, filePath, fileHash);
-        rows.forEach((r) => {
-          db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents, r.tax_pct);
-        });
-        results.parsed += 1;
-      } catch (e) {
-        results.errors.push({ file: f, error: e.message });
-      }
-    }
-    res.json({ ok: true, ...results, message: `Обработано PDF: ${results.parsed}, ошибок: ${results.errors.length}.` });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
   }
 });
 
