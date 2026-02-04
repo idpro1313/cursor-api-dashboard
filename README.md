@@ -49,27 +49,19 @@ docker compose up --build
 | `CURSOR_API_KEY` | API key команды (если не вводить в интерфейсе). |
 | `CORS_ORIGIN` | Разрешённые origins через запятую. |
 | `SESSION_SECRET` | Секрет для подписи сессии (опционально). |
-| `USE_PYPDF` | Если `1` или `true`, для извлечения текста из PDF-счетов вызывается скрипт на [pypdf](https://github.com/py-pdf/pypdf) (требуется Python и `pypdf`). |
+| `USE_PYPDF` | По умолчанию включено: для извлечения текста из PDF-счетов вызывается [pypdf](https://github.com/py-pdf/pypdf). Отключить: `0` или `false`. |
 | `PYPDF_SCRIPT` | Путь к скрипту `scripts/parse_invoice_pypdf.py` (по умолчанию `./scripts/parse_invoice_pypdf.py`). |
 | `PYPDF_PYTHON` | Исполняемый файл Python (по умолчанию `python3`). |
 
-### Опционально: извлечение текста из PDF через pypdf
+### Извлечение текста из PDF через pypdf (по умолчанию)
 
-Для извлечения текста из PDF-счетов можно использовать [pypdf](https://github.com/py-pdf/pypdf). Установите Python и зависимость:
+Для извлечения текста из PDF-счетов по умолчанию используется [pypdf](https://github.com/py-pdf/pypdf). При локальном запуске установите Python и зависимость:
 
 ```bash
 pip install pypdf
 ```
 
-Задайте переменные и запустите приложение:
-
-```bash
-export USE_PYPDF=1
-export PYPDF_SCRIPT=/path/to/cursor-api-dashboard/scripts/parse_invoice_pypdf.py
-npm start
-```
-
-Текст из PDF извлекается через pypdf, разбор таблицы строк выполняется тем же встроенным парсером. Если скрипт завершится с ошибкой или вернёт пустой текст, используются встроенные парсеры (по структуре PDF и по тексту через pdf-parse). В Docker-образе Python и pypdf не устанавливаются — для использования задайте переменные при локальном запуске Node.
+При отсутствии Python/pypdf или при ошибке скрипта используются встроенные парсеры (по структуре PDF и по тексту через pdf-parse). Отключить pypdf: `USE_PYPDF=0` или `USE_PYPDF=false`. В Docker-образе Python и pypdf уже установлены, парсер включён в `docker-compose.yml`.
 
 ## Структура данных
 

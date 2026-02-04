@@ -4,8 +4,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Сборка better-sqlite3 в Alpine требует build-base и python3
-RUN apk add --no-cache python3 make g++ sqlite-dev
+# Сборка better-sqlite3 в Alpine требует build-base и python3.
+# py3-pip и pypdf — для опционального парсера PDF-счетов (USE_PYPDF).
+RUN apk add --no-cache python3 py3-pip make g++ sqlite-dev \
+  && pip3 install --break-system-packages --no-cache-dir pypdf
 
 COPY package.json ./
 RUN npm install --omit=dev

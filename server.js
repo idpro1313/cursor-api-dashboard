@@ -1840,7 +1840,7 @@ function extractInvoiceTableFromText(text) {
 
 /** Парсинг PDF-буфера: опционально pypdf (извлечение текста) → таблица по структуре → по тексту (pdf-parse). */
 async function parseCursorInvoicePdf(buffer) {
-  const usePypdf = process.env.USE_PYPDF === '1' || process.env.USE_PYPDF === 'true';
+  const usePypdf = process.env.USE_PYPDF !== '0' && process.env.USE_PYPDF !== 'false';
   const pypdfScript = process.env.PYPDF_SCRIPT || path.join(__dirname, 'scripts', 'parse_invoice_pypdf.py');
   if (usePypdf && pypdfScript && fs.existsSync(pypdfScript)) {
     try {
