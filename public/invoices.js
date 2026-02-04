@@ -98,17 +98,19 @@ async function showInvoiceItems(id, title) {
       tableEl.innerHTML = '<p class="muted">Нет позиций.</p>';
     } else {
       const formatQty = (q) => (q != null && q !== '') ? Number(q) : '—';
+      const formatTax = (t) => (t != null && t !== '') ? (Number(t) + '%') : '—';
       const rows = items.map((it) => `
         <tr>
           <td>${escapeHtml(it.description || '—')}</td>
           <td class="num">${formatQty(it.quantity)}</td>
           <td class="num">${formatCents(it.unit_price_cents)}</td>
+          <td class="num">${formatTax(it.tax_pct)}</td>
           <td class="num">${formatCents(it.amount_cents)}</td>
         </tr>
       `).join('');
       tableEl.innerHTML = `
         <table class="data-table">
-          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Amount</th></tr></thead>
+          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       `;

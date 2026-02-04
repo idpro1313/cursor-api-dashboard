@@ -53,6 +53,7 @@ function getDb() {
       description TEXT,
       quantity REAL,
       unit_price_cents INTEGER,
+      tax_pct REAL,
       amount_cents INTEGER,
       raw_columns TEXT,
       UNIQUE(invoice_id, row_index)
@@ -71,6 +72,7 @@ function getDb() {
     const names = (infoItems || []).map((c) => c.name);
     if (!names.includes('quantity')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN quantity REAL');
     if (!names.includes('unit_price_cents')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN unit_price_cents INTEGER');
+    if (!names.includes('tax_pct')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN tax_pct REAL');
   } catch (_) {}
   return db;
 }
@@ -219,11 +221,11 @@ function insertCursorInvoice(filename, filePath, fileHash) {
   return run.lastInsertRowid;
 }
 
-function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents) {
+function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct) {
   const d = getDb();
   d.prepare(`
-    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     invoiceId,
     rowIndex,
@@ -231,7 +233,8 @@ function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, 
     amountCents != null ? amountCents : null,
     rawColumns ? JSON.stringify(rawColumns) : null,
     quantity != null ? quantity : null,
-    unitPriceCents != null ? unitPriceCents : null
+    unitPriceCents != null ? unitPriceCents : null,
+    taxPct != null ? taxPct : null
   );
 }
 
@@ -264,7 +267,7 @@ function getCursorInvoices() {
 function getCursorInvoiceItems(invoiceId) {
   const d = getDb();
   const rows = d.prepare(`
-    SELECT id, invoice_id, row_index, description, quantity, unit_price_cents, amount_cents, raw_columns
+    SELECT id, invoice_id, row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns
     FROM cursor_invoice_items WHERE invoice_id = ? ORDER BY row_index
   `).all(invoiceId);
   return rows.map((r) => ({
