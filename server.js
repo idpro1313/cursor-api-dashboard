@@ -1526,6 +1526,42 @@ function looksLikeQty(num) {
   return false;
 }
 
+/** Убирает из начала описания слова заголовков таблицы счёта (Description, Qty, Unit price, Tax, Amount и их склейки в PDF). Unit price может быть пустым. */
+function stripInvoiceTableHeaderPrefix(desc) {
+  if (!desc || typeof desc !== 'string') return desc;
+  let s = desc.trim();
+  const headerPatterns = [
+    /^Description\s*Qty\s*Unit\s*price\s*Tax\s*Amount\s*/i,
+    /^Description\s*Qty\s*Unit\s*price\s*Amount\s*/i,
+    /^Description\s*Qty\s*Tax\s*Amount\s*/i,
+    /^Unit\s*price\s*Tax\s*Amount\s*/i,
+    /^Unit\s*price\s*Amount\s*/i,
+    /^Unit priceAmount\s*/i,
+    /^Unit\s*price\s*Amount/i,
+    /^Qty\s*Unit\s*price\s*Tax\s*Amount\s*/i,
+    /^Qty\s*Unit\s*price\s*Amount\s*/i,
+    /^Qty\s*Tax\s*Amount\s*/i,
+    /^Description\s*/i,
+    /^Qty\s*/i,
+    /^Unit\s*price\s*/i,
+    /^Tax\s*/i,
+    /^Amount\s*/i,
+  ];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const re of headerPatterns) {
+      const t = s.replace(re, '');
+      if (t !== s) {
+        s = t.trim();
+        changed = true;
+        break;
+      }
+    }
+  }
+  return s || null;
+}
+
 /** Регулярка для тройки в конце без пробелов: )1$1.43$1.43 или 1$1.43$1.43. */
 const RE_QTY_UNIT_AMOUNT_NO_SPACE = /\)?(\d+)\$([\d,.]+)\$([\d,.]+)/g;
 
@@ -1623,7 +1659,7 @@ function extractInvoiceTableFromText(text) {
           : (m.desc || null);
         rows.push({
           row_index: rowIndex++,
-          description: fullDescription || null,
+          description: stripInvoiceTableHeaderPrefix(fullDescription) || null,
           quantity: m.qtyVal,
           unit_price_cents: Math.round(m.unitVal * 100),
           amount_cents: m.amountCents,
@@ -1638,7 +1674,7 @@ function extractInvoiceTableFromText(text) {
         : (m.desc || null);
       rows.push({
         row_index: rowIndex++,
-        description: fullDescription || null,
+        description: stripInvoiceTableHeaderPrefix(fullDescription) || null,
         quantity: m.qtyVal,
         unit_price_cents: Math.round(m.unitVal * 100),
         amount_cents: m.amountCents,
@@ -1654,7 +1690,7 @@ function extractInvoiceTableFromText(text) {
           : (descOnLine || null);
         rows.push({
           row_index: rowIndex++,
-          description: fullDescription || null,
+          description: stripInvoiceTableHeaderPrefix(fullDescription) || null,
           quantity: parsed.qtyVal,
           unit_price_cents: Math.round(parsed.unitVal * 100),
           amount_cents: parsed.amountCents,
@@ -1669,7 +1705,7 @@ function extractInvoiceTableFromText(text) {
   if (pendingDescriptionLines.length > 0) {
     rows.push({
       row_index: rowIndex++,
-      description: pendingDescriptionLines.join(' ').trim() || null,
+      description: stripInvoiceTableHeaderPrefix(pendingDescriptionLines.join(' ').trim()) || null,
       quantity: null,
       unit_price_cents: null,
       amount_cents: null,
