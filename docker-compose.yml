@@ -8,10 +8,8 @@ services:
       - DATA_DIR=/data
       # Опционально: API key через переменную (без ввода на сайте)
       # - CURSOR_API_KEY=your_key_here
-      # Парсер PDF-счетов: извлечение текста через pypdf (включено по умолчанию; USE_PYPDF=0 — отключить)
-      - USE_PYPDF=1
-      - PYPDF_SCRIPT=/app/scripts/parse_invoice_pypdf.py
-      - PYPDF_PYTHON=python3
+      # Парсер PDF-счетов: в образе нет Java — отключаем OpenDataLoader (будет структура + pdf-parse)
+      - USE_OPENDATALOADER=0
     volumes:
       # Каталог данных на хосте. deploy.sh задаёт HOST_DATA_DIR (на 2 уровня выше scripts/).
       # Без deploy: по умолчанию /var/cursor/data. На Windows — можно перейти на именованный том.

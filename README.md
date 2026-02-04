@@ -49,20 +49,14 @@ docker compose up --build
 | `CURSOR_API_KEY` | API key команды (если не вводить в интерфейсе). |
 | `CORS_ORIGIN` | Разрешённые origins через запятую. |
 | `SESSION_SECRET` | Секрет для подписи сессии (опционально). |
-| `USE_PYPDF` | По умолчанию включено: для извлечения текста из PDF-счетов вызывается [pypdf](https://github.com/py-pdf/pypdf). Отключить: `0` или `false`. |
-| `PYPDF_SCRIPT` | Путь к скрипту `scripts/parse_invoice_pypdf.py` (по умолчанию `./scripts/parse_invoice_pypdf.py`). |
-| `PYPDF_PYTHON` | Исполняемый файл Python (по умолчанию `python3`). |
+| `USE_OPENDATALOADER` | По умолчанию включено: для извлечения текста из PDF-счетов используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf). Требуется **Java 11+** в PATH. Отключить: `0` или `false`. |
 | `INVOICE_LOGS_DIR` | Каталог логов загрузки счетов (по умолчанию `DATA_DIR/invoice-logs`). Для каждого счёта создаётся файл с именем как у файла счёта + `.log`; при удалении счёта лог удаляется. |
 
-### Извлечение текста из PDF через pypdf (по умолчанию)
+### Парсинг PDF-счетов (OpenDataLoader)
 
-Для извлечения текста из PDF-счетов по умолчанию используется [pypdf](https://github.com/py-pdf/pypdf). При локальном запуске установите Python и зависимость:
+По умолчанию используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf): локальный парсер без GPU. **Требуется Java 11+** в PATH. Зависимость в `package.json` (`@opendataloader/pdf`).
 
-```bash
-pip install pypdf
-```
-
-При отсутствии Python/pypdf или при ошибке скрипта используются встроенные парсеры (по структуре PDF и по тексту через pdf-parse). Отключить pypdf: `USE_PYPDF=0` или `USE_PYPDF=false`. В Docker-образе Python и pypdf уже установлены, парсер включён в `docker-compose.yml`.
+Если OpenDataLoader недоступен (нет Java или ошибка), используются встроенные парсеры по структуре PDF и pdf-parse. В Docker по умолчанию OpenDataLoader отключён (в образе нет Java).
 
 ## Структура данных
 

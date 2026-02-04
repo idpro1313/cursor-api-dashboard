@@ -73,7 +73,7 @@ function invoiceParseLog(entry) {
       lines.push(`pypdf_text_length=${raw.length}`);
       lines.push('pypdf_text:');
       lines.push(truncated);
-    } else if (entry.parser === 'pypdf') {
+    } else if (entry.parser === 'opendataloader') {
       lines.push('pypdf_text: (пусто или ошибка)');
     }
     lines.push('');
@@ -1989,55 +1989,38 @@ function extractInvoiceTableFromText(text) {
   return rows;
 }
 
-/** Парсинг PDF-буфера: опционально pypdf (извлечение текста) → таблица по структуре → по тексту (pdf-parse).
- * При включённом pypdf и пустом результате дальнейший парсинг не выполняется, возвращается error: 'PYPDF_ERROR' | 'PYPDF_EMPTY'.
- * Возвращает { rows, parser, pypdfText, error? }: error — только при использовании pypdf и неудаче. */
+/** Парсинг PDF-буфера: OpenDataLoader PDF → структура → pdf-parse. Требуется Java 11+ для OpenDataLoader. */
 async function parseCursorInvoicePdf(buffer) {
-  const usePypdf = process.env.USE_PYPDF !== '0' && process.env.USE_PYPDF !== 'false';
-  const pypdfScript = process.env.PYPDF_SCRIPT || path.join(__dirname, 'scripts', 'parse_invoice_pypdf.py');
-  if (usePypdf && pypdfScript && fs.existsSync(pypdfScript)) {
+  const useOpenDataLoader = process.env.USE_OPENDATALOADER !== '0' && process.env.USE_OPENDATALOADER !== 'false';
+  if (useOpenDataLoader) {
     try {
-      const { spawn } = require('child_process');
+      const { convert } = require('@opendataloader/pdf');
       const os = require('os');
       const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
       fs.mkdirSync(tmpDir, { recursive: true });
       const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
+      const tmpOut = path.join(tmpDir, 'out-' + Date.now());
       fs.writeFileSync(tmpPdf, buffer);
-      const py = process.env.PYPDF_PYTHON || 'python3';
-      const result = await new Promise((resolve) => {
-        const proc = spawn(py, [pypdfScript, tmpPdf], { stdio: ['ignore', 'pipe', 'pipe'] });
-        let out = '';
-        proc.stdout.on('data', (c) => { out += c.toString(); });
-        proc.on('close', (code) => {
-          try {
-            fs.unlinkSync(tmpPdf);
-          } catch (_) {}
-          let text = null;
-          if (code === 0) {
-            try {
-              const decoded = JSON.parse(out.trim());
-              text = decoded && typeof decoded.text === 'string' ? decoded.text : null;
-            } catch (_) {}
-          }
-          resolve({ exitCode: code, text });
-        });
-        proc.on('error', () => resolve({ exitCode: -1, text: null }));
-      });
-      if (result.exitCode !== 0) {
-        return { rows: [], parser: 'pypdf', pypdfText: null, error: 'PYPDF_ERROR' };
+      await convert([tmpPdf], { outputDir: tmpOut, format: 'markdown' });
+      let text = '';
+      const files = fs.readdirSync(tmpOut, { withFileTypes: true });
+      for (const e of files) {
+        if (e.isFile() && e.name.toLowerCase().endsWith('.md')) {
+          text = fs.readFileSync(path.join(tmpOut, e.name), 'utf8');
+          break;
+        }
       }
-      const text = result.text;
-      if (!text || text.length === 0) {
-        return { rows: [], parser: 'pypdf', pypdfText: null, error: 'PYPDF_EMPTY' };
+      try {
+        fs.unlinkSync(tmpPdf);
+        fs.rmSync(tmpOut, { recursive: true, force: true });
+      } catch (_) {}
+      if (text && text.length > 0) {
+        const rows = extractInvoiceTableFromPypdfText(text);
+        if (rows.length > 0) return { rows, parser: 'opendataloader', pypdfText: text };
+        return { rows: [], parser: 'opendataloader', pypdfText: text, error: 'OPENDATALOADER_EMPTY' };
       }
-      const rows = extractInvoiceTableFromPypdfText(text);
-      if (rows.length === 0) {
-        return { rows: [], parser: 'pypdf', pypdfText: text, error: 'PYPDF_EMPTY' };
-      }
-      return { rows, parser: 'pypdf', pypdfText: text };
-    } catch (_) {
-      return { rows: [], parser: 'pypdf', pypdfText: null, error: 'PYPDF_ERROR' };
-    }
+      return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
+    } catch (_) {}
   }
   try {
     const rows = await invoicePdfParser.parseCursorInvoicePdfFromStructure(buffer);
@@ -2088,7 +2071,7 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
     });
     if (parseResult.error) {
       return res.status(400).json({
-        error: parseResult.error === 'PYPDF_ERROR' ? 'Ошибка pypdf (скрипт завершился с ошибкой).' : 'Пустой результат pypdf: таблица строк не распознана.',
+        error: parseResult.error === 'OPENDATALOADER_ERROR' ? 'Ошибка OpenDataLoader (требуется Java 11+).' : 'Таблица строк не распознана.',
         code: parseResult.error,
       });
     }

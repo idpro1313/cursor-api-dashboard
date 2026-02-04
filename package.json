@@ -9,6 +9,7 @@
     "parse-pdf": "node server.js --parse-pdf"
   },
   "dependencies": {
+    "@opendataloader/pdf": "^1.10.0",
     "better-sqlite3": "^11.6.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
