@@ -62,9 +62,18 @@ function getAllKeys(arr) {
   return Array.from(set);
 }
 
-function renderTableFromArray(arr, maxRows = 500) {
+/** Предпочтительный порядок колонок: сначала дата и эндпоинт, остальные по алфавиту. */
+function sortKeysWithFirst(keys, firstKeys = ['date', 'endpoint']) {
+  const set = new Set(keys);
+  const first = firstKeys.filter((k) => set.has(k));
+  const rest = keys.filter((k) => !firstKeys.includes(k)).sort();
+  return [...first, ...rest];
+}
+
+function renderTableFromArray(arr, maxRows = 500, options = {}) {
   if (!Array.isArray(arr) || arr.length === 0) return '<p class="muted">Нет записей</p>';
-  const keys = getAllKeys(arr.slice(0, 100));
+  let keys = getAllKeys(arr.slice(0, Math.max(100, Math.min(arr.length, 500))));
+  if (options.keyOrder) keys = sortKeysWithFirst(keys, options.keyOrder);
   const slice = arr.length > maxRows ? arr.slice(0, maxRows) : arr;
   const thead = keys.map((k) => `<th>${escapeHtml(k)}</th>`).join('');
   const rows = slice.map((obj) => {
@@ -74,7 +83,7 @@ function renderTableFromArray(arr, maxRows = 500) {
       return '<td>' + escapeHtml(v != null ? String(v) : '') + '</td>';
     }).join('') + '</tr>';
   }).join('');
-  const more = arr.length > maxRows ? `<p class="meta">Показано ${maxRows} из ${arr.length}. Остальные в JSON.</p>` : '';
+  const more = arr.length > maxRows ? `<p class="meta">Показано ${maxRows} из ${arr.length}.</p>` : '';
   return `
     <div class="table-wrap">
       <table class="data-table">
@@ -123,37 +132,38 @@ function renderPayload(row) {
   return '<pre class="payload-json">' + escapeHtml(JSON.stringify(payload, null, 2)) + '</pre>';
 }
 
+/** Собрать из строк БД (по дням/эндпоинтам) один сплошной массив записей с полями date и endpoint. */
+function flattenRowsToRecords(rows) {
+  const records = [];
+  for (const row of rows) {
+    const extracted = extractArray(row.payload);
+    if (!extracted) continue;
+    const { key, arr } = extracted;
+    const list = key === 'usageEvents' ? flattenUsageEvents(arr) : arr;
+    const label = getEndpointLabel(row.endpoint);
+    for (const item of list) {
+      if (item != null && typeof item === 'object') {
+        records.push({ date: row.date, endpoint: label, ...item });
+      } else {
+        records.push({ date: row.date, endpoint: label, value: item });
+      }
+    }
+  }
+  return records;
+}
+
 function renderResults(rows) {
   const container = document.getElementById('resultsContainer');
   if (!rows || rows.length === 0) {
     container.innerHTML = '<p class="muted">Нет данных по выбранным фильтрам.</p>';
     return;
   }
-  const byDate = {};
-  rows.forEach((r) => {
-    if (!byDate[r.date]) byDate[r.date] = [];
-    byDate[r.date].push(r);
-  });
-  const sortedDates = Object.keys(byDate).sort();
-  let html = '';
-  sortedDates.forEach((date) => {
-    const dayRows = byDate[date];
-    dayRows.forEach((row) => {
-      const label = getEndpointLabel(row.endpoint);
-      html += `
-        <div class="data-card">
-          <div class="data-card-header">
-            <span class="data-card-date">${escapeHtml(date)}</span>
-            <span class="data-card-endpoint">${escapeHtml(label)}</span>
-          </div>
-          <div class="data-card-body">
-            ${renderPayload(row)}
-          </div>
-        </div>
-      `;
-    });
-  });
-  container.innerHTML = html;
+  const flatList = flattenRowsToRecords(rows);
+  if (flatList.length === 0) {
+    container.innerHTML = '<p class="muted">В выбранных данных нет массивов записей (events/data/usageEvents/teamMembers/teamMemberSpend).</p>';
+    return;
+  }
+  container.innerHTML = renderTableFromArray(flatList, 2000, { keyOrder: ['date', 'endpoint'] });
 }
 
 async function loadData() {

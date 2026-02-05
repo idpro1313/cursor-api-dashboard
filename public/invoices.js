@@ -50,6 +50,50 @@ async function loadInvoices() {
   loadAllItems();
 }
 
+let allItemsData = [];
+let allItemsSortKey = 'invoice_issue_date';
+let allItemsSortDir = 'desc';
+
+function sortAllItems(items, key, dir) {
+  return items.slice().sort((a, b) => {
+    const va = a[key] != null ? String(a[key]) : '';
+    const vb = b[key] != null ? String(b[key]) : '';
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function renderAllItemsTable() {
+  const tableEl = document.getElementById('allItemsTable');
+  if (!tableEl || allItemsData.length === 0) return;
+  const formatQty = (q) => (q != null && q !== '') ? Number(q) : '—';
+  const formatTax = (t) => (t != null && t !== '') ? (Number(t) + '%') : '—';
+  const sorted = sortAllItems(allItemsData, allItemsSortKey, allItemsSortDir);
+  const arrow = allItemsSortDir === 'asc' ? ' ↑' : ' ↓';
+  const rows = sorted.map((it) => `
+    <tr>
+      <td>${escapeHtml(it.invoice_filename || '—')}</td>
+      <td>${escapeHtml(it.invoice_issue_date || '—')}</td>
+      <td>${escapeHtml(it.description || '—')}</td>
+      <td class="num">${formatQty(it.quantity)}</td>
+      <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
+      <td class="num">${formatTax(it.tax_pct)}</td>
+      <td class="num">${formatCentsDollar(it.amount_cents)}</td>
+    </tr>
+  `).join('');
+  const dateOfIssueHeader = `Date of issue${allItemsSortKey === 'invoice_issue_date' ? arrow : ''}`;
+  tableEl.innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Счёт</th><th class="sortable" data-sort="invoice_issue_date" title="Сортировать">${dateOfIssueHeader}</th><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+  tableEl.querySelector('th[data-sort="invoice_issue_date"]').addEventListener('click', () => {
+    allItemsSortDir = allItemsSortDir === 'asc' ? 'desc' : 'asc';
+    renderAllItemsTable();
+  });
+}
+
 async function loadAllItems() {
   const summaryEl = document.getElementById('allItemsSummary');
   const tableEl = document.getElementById('allItemsTable');
@@ -60,30 +104,13 @@ async function loadAllItems() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
     const items = data.items || [];
+    allItemsData = items;
     summaryEl.textContent = `Позиций всего: ${items.length}`;
     if (items.length === 0) {
       tableEl.innerHTML = '<p class="muted">Нет позиций. Загрузите счета выше.</p>';
       return;
     }
-    const formatQty = (q) => (q != null && q !== '') ? Number(q) : '—';
-    const formatTax = (t) => (t != null && t !== '') ? (Number(t) + '%') : '—';
-    const rows = items.map((it) => `
-      <tr>
-        <td>${escapeHtml(it.invoice_filename || '—')}</td>
-        <td>${escapeHtml(it.invoice_issue_date || '—')}</td>
-        <td>${escapeHtml(it.description || '—')}</td>
-        <td class="num">${formatQty(it.quantity)}</td>
-        <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
-        <td class="num">${formatTax(it.tax_pct)}</td>
-        <td class="num">${formatCentsDollar(it.amount_cents)}</td>
-      </tr>
-    `).join('');
-    tableEl.innerHTML = `
-      <table class="data-table">
-        <thead><tr><th>Счёт</th><th>Date of issue</th><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
+    renderAllItemsTable();
   } catch (e) {
     tableEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
     summaryEl.textContent = '';
@@ -117,6 +144,7 @@ async function showInvoiceItems(id, title) {
       tableEl.innerHTML = '<p class="error">' + escapeHtml(data.error || r.statusText) + '</p>';
       detailEl.style.display = 'block';
       if (titleEl) titleEl.textContent = title || 'Позиции счёта';
+      detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     const items = data.items || [];
@@ -146,9 +174,11 @@ async function showInvoiceItems(id, title) {
       `;
     }
     detailEl.style.display = 'block';
+    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     tableEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
     detailEl.style.display = 'block';
+    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 }
 
