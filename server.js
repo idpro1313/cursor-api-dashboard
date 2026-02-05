@@ -2554,6 +2554,15 @@ app.get('/api/invoices', requireSettingsAuth, (req, res) => {
   }
 });
 
+app.get('/api/invoices/all-items', requireSettingsAuth, (req, res) => {
+  try {
+    const rows = db.getCursorInvoiceItemsAll();
+    res.json({ items: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/invoices/:id/items', requireSettingsAuth, (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);

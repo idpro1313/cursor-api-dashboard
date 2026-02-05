@@ -281,6 +281,19 @@ function getCursorInvoiceItems(invoiceId) {
   }));
 }
 
+/** Все позиции по всем счетам: одна таблица с полями счёта (filename, issue_date) и позиции. Порядок: по дате парсинга счёта (новые выше), затем по row_index. */
+function getCursorInvoiceItemsAll() {
+  const d = getDb();
+  const rows = d.prepare(`
+    SELECT i.id AS invoice_id, i.filename AS invoice_filename, i.issue_date AS invoice_issue_date, i.parsed_at,
+           it.id, it.row_index, it.description, it.quantity, it.unit_price_cents, it.tax_pct, it.amount_cents
+    FROM cursor_invoice_items it
+    JOIN cursor_invoices i ON i.id = it.invoice_id
+    ORDER BY i.parsed_at DESC, it.invoice_id, it.row_index
+  `).all();
+  return rows;
+}
+
 /**
  * Полная очистка БД: таблицы analytics, jira_users, cursor_invoices/invoice_items.
  * Если clearSettings === true, также очищает settings (в т.ч. API key).
@@ -313,6 +326,7 @@ module.exports = {
   insertCursorInvoiceItem,
   getCursorInvoices,
   getCursorInvoiceItems,
+  getCursorInvoiceItemsAll,
   getCursorInvoiceByFileHash,
   getCursorInvoiceById,
   deleteCursorInvoice,

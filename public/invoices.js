@@ -47,6 +47,47 @@ async function loadInvoices() {
     listEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
     summaryEl.textContent = '';
   }
+  loadAllItems();
+}
+
+async function loadAllItems() {
+  const summaryEl = document.getElementById('allItemsSummary');
+  const tableEl = document.getElementById('allItemsTable');
+  if (!summaryEl || !tableEl) return;
+  try {
+    const r = await fetchWithAuth('/api/invoices/all-items');
+    if (!r) return;
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    const items = data.items || [];
+    summaryEl.textContent = `Позиций всего: ${items.length}`;
+    if (items.length === 0) {
+      tableEl.innerHTML = '<p class="muted">Нет позиций. Загрузите счета выше.</p>';
+      return;
+    }
+    const formatQty = (q) => (q != null && q !== '') ? Number(q) : '—';
+    const formatTax = (t) => (t != null && t !== '') ? (Number(t) + '%') : '—';
+    const rows = items.map((it) => `
+      <tr>
+        <td>${escapeHtml(it.invoice_filename || '—')}</td>
+        <td>${escapeHtml(it.invoice_issue_date || '—')}</td>
+        <td>${escapeHtml(it.description || '—')}</td>
+        <td class="num">${formatQty(it.quantity)}</td>
+        <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
+        <td class="num">${formatTax(it.tax_pct)}</td>
+        <td class="num">${formatCentsDollar(it.amount_cents)}</td>
+      </tr>
+    `).join('');
+    tableEl.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>Счёт</th><th>Date of issue</th><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (e) {
+    tableEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
+    summaryEl.textContent = '';
+  }
 }
 
 async function deleteInvoice(id, liEl) {
@@ -58,6 +99,7 @@ async function deleteInvoice(id, liEl) {
     if (!r.ok) throw new Error(data.error || r.statusText);
     document.getElementById('invoiceDetail').style.display = 'none';
     loadInvoices();
+    loadAllItems();
   } catch (e) {
     alert(e.message || 'Ошибка удаления');
   }
