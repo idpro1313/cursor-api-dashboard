@@ -2659,8 +2659,8 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
           const periodKey = getBillingPeriodKey(dateStr);
           if (!periodKey) continue;
           const tu = e.tokenUsage || {};
-          const costDollars = (Number(tu.totalCents ?? 0) || 0) + (Number(e.cursorTokenFee ?? 0) || 0);
-          const costCents = Math.round(costDollars * 100);
+          // totalCents и cursorTokenFee в ответе API уже в центах (не в долларах)
+          const costCents = Math.round((Number(tu.totalCents ?? 0) || 0) + (Number(e.cursorTokenFee ?? 0) || 0));
           if (!usageByPeriod[periodKey]) {
             usageByPeriod[periodKey] = { eventCount: 0, costCents: 0 };
           }
