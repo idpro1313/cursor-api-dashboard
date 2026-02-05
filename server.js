@@ -1634,17 +1634,39 @@ function getTextFromOdlElement(el) {
   return '';
 }
 
-/** Собрать строки счёта из параграфов/заголовков, когда OpenDataLoader не распознал таблицу (type !== 'table'). Ищем заголовок "Description ... Qty/Amount" и пары: описание + строка "qty $unit $amount". */
-function extractInvoiceRowsFromOdlParagraphs(doc) {
-  if (!doc || !Array.isArray(doc.kids)) return { rows: [], source: 'paragraphs' };
-  const contentLines = [];
-  for (const k of doc.kids) {
+/** Собрать плоский список текстовых строк из doc.kids; списки (list) разворачиваются в строки из list items (сначала content, затем текст из kids). */
+function flattenOdlContentLines(kids) {
+  const lines = [];
+  if (!Array.isArray(kids)) return lines;
+  for (const k of kids) {
     if (!k || k.type === 'image') continue;
+    if (k.type === 'footer') continue;
+    if (k.type === 'list' && Array.isArray(k['list items'])) {
+      for (const item of k['list items']) {
+        if (!item) continue;
+        const content = typeof item.content === 'string' ? item.content.trim() : getTextFromOdlElement(item);
+        if (content && content.length >= 2) lines.push(content);
+        if (Array.isArray(item.kids)) {
+          for (const c of item.kids) {
+            const t = getTextFromOdlElement(c);
+            if (t && t.length >= 2) lines.push(t);
+          }
+        }
+      }
+      continue;
+    }
     const text = getTextFromOdlElement(k);
     if (!text || text.length < 2) continue;
     if (/^Page\s+\d+\s+of\s+\d+/i.test(text)) continue;
-    contentLines.push(text);
+    lines.push(text);
   }
+  return lines;
+}
+
+/** Собрать строки счёта из параграфов/заголовков и списков, когда OpenDataLoader не распознал таблицу. Поддерживаются форматы: "qty $unit $amount" и "qty tax% $amount". */
+function extractInvoiceRowsFromOdlParagraphs(doc) {
+  if (!doc || !Array.isArray(doc.kids)) return { rows: [], source: 'paragraphs' };
+  const contentLines = flattenOdlContentLines(doc.kids);
   let headerIndex = -1;
   for (let i = 0; i < contentLines.length; i++) {
     const lower = contentLines[i].toLowerCase();
@@ -1656,32 +1678,65 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
   if (headerIndex < 0) return { rows: [], source: 'paragraphs' };
   const afterHeader = contentLines.slice(headerIndex + 1);
   const amountLineRe = /^\s*(\d+)\s+\$([\d,.]+)\s+\$([\d,.]+)\s*$/;
-  const skipRe = /^(Subtotal|Total|Amount\s+due)\s+/i;
+  const amountLineTaxRe = /^\s*(\d+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
+  const amountAtEndRe = /\s+(\d+)\s+\$([\d,.]+)\s+\$([\d,.]+)\s*$/;
+  const amountTaxAtEndRe = /\s+(\d+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
+  const skipRe = /^(Subtotal|Total|Amount\s+due|VAT\s|Applied\s+balance)\s+/i;
   const out = [];
-  let pendingDesc = null;
-  for (const line of afterHeader) {
+  const pendingDescs = [];
+  const cleanDesc = (s) => (s && typeof s === 'string' ? s.replace(/\u0000/g, ' ').replace(/\s*[0-9a-f]{8}\)?\s*$/i, '').trim() || null : null);
+  const pushRow = (desc, qty, unitCents, taxPct, amountCents) => {
+    if (amountCents == null && !desc) return;
+    out.push({
+      row_index: out.length,
+      description: cleanDesc(desc) || null,
+      quantity: qty != null && looksLikeQty(qty) ? qty : null,
+      unit_price_cents: unitCents != null ? unitCents : null,
+      tax_pct: taxPct != null && taxPct >= 0 && taxPct <= 100 ? taxPct : null,
+      amount_cents: amountCents,
+      raw_columns: taxPct != null ? [qty, unitCents != null ? unitCents / 100 : null, taxPct, amountCents] : [qty, unitCents != null ? unitCents / 100 : null, amountCents],
+    });
+  };
+  for (let line of afterHeader) {
+    line = String(line).replace(/\u0000/g, ' ').trim();
+    if (!line) continue;
     if (skipRe.test(line) || /^\s*\$[\d,.]+(\s+\$[\d,.]+)*\s*$/.test(line)) continue;
-    const m = line.match(amountLineRe);
+    if (/^Subtotal\s+/.test(line) || /Total\s+\$/.test(line) || /VAT\s+-/.test(line)) continue;
+    let m = line.match(amountLineRe);
+    let taxPct = null;
+    let unitCents = null;
     if (m) {
-      const qty = parseNum(m[1]);
-      const unitCents = parseCurrencyToCents(m[2]);
-      const amountCents = parseCurrencyToCents(m[3]);
-      const desc = pendingDesc && pendingDesc.trim() ? pendingDesc.trim() : null;
-      if (amountCents != null || desc) {
-        out.push({
-          row_index: out.length,
-          description: desc || null,
-          quantity: qty != null && looksLikeQty(qty) ? qty : null,
-          unit_price_cents: unitCents != null ? unitCents : null,
-          tax_pct: null,
-          amount_cents: amountCents,
-          raw_columns: [qty, unitCents != null ? unitCents / 100 : null, amountCents],
-        });
-      }
-      pendingDesc = null;
+      unitCents = parseCurrencyToCents(m[2]);
     } else {
-      pendingDesc = line;
+      m = line.match(amountLineTaxRe);
+      if (m) taxPct = parseNum(m[2]);
     }
+    if (m && m[0].length === line.length) {
+      const qty = parseNum(m[1]);
+      const amountCents = parseCurrencyToCents(m[3]);
+      const desc = pendingDescs.length > 0 ? pendingDescs.shift() : null;
+      pushRow(desc, qty, unitCents, taxPct, amountCents);
+      continue;
+    }
+    let endM = line.match(amountAtEndRe);
+    if (endM) {
+      const descPart = line.slice(0, line.length - endM[0].length).trim();
+      const qty = parseNum(endM[1]);
+      const unitCentsEnd = parseCurrencyToCents(endM[2]);
+      const amountCents = parseCurrencyToCents(endM[3]);
+      pushRow(descPart, qty, unitCentsEnd, null, amountCents);
+      continue;
+    }
+    endM = line.match(amountTaxAtEndRe);
+    if (endM) {
+      const descPart = line.slice(0, line.length - endM[0].length).trim();
+      const qty = parseNum(endM[1]);
+      const taxPctEnd = parseNum(endM[2]);
+      const amountCents = parseCurrencyToCents(endM[3]);
+      pushRow(descPart, qty, null, taxPctEnd, amountCents);
+      continue;
+    }
+    pendingDescs.push(line);
   }
   return { rows: out, source: 'paragraphs' };
 }
