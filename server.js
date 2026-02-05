@@ -1134,6 +1134,18 @@ function getMonthKey(dateStr) {
   return String(dateStr).slice(0, 7);
 }
 
+/** Период биллинга Cursor (цикл 6–5): дата YYYY-MM-DD → ключ периода YYYY-MM (период заканчивается 5-го). */
+function getBillingPeriodKey(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))) return null;
+  const parts = String(dateStr).split('-').map(Number);
+  let y = parts[0], m = parts[1], d = parts[2];
+  if (d >= 6) {
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return y + '-' + String(m).padStart(2, '0');
+}
+
 /** Найти ключ с email в объекте Jira (приоритет: известные имена, затем значение с @) */
 function getEmailFromJiraRow(row, allKeys) {
   const emailKeys = ['Внешний почтовый адрес', 'Email', 'email', 'E-mail', 'e-mail', 'Почта'];
@@ -2618,6 +2630,93 @@ app.get('/api/invoices/all-items', requireSettingsAuth, (req, res) => {
   try {
     const rows = db.getCursorInvoiceItemsAll();
     res.json({ items: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Сводка для отчёта-сверки: Usage Events по периодам биллинга и позиции счетов (token_usage + token_fee) по периодам. */
+app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
+  try {
+    const coverage = db.getCoverage();
+    const usageCoverage = coverage.find((c) => c.endpoint === '/teams/filtered-usage-events');
+    const startDate = usageCoverage ? usageCoverage.min_date : null;
+    const endDate = usageCoverage ? usageCoverage.max_date : null;
+
+    const usageByPeriod = {};
+    if (startDate && endDate) {
+      const rows = db.getAnalytics({
+        endpoint: '/teams/filtered-usage-events',
+        startDate,
+        endDate,
+      });
+      for (const row of rows) {
+        const events = row.payload?.usageEvents;
+        if (!Array.isArray(events)) continue;
+        for (const e of events) {
+          const dateStr = toDateKey(e.timestamp) || row.date;
+          if (!dateStr) continue;
+          const periodKey = getBillingPeriodKey(dateStr);
+          if (!periodKey) continue;
+          const tu = e.tokenUsage || {};
+          const costDollars = (Number(tu.totalCents ?? 0) || 0) + (Number(e.cursorTokenFee ?? 0) || 0);
+          const costCents = Math.round(costDollars * 100);
+          if (!usageByPeriod[periodKey]) {
+            usageByPeriod[periodKey] = { eventCount: 0, costCents: 0 };
+          }
+          usageByPeriod[periodKey].eventCount += 1;
+          usageByPeriod[periodKey].costCents += costCents;
+        }
+      }
+    }
+
+    const invoiceByPeriod = {};
+    const allItems = db.getCursorInvoiceItemsAll();
+    for (const it of allItems) {
+      const type = it.charge_type || 'other';
+      if (type !== 'token_usage' && type !== 'token_fee') continue;
+      const dateStr = it.invoice_issue_date;
+      if (!dateStr) continue;
+      const periodKey = getBillingPeriodKey(dateStr);
+      if (!periodKey) continue;
+      const cents = it.amount_cents != null ? Number(it.amount_cents) : 0;
+      if (!invoiceByPeriod[periodKey]) invoiceByPeriod[periodKey] = { costCents: 0, itemCount: 0 };
+      invoiceByPeriod[periodKey].costCents += cents;
+      invoiceByPeriod[periodKey].itemCount += 1;
+    }
+
+    const periodKeys = [...new Set([...Object.keys(usageByPeriod), ...Object.keys(invoiceByPeriod)])].sort();
+    const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    const comparison = periodKeys.map((key) => {
+      const [y, m] = key.split('-').map(Number);
+      const startM = m === 1 ? 12 : m - 1;
+      const startY = m === 1 ? y - 1 : y;
+      const periodLabel = '5 ' + monthNames[startM - 1] + ' – 5 ' + monthNames[m - 1] + ' ' + y;
+      const usage = usageByPeriod[key] || { eventCount: 0, costCents: 0 };
+      const inv = invoiceByPeriod[key] || { costCents: 0, itemCount: 0 };
+      const diffCents = inv.costCents - usage.costCents;
+      return {
+        periodKey: key,
+        periodLabel,
+        usageEventCount: usage.eventCount,
+        usageCostCents: usage.costCents,
+        invoiceItemCount: inv.itemCount,
+        invoiceCostCents: inv.costCents,
+        diffCents,
+      };
+    });
+
+    res.json({
+      usageByPeriod: Object.entries(usageByPeriod).map(([k, v]) => ({
+        periodKey: k,
+        ...v,
+      })),
+      invoiceByPeriod: Object.entries(invoiceByPeriod).map(([k, v]) => ({
+        periodKey: k,
+        ...v,
+      })),
+      comparison,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
