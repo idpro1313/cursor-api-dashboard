@@ -120,10 +120,12 @@
     return d.replace(/\.?0+$/, '') || '0';
   }
 
-  /** Центы → "—" или "$X.XX" для отображения в интерфейсе. */
+  /** Центы → "—" или "$X.XX" / "-$X.XX" для отображения в интерфейсе. */
   function formatCentsDollar(cents) {
     if (cents == null) return '—';
-    return '$' + formatCostCents(cents);
+    var s = formatCostCents(cents);
+    if (s.indexOf('-') === 0) return '-' + '$' + s.slice(1);
+    return '$' + s;
   }
 
   /** Строка YYYY-MM → подпись месяца (например "янв 2025"). */

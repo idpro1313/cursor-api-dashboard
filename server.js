@@ -1656,7 +1656,27 @@ function extractInvoiceIssueDateFromOdlDoc(doc) {
   return `${year}-${month}-${day}`;
 }
 
-/** Собрать плоский список текстовых строк из doc.kids; списки (list) разворачиваются в строки из list items (сначала content, затем текст из kids). */
+/** Рекурсивно развернуть список (list) и вложенные списки в плоский массив строк (content, затем kids по порядку). */
+function flattenListItemsInto(listElement, lines) {
+  if (!listElement || !Array.isArray(listElement['list items'])) return;
+  for (const item of listElement['list items']) {
+    if (!item) continue;
+    const content = typeof item.content === 'string' ? item.content.trim() : getTextFromOdlElement(item);
+    if (content && content.length >= 2) lines.push(content);
+    if (Array.isArray(item.kids)) {
+      for (const c of item.kids) {
+        if (c && c.type === 'list' && Array.isArray(c['list items'])) {
+          flattenListItemsInto(c, lines);
+        } else {
+          const t = getTextFromOdlElement(c);
+          if (t && t.length >= 2) lines.push(t);
+        }
+      }
+    }
+  }
+}
+
+/** Собрать плоский список текстовых строк из doc.kids; списки (list) и вложенные списки разворачиваются в строки из list items (сначала content, затем текст из kids). */
 function flattenOdlContentLines(kids) {
   const lines = [];
   if (!Array.isArray(kids)) return lines;
@@ -1664,17 +1684,7 @@ function flattenOdlContentLines(kids) {
     if (!k || k.type === 'image') continue;
     if (k.type === 'footer') continue;
     if (k.type === 'list' && Array.isArray(k['list items'])) {
-      for (const item of k['list items']) {
-        if (!item) continue;
-        const content = typeof item.content === 'string' ? item.content.trim() : getTextFromOdlElement(item);
-        if (content && content.length >= 2) lines.push(content);
-        if (Array.isArray(item.kids)) {
-          for (const c of item.kids) {
-            const t = getTextFromOdlElement(c);
-            if (t && t.length >= 2) lines.push(t);
-          }
-        }
-      }
+      flattenListItemsInto(k, lines);
       continue;
     }
     const text = getTextFromOdlElement(k);
@@ -1699,12 +1709,12 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
   }
   if (headerIndex < 0) return { rows: [], source: 'paragraphs' };
   const afterHeader = contentLines.slice(headerIndex + 1);
-  const amountLineRe = /^\s*(\d+)\s+\$([\d,.]+)\s+\$([\d,.]+)\s*$/;
-  const amountLineTaxRe = /^\s*(\d+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
-  const amountLineUnitTaxRe = /^\s*(\d+)\s+\$([\d,.]+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
-  const amountAtEndRe = /\s+(\d+)\s+\$([\d,.]+)\s+\$([\d,.]+)\s*$/;
-  const amountTaxAtEndRe = /\s+(\d+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
-  const amountUnitTaxAtEndRe = /\s+(\d+)\s+\$([\d,.]+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
+  const amountLineRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s+(-?\$[\d,.]+)\s*$/;
+  const amountLineTaxRe = /^\s*(\d+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
+  const amountLineUnitTaxRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
+  const amountAtEndRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s+(-?\$[\d,.]+)\s*$/;
+  const amountTaxAtEndRe = /\s+(\d+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
+  const amountUnitTaxAtEndRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
   const skipRe = /^(Subtotal|Total|Amount\s+due|VAT\s|Applied\s+balance)\s+/i;
   const out = [];
   const pendingDescs = [];
