@@ -2663,6 +2663,9 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
         const events = row.payload?.usageEvents;
         if (!Array.isArray(events)) continue;
         for (const e of events) {
+          // На счёт попадает только on-demand (Usage-based). "Included in Business" = в рамках $20/место, отдельно не выставляется.
+          const kind = (e.kind || '').toString();
+          if (kind !== 'Usage-based') continue;
           const dateStr = toDateKey(e.timestamp) || row.date;
           if (!dateStr) continue;
           const periodKey = getBillingPeriodKey(dateStr);

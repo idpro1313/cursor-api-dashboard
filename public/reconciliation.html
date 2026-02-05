@@ -43,13 +43,13 @@
     <div id="reconContent" style="display: none;">
       <div class="recon-section panel">
         <h2>Сводная таблица по периодам</h2>
-        <p class="meta">Usage Events: сумма (totalCents + cursorTokenFee) по событиям за период. Счета: сумма позиций token_usage и token_fee за период.</p>
+        <p class="meta">Usage Events: только события с <strong>kind = «Usage-based»</strong> (on-demand). События «Included in Business» входят в $20/место и на счёт отдельно не попадают. Счета: сумма позиций token_usage и token_fee за период.</p>
         <div id="reconTable" class="table-wrap"></div>
       </div>
       <div class="recon-section panel">
         <h2>Легенда</h2>
         <ul class="meta" style="margin: 0;">
-          <li><strong>Usage Events</strong> — данные из эндпоинта Filtered Usage Events в БД (даты по timestamp события).</li>
+          <li><strong>Usage Events</strong> — только on-demand (kind = Usage-based); включённые в $20/место (Included in Business) не учитываются.</li>
           <li><strong>Счета</strong> — позиции из загруженных PDF с типами «Использование токенов» и «Комиссия за токены».</li>
           <li><strong>Разница</strong> — счёт минус Usage Events; положительная = по счёту больше (например, часть событий не в БД или учтена в другом периоде).</li>
         </ul>
