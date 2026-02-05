@@ -1718,6 +1718,7 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
   const amountTaxAtEndRe = /\s+(\d+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
   const amountUnitTaxAtEndRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
   const skipRe = /^(Subtotal|Total|Amount\s+due|VAT\s|Applied\s+balance)\s+/i;
+  const skipFooterRe = /(?:^|\s)(?:Anysphere|EIN\s+\d|Applied\s+balance|Amount\s+due\s+\$)/i;
   const out = [];
   const pendingDescs = [];
   const cleanDesc = (s) => (s && typeof s === 'string' ? s.replace(/\u0000/g, ' ').replace(/\s*[0-9a-f]{8}\)?\s*$/i, '').trim() || null : null);
@@ -1742,6 +1743,7 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
     if (skipRe.test(line) || /^\s*\$[\d,.]+(\s+\$[\d,.]+)*\s*$/.test(line)) continue;
     if (/^Subtotal\s+/.test(line) || /Total\s+\$/.test(line) || /VAT\s+-/.test(line)) continue;
     if (/Total\s+excluding\s+tax/i.test(line)) continue;
+    if (skipFooterRe.test(line)) continue;
     let m = line.match(amountLineRe);
     let taxPct = null;
     let unitCents = null;
@@ -1808,8 +1810,7 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
       if (descPart) {
         const qty = parseNum(endM[1]);
         const amountCents = parseCurrencyToCents(endM[2]);
-        const unitCentsTwo = qty && qty > 0 && amountCents != null ? Math.round(amountCents / qty) : null;
-        pushRow(descPart, qty, unitCentsTwo, null, amountCents);
+        pushRow(descPart, qty, null, null, amountCents);
         continue;
       }
     }
