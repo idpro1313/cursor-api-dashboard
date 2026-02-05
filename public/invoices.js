@@ -78,14 +78,17 @@ async function showInvoiceItems(id, title) {
       return;
     }
     const items = data.items || [];
+    const issueDate = data.issue_date || null;
     titleEl.textContent = title || 'Позиции счёта';
     if (items.length === 0) {
       tableEl.innerHTML = '<p class="muted">Нет позиций.</p>';
     } else {
       const formatQty = (q) => (q != null && q !== '') ? Number(q) : '—';
       const formatTax = (t) => (t != null && t !== '') ? (Number(t) + '%') : '—';
+      const displayIssueDate = issueDate ? escapeHtml(issueDate) : '—';
       const rows = items.map((it) => `
         <tr>
+          <td>${displayIssueDate}</td>
           <td>${escapeHtml(it.description || '—')}</td>
           <td class="num">${formatQty(it.quantity)}</td>
           <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
@@ -95,7 +98,7 @@ async function showInvoiceItems(id, title) {
       `).join('');
       tableEl.innerHTML = `
         <table class="data-table">
-          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
+          <thead><tr><th>Date of issue</th><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       `;

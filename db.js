@@ -63,9 +63,13 @@ function getDb() {
   `);
   try {
     const infoInv = db.prepare("PRAGMA table_info(cursor_invoices)").all();
-    if (infoInv.length > 0 && infoInv.every((c) => c.name !== 'file_hash')) {
+    const invNames = (infoInv || []).map((c) => c.name);
+    if (infoInv.length > 0 && invNames.indexOf('file_hash') < 0) {
       db.exec('ALTER TABLE cursor_invoices ADD COLUMN file_hash TEXT');
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_invoices_file_hash ON cursor_invoices(file_hash) WHERE file_hash IS NOT NULL');
+    }
+    if (infoInv.length > 0 && invNames.indexOf('issue_date') < 0) {
+      db.exec('ALTER TABLE cursor_invoices ADD COLUMN issue_date TEXT');
     }
   } catch (_) {}
   try {

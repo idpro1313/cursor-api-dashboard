@@ -2511,7 +2511,7 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
         : 'Таблица строк не распознана.';
       return res.status(400).json({ error: msg, code: parseResult.error });
     }
-    const invoiceId = db.insertCursorInvoice(filename, null, fileHash);
+    const invoiceId = db.insertCursorInvoice(filename, null, fileHash, parseResult.issueDate || null);
     rows.forEach((r) => {
       db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents, r.tax_pct);
     });
@@ -2547,7 +2547,7 @@ app.get('/api/invoices/:id/items', requireSettingsAuth, (req, res) => {
     const invoice = db.getCursorInvoiceById(id);
     if (!invoice) return res.status(404).json({ error: 'Счёт не найден.' });
     const items = db.getCursorInvoiceItems(id);
-    res.json({ items });
+    res.json({ items, issue_date: invoice.issue_date || null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
