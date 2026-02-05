@@ -50,7 +50,7 @@ function syncLog(action, fields = {}) {
   }
 }
 
-/** Запись в лог загрузки счёта: отдельный файл на каждый счёт (имя = имя файла счёта + .log), содержимое перезаписывается. */
+/** Запись в лог загрузки счёта: отдельный файл на каждый счёт (имя = имя файла счёта + .log). Подробные шаги для отладки парсера. */
 function invoiceParseLog(entry) {
   const filename = entry.filename || 'invoice.pdf';
   const logFile = getInvoiceLogPath(filename);
@@ -61,18 +61,40 @@ function invoiceParseLog(entry) {
     }
     const ts = new Date().toISOString();
     const lines = [
-      '---',
-      `[${ts}] filename=${filename} parser=${entry.parser || '?'} rows_count=${entry.rows_count ?? '?'}${entry.error ? ' error=' + entry.error : ''}`,
-    ];
+      '========== Лог загрузки и парсинга счёта ==========',
+      `Время: ${ts}`,
+      `Файл: ${filename}`,
+      `Парсер: ${entry.parser || '?'}`,
+      `Строк извлечено: ${entry.rows_count ?? '?'}`,
+      entry.duration_ms != null ? `Длительность: ${entry.duration_ms} мс` : '',
+      entry.error ? `Код ошибки: ${entry.error}` : '',
+      '',
+    ].filter(Boolean);
+
+    if (entry.logSteps && entry.logSteps.length > 0) {
+      lines.push('--- Этапы парсинга ---');
+      entry.logSteps.forEach((step) => {
+        lines.push(`[${step.phase}] ${step.message}`);
+        if (step.detail != null && step.detail !== '') {
+          const detailStr = typeof step.detail === 'object' ? JSON.stringify(step.detail, null, 2) : String(step.detail);
+          const maxDetail = 2000;
+          const truncated = detailStr.length > maxDetail ? detailStr.slice(0, maxDetail) + '\n...(обрезано)' : detailStr;
+          lines.push(truncated);
+        }
+      });
+      lines.push('');
+    }
+
     if (entry.pypdf_text !== undefined && entry.pypdf_text !== null) {
       const raw = String(entry.pypdf_text);
       const maxLen = 50000;
       const truncated = raw.length > maxLen ? raw.slice(0, maxLen) + '\n...[обрезано ' + (raw.length - maxLen) + ' символов]' : raw;
-      lines.push(`pypdf_text_length=${raw.length}`);
-      lines.push('pypdf_text:');
+      lines.push('--- JSON OpenDataLoader (фрагмент) ---');
+      lines.push(`Длина: ${raw.length} символов`);
       lines.push(truncated);
     } else if (entry.parser === 'opendataloader') {
-      lines.push('pypdf_text: (пусто или ошибка)');
+      lines.push('--- JSON OpenDataLoader ---');
+      lines.push('(пусто или ошибка на этапе конвертации)');
     }
     lines.push('');
     fs.writeFileSync(logFile, lines.join('\n'), 'utf8');
@@ -1612,15 +1634,16 @@ function getTextFromOdlElement(el) {
   return '';
 }
 
-/** Найти таблицу счёта в документе OpenDataLoader: первая таблица с заголовком Description и Qty/Amount. Ищем в doc.kids и рекурсивно в kids вложенных элементов. */
+/** Найти таблицу счёта в документе OpenDataLoader. Возвращает { table, headerTexts, rowCount } или null. */
 function findInvoiceTableInOdlDoc(doc) {
   function walk(el) {
     if (!el) return null;
     if (el.type === 'table' && Array.isArray(el.rows) && el.rows.length > 1) {
       const headerCells = el.rows[0].cells || [];
-      const headerText = headerCells.map((c) => getTextFromOdlElement(c)).join(' ').toLowerCase();
+      const headerTexts = headerCells.map((c) => getTextFromOdlElement(c));
+      const headerText = headerTexts.join(' ').toLowerCase();
       if (headerText.includes('description') && (headerText.includes('qty') || headerText.includes('amount'))) {
-        return el;
+        return { table: el, headerTexts, rowCount: el.rows.length };
       }
     }
     if (Array.isArray(el.kids)) {
@@ -1640,10 +1663,12 @@ function findInvoiceTableInOdlDoc(doc) {
   return null;
 }
 
-/** Извлечь строки счёта из таблицы OpenDataLoader (schema: table.rows[].cells[], в ячейках kids с content). */
+/** Извлечь строки счёта из таблицы OpenDataLoader. table — объект с полем rows (или сам table из findInvoiceTableInOdlDoc.table). Возвращает { rows, columnIndices }. */
 function extractInvoiceRowsFromOdlTable(table) {
-  const rows = table.rows || [];
-  if (rows.length < 2) return [];
+  const tableRows = table && table.rows ? table.rows : (Array.isArray(table) ? table : null);
+  if (!Array.isArray(tableRows)) return { rows: [], columnIndices: null };
+  const rows = tableRows;
+  if (rows.length < 2) return { rows: [], columnIndices: null };
   const headerRow = rows[0];
   const headerCells = headerRow.cells || [];
   const colCount = headerCells.length;
@@ -1657,7 +1682,8 @@ function extractInvoiceRowsFromOdlTable(table) {
     if (h === 'tax' || h.includes('tax')) idxTax = i;
     if (h.includes('amount')) idxAmount = i;
   }
-  if (idxDesc < 0 || idxQty < 0 || idxAmount < 0) return [];
+  const columnIndices = { description: idxDesc, qty: idxQty, unit_price: idxUnit, tax: idxTax, amount: idxAmount };
+  if (idxDesc < 0 || idxQty < 0 || idxAmount < 0) return { rows: [], columnIndices };
   if (idxAmount < 0) idxAmount = colCount - 1;
 
   const out = [];
@@ -1689,7 +1715,7 @@ function extractInvoiceRowsFromOdlTable(table) {
       raw_columns: idxTax >= 0 ? [qtyVal, unitVal, taxVal, amountCents] : [qtyVal, unitVal, amountCents],
     });
   }
-  return out;
+  return { rows: out, columnIndices };
 }
 
 /** Парсинг суммы из строки (например "$1,234.56", "-$116.99") в центы. */
@@ -2141,14 +2167,17 @@ function extractInvoiceTableFromText(text) {
 /** Парсинг PDF-буфера через OpenDataLoader PDF.
  * API: https://opendataloader.org/docs/quick-start-nodejs
  * JSON-схема: https://opendataloader.org/docs/json-schema
- * Требуется Java 11+ в PATH. */
+ * Требуется Java 11+ в PATH. Возвращает также logSteps для записи в лог-файл счёта. */
 async function parseCursorInvoicePdf(buffer) {
+  const logSteps = [];
   const useOpenDataLoader = process.env.USE_OPENDATALOADER !== '0' && process.env.USE_OPENDATALOADER !== 'false';
   if (!useOpenDataLoader) {
-    return { rows: [], parser: null, pypdfText: null, error: 'OPENDATALOADER_DISABLED' };
+    logSteps.push({ phase: 'config', message: 'Парсер отключён (USE_OPENDATALOADER=0 или false)', detail: null });
+    return { rows: [], parser: null, pypdfText: null, error: 'OPENDATALOADER_DISABLED', logSteps };
   }
+  logSteps.push({ phase: 'start', message: `Размер буфера: ${buffer.length} байт`, detail: { buffer_size: buffer.length } });
+
   try {
-    // В Alpine/Docker Java может быть в /usr/lib/jvm/...; задаём JAVA_HOME, если не задан
     if (!process.env.JAVA_HOME && process.platform === 'linux') {
       const candidates = ['/usr/lib/jvm/java-17-openjdk', '/usr/lib/jvm/java-11-openjdk', '/usr/lib/jvm/default-jvm'];
       for (const dir of candidates) {
@@ -2156,18 +2185,28 @@ async function parseCursorInvoicePdf(buffer) {
           if (fs.existsSync(path.join(dir, 'bin', 'java'))) {
             process.env.JAVA_HOME = dir;
             process.env.PATH = path.join(dir, 'bin') + path.delimiter + (process.env.PATH || '');
+            logSteps.push({ phase: 'java', message: `JAVA_HOME установлен автоматически: ${dir}`, detail: { JAVA_HOME: dir } });
             break;
           }
         } catch (_) {}
       }
     }
+    if (!process.env.JAVA_HOME) {
+      logSteps.push({ phase: 'java', message: 'JAVA_HOME не задан (будет использован PATH)', detail: { PATH: (process.env.PATH || '').slice(0, 200) } });
+    } else {
+      logSteps.push({ phase: 'java', message: `JAVA_HOME=${process.env.JAVA_HOME}`, detail: null });
+    }
+
     const { convert } = require('@opendataloader/pdf');
     const os = require('os');
     const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
     fs.mkdirSync(tmpDir, { recursive: true });
     const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
     const tmpOut = path.join(tmpDir, 'out-' + Date.now());
+    fs.mkdirSync(tmpOut, { recursive: true });
     fs.writeFileSync(tmpPdf, buffer);
+    logSteps.push({ phase: 'temp', message: `Временный PDF записан: ${tmpPdf}, размер ${buffer.length} байт`, detail: { tmpPdf, tmpOut } });
+
     const convertOptions = {
       outputDir: tmpOut,
       format: 'json',
@@ -2179,42 +2218,86 @@ async function parseCursorInvoicePdf(buffer) {
     if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
       convertOptions.useStructTree = true;
     }
-    await convert([tmpPdf], convertOptions);
+    logSteps.push({ phase: 'convert_options', message: 'Параметры convert()', detail: convertOptions });
+
+    // API: convert([inputPath, outputFolder], options). Второй аргумент — каталог вывода (без него в path попадает undefined).
+    const tConvert = Date.now();
+    await convert([tmpPdf, tmpOut], convertOptions);
+    const convertDuration = Date.now() - tConvert;
+    logSteps.push({ phase: 'convert_done', message: `OpenDataLoader convert() выполнен за ${convertDuration} мс`, detail: { duration_ms: convertDuration } });
+
     let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
+    const fileList = files.map((e) => ({ name: e.name, isFile: e.isFile() }));
+    logSteps.push({ phase: 'output_dir', message: `Файлов в ${tmpOut}: ${files.length}`, detail: fileList });
+
     for (const e of files) {
       if (e.isFile() && e.name.toLowerCase().endsWith('.json')) {
-        const raw = fs.readFileSync(path.join(tmpOut, e.name), 'utf8');
+        const jsonPath = path.join(tmpOut, e.name);
+        const raw = fs.readFileSync(jsonPath, 'utf8');
+        logSteps.push({ phase: 'json_read', message: `Прочитан ${e.name}, размер ${raw.length} символов`, detail: { file: e.name, length: raw.length } });
         try {
           doc = JSON.parse(raw);
-        } catch (_) {}
+          const kidsCount = doc && Array.isArray(doc.kids) ? doc.kids.length : 0;
+          const topLevelTypes = doc && Array.isArray(doc.kids) ? doc.kids.map((k) => k && k.type).filter(Boolean) : [];
+          logSteps.push({ phase: 'doc_structure', message: `doc.kids: ${kidsCount} элементов`, detail: { kids_count: kidsCount, top_level_types: topLevelTypes } });
+        } catch (parseErr) {
+          logSteps.push({ phase: 'json_parse_error', message: 'Ошибка разбора JSON: ' + (parseErr && parseErr.message), detail: parseErr ? String(parseErr.stack) : null });
+        }
         break;
       }
     }
+    if (!doc) {
+      logSteps.push({ phase: 'no_json', message: 'В каталоге вывода нет .json файла или JSON не распарсился', detail: null });
+    }
+
     try {
       fs.unlinkSync(tmpPdf);
       fs.rmSync(tmpOut, { recursive: true, force: true });
     } catch (_) {}
+
     if (doc && Array.isArray(doc.kids)) {
-      const table = findInvoiceTableInOdlDoc(doc);
-      if (table) {
-        const rows = extractInvoiceRowsFromOdlTable(table);
+      const found = findInvoiceTableInOdlDoc(doc);
+      if (found) {
+        logSteps.push({
+          phase: 'find_table',
+          message: `Таблица найдена: ${found.rowCount} строк, заголовки: ${(found.headerTexts || []).join(' | ')}`,
+          detail: { rowCount: found.rowCount, headerTexts: found.headerTexts },
+        });
+        const extracted = extractInvoiceRowsFromOdlTable(found.table);
+        const rows = extracted.rows;
+        logSteps.push({
+          phase: 'extract_rows',
+          message: `Извлечено строк данных: ${rows.length}. Индексы колонок: description=${extracted.columnIndices && extracted.columnIndices.description}, qty=${extracted.columnIndices && extracted.columnIndices.qty}, amount=${extracted.columnIndices && extracted.columnIndices.amount}`,
+          detail: {
+            columnIndices: extracted.columnIndices,
+            rows_count: rows.length,
+            first_row_sample: rows.length > 0 ? rows[0] : null,
+          },
+        });
         if (rows.length > 0) {
           const pypdfText = JSON.stringify(doc).slice(0, 50000);
-          return { rows, parser: 'opendataloader', pypdfText };
+          logSteps.push({ phase: 'success', message: `Успех: ${rows.length} строк сохранено`, detail: null });
+          return { rows, parser: 'opendataloader', pypdfText, error: null, logSteps };
         }
+        logSteps.push({ phase: 'empty_extract', message: 'Таблица найдена, но после извлечения строк не осталось (не совпали колонки или пустые данные)', detail: null });
+      } else {
+        logSteps.push({ phase: 'find_table', message: 'Таблица с заголовками Description и Qty/Amount не найдена в документе', detail: null });
       }
       const pypdfText = JSON.stringify(doc).slice(0, 50000);
-      return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY' };
+      return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY', logSteps };
     }
-    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
+    logSteps.push({ phase: 'no_doc_kids', message: 'Документ без doc.kids или документ не загружен', detail: null });
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY', logSteps };
   } catch (err) {
     const msg = err && (err.message || String(err));
+    const stack = err && err.stack ? String(err.stack) : '';
+    logSteps.push({ phase: 'error', message: 'Исключение: ' + msg, detail: stack || null });
     console.error('[OpenDataLoader]', msg || err);
     if (msg && /java|JAVA|not found|ENOENT|spawn/i.test(msg)) {
       console.error('[OpenDataLoader] Убедитесь, что Java 11+ установлена и в PATH (или задайте JAVA_HOME).');
     }
-    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR' };
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR', logSteps };
   }
 }
 
@@ -2235,6 +2318,8 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
   if (!req.file || !req.file.buffer) {
     return res.status(400).json({ error: 'Загрузите файл PDF (поле pdf).' });
   }
+  const filename = req.file.originalname || 'invoice.pdf';
+  const tUpload = Date.now();
   try {
     const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
     const existing = db.getCursorInvoiceByFileHash(fileHash);
@@ -2246,14 +2331,16 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
       });
     }
     const parseResult = await parseCursorInvoicePdf(req.file.buffer);
-    const rows = parseResult.rows;
-    const filename = req.file.originalname || 'invoice.pdf';
+    const rows = parseResult.rows || [];
+    const durationMs = Date.now() - tUpload;
     invoiceParseLog({
       filename,
       parser: parseResult.parser,
       pypdf_text: parseResult.pypdfText,
       rows_count: rows.length,
       error: parseResult.error,
+      duration_ms: durationMs,
+      logSteps: parseResult.logSteps || [],
     });
     if (parseResult.error) {
       const msg = parseResult.error === 'OPENDATALOADER_DISABLED' ? 'Парсер отключён (USE_OPENDATALOADER=0).'
@@ -2267,6 +2354,16 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
     });
     res.json({ ok: true, invoice_id: invoiceId, filename, items_count: rows.length });
   } catch (e) {
+    const durationMs = Date.now() - tUpload;
+    invoiceParseLog({
+      filename,
+      parser: 'opendataloader',
+      pypdf_text: null,
+      rows_count: 0,
+      error: 'EXCEPTION',
+      duration_ms: durationMs,
+      logSteps: [{ phase: 'exception', message: e.message || String(e), detail: e.stack || null }],
+    });
     res.status(400).json({ error: e.message || 'Ошибка парсинга PDF' });
   }
 });
@@ -2342,8 +2439,8 @@ if (process.argv[2] === '--parse-pdf' && process.argv[3]) {
   }
   const buf = fs.readFileSync(pdfPath);
   parseCursorInvoicePdf(buf)
-    .then((rows) => {
-      console.log(JSON.stringify(rows, null, 2));
+    .then((result) => {
+      console.log(JSON.stringify(result, null, 2));
       process.exit(0);
     })
     .catch((e) => {
