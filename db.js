@@ -226,8 +226,20 @@ function insertCursorInvoice(filename, filePath, fileHash, issueDate) {
   return run.lastInsertRowid;
 }
 
+/** Нормализовать Amount в число (центы): убрать $, сохранить минус. Всегда возвращает integer или null. */
+function normalizeAmountToCents(value) {
+  if (value == null) return null;
+  if (typeof value === 'number' && !Number.isNaN(value)) {
+    return Number.isInteger(value) ? value : Math.round(value);
+  }
+  const s = String(value).replace(/\u0000\s*\$/g, '-$').replace(/\u0000/g, ' ').replace(/[$,\s]/g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? null : Math.round(n * 100);
+}
+
 function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct) {
   const d = getDb();
+  const amountNum = normalizeAmountToCents(amountCents);
   d.prepare(`
     INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -235,7 +247,7 @@ function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, 
     invoiceId,
     rowIndex,
     description || null,
-    amountCents != null ? amountCents : null,
+    amountNum,
     rawColumns ? JSON.stringify(rawColumns) : null,
     quantity != null ? quantity : null,
     unitPriceCents != null ? unitPriceCents : null,
