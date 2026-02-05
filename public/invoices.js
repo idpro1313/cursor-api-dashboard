@@ -249,11 +249,27 @@ function downloadAllItemsJson() {
   URL.revokeObjectURL(a.href);
 }
 
+async function clearAllInvoices() {
+  if (!confirm('Удалить из БД все загруженные счета и их позиции? Это действие нельзя отменить.')) return;
+  try {
+    const r = await fetchWithAuth('/api/invoices', { method: 'DELETE' });
+    if (!r) return;
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    document.getElementById('invoiceDetail').style.display = 'none';
+    loadInvoices();
+  } catch (e) {
+    alert('Ошибка: ' + (e.message || String(e)));
+  }
+}
+
 function init() {
   const btn = document.getElementById('btnUploadPdf');
   if (btn) btn.addEventListener('click', uploadPdf);
   const downloadBtn = document.getElementById('btnDownloadAllItems');
   if (downloadBtn) downloadBtn.addEventListener('click', downloadAllItemsJson);
+  const clearBtn = document.getElementById('btnClearAllInvoices');
+  if (clearBtn) clearBtn.addEventListener('click', clearAllInvoices);
   loadInvoices();
 }
 

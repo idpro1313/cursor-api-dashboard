@@ -2633,6 +2633,15 @@ app.get('/api/invoices/:id/items', requireSettingsAuth, (req, res) => {
   }
 });
 
+app.delete('/api/invoices', requireSettingsAuth, (req, res) => {
+  try {
+    db.clearCursorInvoices();
+    res.json({ ok: true, message: 'Все счета удалены из БД.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/invoices/:id', requireSettingsAuth, (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);

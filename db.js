@@ -310,6 +310,13 @@ function getCursorInvoiceItemsAll() {
   return rows;
 }
 
+/** Очистить только таблицы счетов (cursor_invoice_items, cursor_invoices). */
+function clearCursorInvoices() {
+  const d = getDb();
+  d.exec('DELETE FROM cursor_invoice_items');
+  d.exec('DELETE FROM cursor_invoices');
+}
+
 /**
  * Полная очистка БД: таблицы analytics, jira_users, cursor_invoices/invoice_items.
  * Если clearSettings === true, также очищает settings (в т.ч. API key).
@@ -346,4 +353,5 @@ module.exports = {
   getCursorInvoiceByFileHash,
   getCursorInvoiceById,
   deleteCursorInvoice,
+  clearCursorInvoices,
 };
