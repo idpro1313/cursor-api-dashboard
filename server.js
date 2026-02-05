@@ -1634,6 +1634,58 @@ function getTextFromOdlElement(el) {
   return '';
 }
 
+/** Собрать строки счёта из параграфов/заголовков, когда OpenDataLoader не распознал таблицу (type !== 'table'). Ищем заголовок "Description ... Qty/Amount" и пары: описание + строка "qty $unit $amount". */
+function extractInvoiceRowsFromOdlParagraphs(doc) {
+  if (!doc || !Array.isArray(doc.kids)) return { rows: [], source: 'paragraphs' };
+  const contentLines = [];
+  for (const k of doc.kids) {
+    if (!k || k.type === 'image') continue;
+    const text = getTextFromOdlElement(k);
+    if (!text || text.length < 2) continue;
+    if (/^Page\s+\d+\s+of\s+\d+/i.test(text)) continue;
+    contentLines.push(text);
+  }
+  let headerIndex = -1;
+  for (let i = 0; i < contentLines.length; i++) {
+    const lower = contentLines[i].toLowerCase();
+    if (lower.includes('description') && (lower.includes('qty') || lower.includes('amount'))) {
+      headerIndex = i;
+      break;
+    }
+  }
+  if (headerIndex < 0) return { rows: [], source: 'paragraphs' };
+  const afterHeader = contentLines.slice(headerIndex + 1);
+  const amountLineRe = /^\s*(\d+)\s+\$([\d,.]+)\s+\$([\d,.]+)\s*$/;
+  const skipRe = /^(Subtotal|Total|Amount\s+due)\s+/i;
+  const out = [];
+  let pendingDesc = null;
+  for (const line of afterHeader) {
+    if (skipRe.test(line) || /^\s*\$[\d,.]+(\s+\$[\d,.]+)*\s*$/.test(line)) continue;
+    const m = line.match(amountLineRe);
+    if (m) {
+      const qty = parseNum(m[1]);
+      const unitCents = parseCurrencyToCents(m[2]);
+      const amountCents = parseCurrencyToCents(m[3]);
+      const desc = pendingDesc && pendingDesc.trim() ? pendingDesc.trim() : null;
+      if (amountCents != null || desc) {
+        out.push({
+          row_index: out.length,
+          description: desc || null,
+          quantity: qty != null && looksLikeQty(qty) ? qty : null,
+          unit_price_cents: unitCents != null ? unitCents : null,
+          tax_pct: null,
+          amount_cents: amountCents,
+          raw_columns: [qty, unitCents != null ? unitCents / 100 : null, amountCents],
+        });
+      }
+      pendingDesc = null;
+    } else {
+      pendingDesc = line;
+    }
+  }
+  return { rows: out, source: 'paragraphs' };
+}
+
 /** Найти таблицу счёта в документе OpenDataLoader. Возвращает { table, headerTexts, rowCount } или null. */
 function findInvoiceTableInOdlDoc(doc) {
   function walk(el) {
@@ -2286,6 +2338,16 @@ async function parseCursorInvoicePdf(buffer) {
         logSteps.push({ phase: 'empty_extract', message: 'Таблица найдена, но после извлечения строк не осталось (не совпали колонки или пустые данные)', detail: null });
       } else {
         logSteps.push({ phase: 'find_table', message: 'Таблица с заголовками Description и Qty/Amount не найдена в документе', detail: null });
+        const fallback = extractInvoiceRowsFromOdlParagraphs(doc);
+        if (fallback.rows && fallback.rows.length > 0) {
+          logSteps.push({
+            phase: 'extract_rows',
+            message: `Fallback по параграфам: извлечено строк данных: ${fallback.rows.length}`,
+            detail: { source: fallback.source, rows_count: fallback.rows.length, first_row_sample: fallback.rows[0] },
+          });
+          const pypdfText = JSON.stringify(doc).slice(0, 50000);
+          return { rows: fallback.rows, parser: 'opendataloader', pypdfText, error: null, logSteps };
+        }
       }
       const pypdfText = JSON.stringify(doc).slice(0, 50000);
       return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY', logSteps };
