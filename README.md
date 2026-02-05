@@ -41,6 +41,31 @@ docker compose up --build
 
 Данные (БД, `auth.json`, сессия, логи) хранятся в каталоге хоста **/var/cursor/data** (монтируется в контейнер). При первом запуске на Linux создайте каталог: `sudo mkdir -p /var/cursor/data`. На Windows можно использовать именованный том Docker — в `docker-compose.yml` закомментирован вариант `cursor_data:/data`.
 
+### Автоматизация деплоя на сервере
+
+Чтобы не запускать `deploy.sh` вручную после каждого `git push`:
+
+**Вариант 1: Cron на сервере** — периодическая проверка обновлений и деплой при появлении новых коммитов:
+
+```bash
+chmod +x scripts/auto-deploy-check.sh
+# Добавить в crontab (каждые 5 минут):
+# */5 * * * * cd /opt/cursor/cursor-api-dashboard && ./scripts/auto-deploy-check.sh >> /var/log/cursor-deploy.log 2>&1
+```
+
+Переменные: `PROJECT_DIR` — каталог проекта на сервере; `DEPLOY_BRANCH` — ветка для сравнения (по умолчанию текущая).
+
+**Вариант 2: Push + деплой с локальной машины** — одна команда вместо «push, затем зайти на сервер и запустить deploy»:
+
+```bash
+export DEPLOY_HOST="user@your-server"   # один раз или в ~/.bashrc
+export DEPLOY_PATH="/opt/cursor/cursor-api-dashboard"   # если путь на сервере другой
+chmod +x scripts/push-and-deploy.sh
+./scripts/push-and-deploy.sh
+```
+
+Скрипт делает `git push` и по SSH запускает `./scripts/deploy.sh` на сервере. Нужен SSH-доступ по ключу без пароля.
+
 ## Переменные окружения
 
 | Переменная | Описание |

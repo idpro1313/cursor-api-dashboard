@@ -1634,6 +1634,28 @@ function getTextFromOdlElement(el) {
   return '';
 }
 
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/** Извлечь "Date of issue" из документа OpenDataLoader (строка в формате YYYY-MM-DD или null). */
+function extractInvoiceIssueDateFromOdlDoc(doc) {
+  if (!doc || !Array.isArray(doc.kids)) return null;
+  let fullText = '';
+  for (const k of doc.kids) {
+    fullText += ' ' + getTextFromOdlElement(k);
+  }
+  const m = fullText.match(/Date of issue\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})/i);
+  if (!m || !m[1]) return null;
+  const dateStr = m[1].trim();
+  const parts = dateStr.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/i);
+  if (!parts) return null;
+  const monthIdx = MONTH_NAMES.indexOf(parts[1].toLowerCase());
+  if (monthIdx < 0) return null;
+  const month = String(monthIdx + 1).padStart(2, '0');
+  const day = String(parseInt(parts[2], 10)).padStart(2, '0');
+  const year = parts[3];
+  return `${year}-${month}-${day}`;
+}
+
 /** Собрать плоский список текстовых строк из doc.kids; списки (list) разворачиваются в строки из list items (сначала content, затем текст из kids). */
 function flattenOdlContentLines(kids) {
   const lines = [];
@@ -2387,6 +2409,7 @@ async function parseCursorInvoicePdf(buffer) {
     } catch (_) {}
 
     if (doc && Array.isArray(doc.kids)) {
+      const issueDate = extractInvoiceIssueDateFromOdlDoc(doc);
       const found = findInvoiceTableInOdlDoc(doc);
       if (found) {
         logSteps.push({
@@ -2408,7 +2431,7 @@ async function parseCursorInvoicePdf(buffer) {
         if (rows.length > 0) {
           const pypdfText = JSON.stringify(doc).slice(0, 50000);
           logSteps.push({ phase: 'success', message: `Успех: ${rows.length} строк сохранено`, detail: null });
-          return { rows, parser: 'opendataloader', pypdfText, error: null, logSteps };
+          return { rows, issueDate, parser: 'opendataloader', pypdfText, error: null, logSteps };
         }
         logSteps.push({ phase: 'empty_extract', message: 'Таблица найдена, но после извлечения строк не осталось (не совпали колонки или пустые данные)', detail: null });
       } else {
@@ -2421,11 +2444,11 @@ async function parseCursorInvoicePdf(buffer) {
             detail: { source: fallback.source, rows_count: fallback.rows.length, first_row_sample: fallback.rows[0] },
           });
           const pypdfText = JSON.stringify(doc).slice(0, 50000);
-          return { rows: fallback.rows, parser: 'opendataloader', pypdfText, error: null, logSteps };
+          return { rows: fallback.rows, issueDate, parser: 'opendataloader', pypdfText, error: null, logSteps };
         }
       }
       const pypdfText = JSON.stringify(doc).slice(0, 50000);
-      return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY', logSteps };
+      return { rows: [], issueDate, parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY', logSteps };
     }
     logSteps.push({ phase: 'no_doc_kids', message: 'Документ без doc.kids или документ не загружен', detail: null });
     return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY', logSteps };

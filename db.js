@@ -43,6 +43,7 @@ function getDb() {
       filename TEXT NOT NULL,
       file_path TEXT,
       file_hash TEXT,
+      issue_date TEXT,
       parsed_at TEXT DEFAULT (datetime('now'))
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_invoices_file_hash ON cursor_invoices(file_hash) WHERE file_hash IS NOT NULL;
@@ -214,10 +215,10 @@ function getCursorInvoiceByFileHash(fileHash) {
   return d.prepare('SELECT id, filename, parsed_at FROM cursor_invoices WHERE file_hash = ?').get(fileHash) || null;
 }
 
-function insertCursorInvoice(filename, filePath, fileHash) {
+function insertCursorInvoice(filename, filePath, fileHash, issueDate) {
   const d = getDb();
-  const stmt = d.prepare('INSERT INTO cursor_invoices (filename, file_path, file_hash) VALUES (?, ?, ?)');
-  const run = stmt.run(filename, filePath || null, fileHash || null);
+  const stmt = d.prepare('INSERT INTO cursor_invoices (filename, file_path, file_hash, issue_date) VALUES (?, ?, ?, ?)');
+  const run = stmt.run(filename, filePath || null, fileHash || null, issueDate || null);
   return run.lastInsertRowid;
 }
 
@@ -240,7 +241,7 @@ function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, 
 
 function getCursorInvoiceById(id) {
   const d = getDb();
-  return d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices WHERE id = ?').get(id) || null;
+  return d.prepare('SELECT id, filename, file_path, issue_date, parsed_at FROM cursor_invoices WHERE id = ?').get(id) || null;
 }
 
 /** Удалить счёт и все его позиции. Возвращает true, если счёт был удалён. */
@@ -255,7 +256,7 @@ function deleteCursorInvoice(id) {
 
 function getCursorInvoices() {
   const d = getDb();
-  const invoices = d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices ORDER BY parsed_at DESC').all();
+  const invoices = d.prepare('SELECT id, filename, file_path, issue_date, parsed_at FROM cursor_invoices ORDER BY parsed_at DESC').all();
   const itemCounts = d.prepare(`
     SELECT invoice_id, COUNT(*) AS cnt FROM cursor_invoice_items GROUP BY invoice_id
   `).all();
