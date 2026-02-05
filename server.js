@@ -310,7 +310,7 @@ app.get('/api/auth/check', (req, res) => {
 });
 
 // Защищённые страницы настроек: только после входа. Перехват по пути без учёта регистра.
-const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'jira-users.html', 'invoices.html', 'audit.html', 'settings.html'];
+const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'settings.html'];
 
 function isProtectedPagePath(req) {
   const pathname = (req.originalUrl || req.url || req.path || '').split('?')[0].replace(/\/$/, '') || '/';

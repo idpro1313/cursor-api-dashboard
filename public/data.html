@@ -3,8 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Данные в БД — Cursor Admin API</title>
+  <title>Данные — Cursor Admin API</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .data-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; flex-wrap: wrap; }
+    .data-tabs a { padding: 10px 16px; text-decoration: none; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .data-tabs a:hover { color: var(--fg); }
+    .data-tabs a.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .data-tab-panel { display: none; }
+    .data-tab-panel.active { display: block; }
+  </style>
 </head>
 <body>
   <header class="site-header">
@@ -14,56 +22,164 @@
         <a href="settings.html">Настройки и загрузки</a>
         <a href="index.html">Дашборд</a>
         <a href="team-snapshot.html">Участники и расходы</a>
-        <a href="data.html" class="current">Данные в БД</a>
-        <a href="jira-users.html">Jira</a>
-        <a href="invoices.html">Счета</a>
-        <a href="audit.html">Аудит</a>
+        <a href="data.html" class="current">Данные</a>
       </nav>
     </div>
   </header>
   <main class="site-wrap">
-  <h2 style="margin-top: 0;">Данные в локальной БД</h2>
-  <p class="muted">Просмотр загруженной аналитики по эндпоинтам и датам.</p>
+  <h2 style="margin-top: 0;">Просмотр данных</h2>
+  <p class="muted">Данные в БД, пользователи Jira, счета и аудит — в одной странице.</p>
 
-  <div class="panel">
-    <h2>Покрытие БД</h2>
-    <p class="meta">Какие эндпоинты и за какие даты есть данные.</p>
-    <div id="coverageContainer">
-      <span class="muted">Загрузка...</span>
+  <nav class="data-tabs" id="dataTabs">
+    <a href="#data" class="data-tab-link active" data-tab="data">Данные в БД</a>
+    <a href="#jira" class="data-tab-link" data-tab="jira">Jira</a>
+    <a href="#invoices" class="data-tab-link" data-tab="invoices">Счета</a>
+    <a href="#audit" class="data-tab-link" data-tab="audit">Аудит</a>
+  </nav>
+
+  <div id="tab-data" class="data-tab-panel active">
+    <div class="panel">
+      <h2>Покрытие БД</h2>
+      <p class="meta">Какие эндпоинты и за какие даты есть данные.</p>
+      <div id="coverageContainer"><span class="muted">Загрузка...</span></div>
+      <button class="btn btn-secondary" id="btnRefreshCoverage" style="margin-top: 10px;">Обновить</button>
     </div>
-    <button class="btn btn-secondary" id="btnRefreshCoverage" style="margin-top: 10px;">Обновить</button>
+    <div class="panel">
+      <h2>Фильтры</h2>
+      <div class="row">
+        <div class="field">
+          <label>Эндпоинт</label>
+          <select id="filterEndpoint"><option value="">— Все —</option></select>
+        </div>
+        <div class="field">
+          <label>С даты</label>
+          <input type="date" id="filterStartDate">
+        </div>
+        <div class="field">
+          <label>По дату</label>
+          <input type="date" id="filterEndDate">
+        </div>
+        <div class="field" style="align-self: flex-end;">
+          <button class="btn" id="btnLoad">Показать данные</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="resultsPanel" style="display: none;">
+      <h2>Данные</h2>
+      <div id="resultsSummary" class="meta" style="margin-bottom: 12px;"></div>
+      <div id="resultsContainer"></div>
+    </div>
   </div>
 
-  <div class="panel">
-    <h2>Фильтры</h2>
-    <div class="row">
-      <div class="field">
-        <label>Эндпоинт</label>
-        <select id="filterEndpoint">
-          <option value="">— Все —</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>С даты</label>
-        <input type="date" id="filterStartDate">
-      </div>
-      <div class="field">
-        <label>По дату</label>
-        <input type="date" id="filterEndDate">
-      </div>
-      <div class="field" style="align-self: flex-end;">
-        <button class="btn" id="btnLoad">Показать данные</button>
+  <div id="tab-jira" class="data-tab-panel">
+    <p class="muted">Просмотр списка пользователей из Jira. Загрузка CSV — в <a href="settings.html">Настройки и загрузки</a>.</p>
+    <div class="panel">
+      <h2>Текущий список</h2>
+      <div id="usersSummary" class="meta" style="margin-bottom: 10px;"></div>
+      <div id="usersContainer"><span class="muted">Загрузка...</span></div>
+      <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
+        <button class="btn btn-secondary" id="btnRefresh">Обновить</button>
+        <button class="btn btn-danger" id="btnClearJira" type="button">Очистить данные Jira</button>
       </div>
     </div>
   </div>
 
-  <div class="panel" id="resultsPanel" style="display: none;">
-    <h2>Данные</h2>
-    <div id="resultsSummary" class="meta" style="margin-bottom: 12px;"></div>
-    <div id="resultsContainer"></div>
+  <div id="tab-invoices" class="data-tab-panel">
+    <p class="muted">Просмотр загруженных счетов и позиций. Загрузка PDF — в <a href="settings.html">Настройки и загрузки</a>.</p>
+    <div class="panel">
+      <h2>Загруженные счета</h2>
+      <div id="invoicesSummary" class="meta" style="margin-bottom: 10px;"></div>
+      <div id="invoicesList"></div>
+      <div id="invoiceDetail" style="display: none; margin-top: 16px;">
+        <h3 id="invoiceDetailTitle"></h3>
+        <div id="invoiceItemsTable" class="table-wrap"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Все позиции по счетам</h2>
+      <p class="meta">Единая таблица позиций по всем загруженным счетам.</p>
+      <div id="allItemsSummary" class="meta" style="margin-bottom: 10px;"></div>
+      <div id="allItemsTable" class="table-wrap"></div>
+    </div>
   </div>
+
+  <div id="tab-audit" class="data-tab-panel">
+    <p class="muted">События из загруженных Audit Logs в БД. Можно фильтровать по периоду и типу события.</p>
+    <div class="panel">
+      <h2>Фильтры</h2>
+      <div class="row">
+        <div class="field">
+          <label>С даты</label>
+          <input type="date" id="auditStartDate">
+        </div>
+        <div class="field">
+          <label>По дату</label>
+          <input type="date" id="auditEndDate">
+        </div>
+        <div class="field">
+          <label>Тип события</label>
+          <select id="auditEventType"><option value="">Все типы</option></select>
+        </div>
+        <div class="field">
+          <label>Лимит</label>
+          <select id="auditLimit">
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+        <div class="field" style="align-self: flex-end;">
+          <button class="btn" id="auditBtnLoad">Показать</button>
+        </div>
+      </div>
+      <div id="auditStatus" class="meta" style="margin-top: 8px;"></div>
+    </div>
+    <div class="panel" id="auditResultsPanel" style="display: none;">
+      <h2>События</h2>
+      <div id="auditResultsSummary" class="meta" style="margin-bottom: 10px;"></div>
+      <div id="auditResultsContainer"></div>
+    </div>
+    <div class="panel" id="auditEmptyState">
+      <p class="muted">Укажите при необходимости период и тип события, нажмите «Показать». Данные берутся из БД — загрузите Audit Logs в <a href="settings.html">Настройки и загрузки</a>.</p>
+    </div>
+  </div>
+
   </main>
   <script src="common.js"></script>
   <script src="data.js"></script>
+  <script src="jira-users.js"></script>
+  <script src="invoices.js"></script>
+  <script src="audit.js"></script>
+  <script>
+(function () {
+  var tabLinks = document.querySelectorAll('.data-tab-link');
+  var panels = document.querySelectorAll('.data-tab-panel');
+  function showTab(tabId) {
+    tabId = tabId || 'data';
+    var id = tabId;
+    if (id !== 'data' && id !== 'jira' && id !== 'invoices' && id !== 'audit') id = 'data';
+    tabLinks.forEach(function (a) {
+      a.classList.toggle('active', a.getAttribute('data-tab') === id);
+    });
+    panels.forEach(function (p) {
+      p.classList.toggle('active', p.id === 'tab-' + id);
+    });
+    if (window.location.hash !== '#' + id) window.history.replaceState(null, '', '#' + id);
+  }
+  function onHashChange() {
+    var hash = (window.location.hash || '#data').slice(1);
+    showTab(hash);
+  }
+  tabLinks.forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      showTab(a.getAttribute('data-tab'));
+    });
+  });
+  window.addEventListener('hashchange', onHashChange);
+  onHashChange();
+})();
+  </script>
 </body>
 </html>

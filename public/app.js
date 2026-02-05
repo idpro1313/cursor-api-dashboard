@@ -1,5 +1,5 @@
 /**
- * Cursor Admin API Dashboard — клиентская логика (admin.html)
+ * Cursor Admin API Dashboard — клиентская логика (settings.html и общая навигация)
  * Требует common.js (escapeHtml, getEndpointLabel, fetchWithAuth).
  */
 let lastErrors = [];

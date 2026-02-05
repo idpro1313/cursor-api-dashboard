@@ -274,7 +274,7 @@ function setupInactiveCursorSort() {
 function renderCostByProject(costByProjectByMonth, projectTotals, months, sortState) {
   let projects = Object.keys(costByProjectByMonth || {});
   if (!projects.length) {
-    return '<p class="muted">Нет данных по проектам. Загрузите <a href="jira-users.html">пользователей Jira</a> с полем «Проект».</p>';
+    return '<p class="muted">Нет данных по проектам. Загрузите <a href="data.html#jira">пользователей Jira</a> с полем «Проект».</p>';
   }
   const state = sortState || costByProjectSort;
   const dir = state.dir === 'desc' ? -1 : 1;
@@ -873,7 +873,7 @@ async function load() {
     const users = data.users || [];
     const months = data.months || [];
     if (!users.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» на <a href="admin.html">Настройки и загрузка</a>). Опционально можно загрузить <a href="jira-users.html">пользователей Jira</a> для отображения имён вместо email.</p>';
+      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» в <a href="settings.html">Настройки и загрузки</a>). Опционально можно загрузить <a href="data.html#jira">пользователей Jira</a> для отображения имён вместо email.</p>';
       if (emptyState) emptyState.style.display = 'none';
       if (contentPanel) contentPanel.style.display = 'block';
       contentPanel.querySelector('#contentTitle').textContent = 'Активность по пользователям';
@@ -881,7 +881,7 @@ async function load() {
       return;
     }
     if (!months.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные в разделе <a href="admin.html">Настройки и загрузка</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные в БД</a>.</p>';
+      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные в разделе <a href="settings.html">Настройки и загрузки</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные</a>.</p>';
       emptyState.style.display = 'none';
       contentPanel.style.display = 'block';
       statusEl.textContent = '';

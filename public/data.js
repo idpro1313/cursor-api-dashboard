@@ -16,7 +16,7 @@ async function loadCoverage() {
       for (let i = opts.length - 1; i >= 1; i--) opts[i].remove();
     }
     if (cov.length === 0) {
-      el.innerHTML = '<span class="muted">БД пуста. Загрузите данные в разделе <a href="admin.html">Настройки и загрузка</a>.</span>';
+      el.innerHTML = '<span class="muted">БД пуста. Загрузите данные в разделе <a href="settings.html">Настройки и загрузки</a>.</span>';
       return;
     }
     el.innerHTML = `
