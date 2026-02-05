@@ -1710,9 +1710,11 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
   if (headerIndex < 0) return { rows: [], source: 'paragraphs' };
   const afterHeader = contentLines.slice(headerIndex + 1);
   const amountLineRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s+(-?\$[\d,.]+)\s*$/;
+  const amountLineTwoRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s*$/;
   const amountLineTaxRe = /^\s*(\d+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
   const amountLineUnitTaxRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
   const amountAtEndRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s+(-?\$[\d,.]+)\s*$/;
+  const amountAtEndTwoRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s*$/;
   const amountTaxAtEndRe = /\s+(\d+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
   const amountUnitTaxAtEndRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
   const skipRe = /^(Subtotal|Total|Amount\s+due|VAT\s|Applied\s+balance)\s+/i;
@@ -1763,6 +1765,15 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
       pushRow(desc, qty, unitCents, taxPct, amountCents);
       continue;
     }
+    m = line.match(amountLineTwoRe);
+    if (m && m[0].length === line.length) {
+      const qty = parseNum(m[1]);
+      const amountCents = parseCurrencyToCents(m[2]);
+      const desc = pendingDescs.length > 0 ? pendingDescs.shift() : null;
+      const unitCentsTwo = qty && qty > 0 && amountCents != null ? Math.round(amountCents / qty) : null;
+      pushRow(desc, qty, unitCentsTwo, null, amountCents);
+      continue;
+    }
     let endM = line.match(amountAtEndRe);
     if (endM) {
       const descPart = line.slice(0, line.length - endM[0].length).trim();
@@ -1790,6 +1801,17 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
       const amountCents = parseCurrencyToCents(endM[4]);
       pushRow(descPart, qty, unitCentsEnd, taxPctEnd, amountCents);
       continue;
+    }
+    endM = line.match(amountAtEndTwoRe);
+    if (endM) {
+      const descPart = line.slice(0, line.length - endM[0].length).trim();
+      if (descPart) {
+        const qty = parseNum(endM[1]);
+        const amountCents = parseCurrencyToCents(endM[2]);
+        const unitCentsTwo = qty && qty > 0 && amountCents != null ? Math.round(amountCents / qty) : null;
+        pushRow(descPart, qty, unitCentsTwo, null, amountCents);
+        continue;
+      }
     }
     pendingDescs.push(line);
   }

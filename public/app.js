@@ -129,7 +129,7 @@ async function init() {
 
   const syncStart = document.getElementById('syncStartDate');
   if (syncStart && !syncStart.value) {
-    syncStart.value = '2025-09-01';
+    syncStart.value = '2025-06-01';
   }
   document.getElementById('btnSync').addEventListener('click', runSync);
   document.getElementById('btnRefreshCoverage').addEventListener('click', loadCoverage);
