@@ -78,6 +78,8 @@ function getDb() {
     if (!names.includes('quantity')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN quantity REAL');
     if (!names.includes('unit_price_cents')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN unit_price_cents INTEGER');
     if (!names.includes('tax_pct')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN tax_pct REAL');
+    if (!names.includes('charge_type')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN charge_type TEXT');
+    if (!names.includes('model')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN model TEXT');
   } catch (_) {}
   return db;
 }
@@ -237,12 +239,12 @@ function normalizeAmountToCents(value) {
   return Number.isNaN(n) ? null : Math.round(n * 100);
 }
 
-function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct) {
+function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct, chargeType, model) {
   const d = getDb();
   const amountNum = normalizeAmountToCents(amountCents);
   d.prepare(`
-    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct, charge_type, model)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     invoiceId,
     rowIndex,
@@ -251,7 +253,9 @@ function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, 
     rawColumns ? JSON.stringify(rawColumns) : null,
     quantity != null ? quantity : null,
     unitPriceCents != null ? unitPriceCents : null,
-    taxPct != null ? taxPct : null
+    taxPct != null ? taxPct : null,
+    chargeType || null,
+    model || null
   );
 }
 
@@ -298,7 +302,7 @@ function getCursorInvoiceItemsAll() {
   const d = getDb();
   const rows = d.prepare(`
     SELECT i.id AS invoice_id, i.filename AS invoice_filename, i.issue_date AS invoice_issue_date, i.parsed_at,
-           it.id, it.row_index, it.description, it.quantity, it.unit_price_cents, it.tax_pct, it.amount_cents
+           it.id, it.row_index, it.description, it.quantity, it.unit_price_cents, it.tax_pct, it.amount_cents, it.charge_type, it.model
     FROM cursor_invoice_items it
     JOIN cursor_invoices i ON i.id = it.invoice_id
     ORDER BY i.parsed_at DESC, it.invoice_id, it.row_index

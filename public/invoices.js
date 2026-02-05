@@ -1,6 +1,19 @@
 /**
  * Страница «Счета Cursor». Требует common.js (escapeHtml, formatCentsDollar, formatCostCents, fetchWithAuth).
  */
+const CHARGE_TYPE_LABELS = {
+  monthly_subscription: 'Ежемесячная подписка',
+  fast_premium_per_seat: 'Fast Premium',
+  proration_charge: 'Начисление (добавление мест)',
+  proration_refund: 'Возврат (снятие мест)',
+  token_fee: 'Комиссия за токены',
+  token_usage: 'Использование токенов',
+  other: 'Прочее',
+};
+function chargeTypeLabel(chargeType) {
+  return (chargeType && CHARGE_TYPE_LABELS[chargeType]) ? CHARGE_TYPE_LABELS[chargeType] : '—';
+}
+
 function showResult(el, message, isError) {
   el.style.display = 'block';
   el.className = isError ? 'sync-result error' : 'sync-result ok';
@@ -75,6 +88,8 @@ function renderAllItemsTable() {
       <td>${escapeHtml(it.invoice_filename || '—')}</td>
       <td>${escapeHtml(it.invoice_issue_date || '—')}</td>
       <td>${escapeHtml(it.description || '—')}</td>
+      <td>${escapeHtml(chargeTypeLabel(it.charge_type))}</td>
+      <td>${escapeHtml(it.model || '—')}</td>
       <td class="num">${formatQty(it.quantity)}</td>
       <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
       <td class="num">${formatTax(it.tax_pct)}</td>
@@ -84,7 +99,7 @@ function renderAllItemsTable() {
   const dateOfIssueHeader = `Date of issue${allItemsSortKey === 'invoice_issue_date' ? arrow : ''}`;
   tableEl.innerHTML = `
     <table class="data-table">
-      <thead><tr><th>Счёт</th><th class="sortable" data-sort="invoice_issue_date" title="Сортировать">${dateOfIssueHeader}</th><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
+      <thead><tr><th>Счёт</th><th class="sortable" data-sort="invoice_issue_date" title="Сортировать">${dateOfIssueHeader}</th><th>Description</th><th>Тип</th><th>Модель</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -164,6 +179,8 @@ async function showInvoiceItems(id, title) {
         <tr>
           <td>${displayIssueDate}</td>
           <td>${escapeHtml(it.description || '—')}</td>
+          <td>${escapeHtml(chargeTypeLabel(it.charge_type))}</td>
+          <td>${escapeHtml(it.model || '—')}</td>
           <td class="num">${formatQty(it.quantity)}</td>
           <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
           <td class="num">${formatTax(it.tax_pct)}</td>
@@ -172,7 +189,7 @@ async function showInvoiceItems(id, title) {
       `).join('');
       tableEl.innerHTML = `
         <table class="data-table">
-          <thead><tr><th>Date of issue</th><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
+          <thead><tr><th>Date of issue</th><th>Description</th><th>Тип</th><th>Модель</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       `;

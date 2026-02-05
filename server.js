@@ -2501,6 +2501,38 @@ async function parseCursorInvoicePdf(buffer) {
   }
 }
 
+/**
+ * Классификация позиции счёта: тип начисления и (для токенов) модель.
+ * issueDate — дата счёта YYYY-MM-DD (для определения 6-го числа = ежемесячное списание).
+ */
+function classifyInvoiceItem(description, issueDate) {
+  const desc = description && typeof description === 'string' ? description.trim() : '';
+  const day = issueDate && /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? parseInt(issueDate.slice(8, 10), 10) : null;
+  const is6th = day === 6;
+
+  if (/^Cursor (Teams|Business) [A-Za-z]{3} \d+ – [A-Za-z]{3} \d+, \d{4}$/.test(desc)) {
+    return { charge_type: is6th ? 'monthly_subscription' : 'other', model: null };
+  }
+  if (/^Fast Premium Requests Per Seat /.test(desc)) {
+    return { charge_type: 'fast_premium_per_seat', model: null };
+  }
+  if (/^Remaining time on \d+ × Cursor (Teams|Business) /.test(desc)) {
+    return { charge_type: 'proration_charge', model: null };
+  }
+  if (/^Unused time on \d+ × Cursor (Teams|Business) /.test(desc)) {
+    return { charge_type: 'proration_refund', model: null };
+  }
+  if (/^Cursor token fee for /.test(desc)) {
+    const m = desc.match(/non-max-([a-z0-9]+(?:-[a-z0-9.]+)*)/i);
+    return { charge_type: 'token_fee', model: m ? m[1] : null };
+  }
+  if (/^\d+ token-based usage calls to /.test(desc)) {
+    const m = desc.match(/to non-max-([a-z0-9]+(?:-[a-z0-9.]+)*)/i);
+    return { charge_type: 'token_usage', model: m ? m[1] : null };
+  }
+  return { charge_type: 'other', model: null };
+}
+
 const uploadPdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
@@ -2549,8 +2581,10 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
       return res.status(400).json({ error: msg, code: parseResult.error });
     }
     const invoiceId = db.insertCursorInvoice(filename, null, fileHash, parseResult.issueDate || null);
+    const issueDate = parseResult.issueDate || null;
     rows.forEach((r) => {
-      db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents, r.tax_pct);
+      const { charge_type, model } = classifyInvoiceItem(r.description, issueDate);
+      db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents, r.tax_pct, charge_type, model);
     });
     res.json({ ok: true, invoice_id: invoiceId, filename, items_count: rows.length });
   } catch (e) {
