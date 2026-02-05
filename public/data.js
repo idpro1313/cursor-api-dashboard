@@ -1,31 +1,12 @@
 /**
- * Страница просмотра данных из локальной БД
+ * Страница просмотра данных из локальной БД. Требует common.js (escapeHtml, getEndpointLabel, fetchWithAuth, getAllKeys).
  */
-const ENDPOINT_LABELS = {
-  '/teams/members': 'Team Members',
-  '/teams/audit-logs': 'Audit Logs',
-  '/teams/daily-usage-data': 'Daily Usage Data',
-  '/teams/spend': 'Spending Data',
-  '/teams/filtered-usage-events': 'Usage Events',
-};
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(s);
-  return div.innerHTML;
-}
-
-function getEndpointLabel(path) {
-  return ENDPOINT_LABELS[path] || path;
-}
-
 async function loadCoverage() {
   const el = document.getElementById('coverageContainer');
   if (!el) return;
   try {
-    const r = await fetch('/api/analytics/coverage', { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/analytics/coverage');
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const cov = data.coverage || [];
@@ -184,8 +165,8 @@ async function loadData() {
   if (startDate) params.set('startDate', startDate);
   if (endDate) params.set('endDate', endDate);
   try {
-    const r = await fetch('/api/analytics?' + params, { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/analytics?' + params);
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const rows = data.data || [];

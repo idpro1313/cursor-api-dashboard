@@ -1,27 +1,7 @@
 /**
- * Cursor Admin API Dashboard — клиентская логика
- * Документация: https://cursor.com/docs/account/teams/admin-api
+ * Cursor Admin API Dashboard — клиентская логика (admin.html)
+ * Требует common.js (escapeHtml, getEndpointLabel, fetchWithAuth).
  */
-/** Подписи эндпоинтов для отображения покрытия БД */
-const ENDPOINT_LABELS = {
-  '/teams/members': 'Team Members',
-  '/teams/audit-logs': 'Audit Logs',
-  '/teams/daily-usage-data': 'Daily Usage Data',
-  '/teams/spend': 'Spending Data',
-  '/teams/filtered-usage-events': 'Usage Events',
-};
-
-function getEndpointLabel(path) {
-  return ENDPOINT_LABELS[path] || path;
-}
-
-function fetchSettings(url, opts = {}) {
-  return fetch(url, { ...opts, credentials: 'same-origin' }).then((r) => {
-    if (r.status === 401) { window.location.href = '/login.html'; return null; }
-    return r;
-  });
-}
-
 let lastErrors = [];
 let apiKeyConfigured = false;
 
@@ -48,13 +28,6 @@ function renderErrors() {
     <h3>Последние ошибки</h3>
     <ul>${lastErrors.map(e => `<li><strong>${escapeHtml(e.label)}</strong>: ${escapeHtml(e.message)}</li>`).join('')}</ul>
   `;
-}
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(s);
-  return div.innerHTML;
 }
 
 function showApiKeyForm(message) {
@@ -86,7 +59,7 @@ function applyApiKeyConfig(configured) {
 
 async function init() {
   try {
-    const r = await fetchSettings('/api/config');
+    const r = await fetchWithAuth('/api/config');
     if (!r) return;
     const data = await r.json();
     applyApiKeyConfig(data.apiKeyConfigured);
@@ -101,7 +74,7 @@ async function init() {
   document.getElementById('btnClearApiData')?.addEventListener('click', async () => {
     if (!confirm('Очистить только данные API (аналитика по эндпоинтам)? Данные Jira и настройки не затронуты. Действие нельзя отменить.')) return;
     try {
-      const r = await fetchSettings('/api/clear-analytics', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const r = await fetchWithAuth('/api/clear-analytics', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       if (!r) return;
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
@@ -119,7 +92,7 @@ async function init() {
       : 'Очистить аналитику и пользователей Jira? API key будет сохранён. Действие нельзя отменить.';
     if (!confirm(msg)) return;
     try {
-      const r = await fetchSettings('/api/clear-db', {
+      const r = await fetchWithAuth('/api/clear-db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clearSettings: includeSettings }),
@@ -139,7 +112,7 @@ async function init() {
     const apiKey = document.getElementById('apiKey').value.trim();
     if (!apiKey) { alert('Введите API key'); return; }
     try {
-      const r = await fetchSettings('/api/config', {
+      const r = await fetchWithAuth('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey }),
@@ -168,7 +141,7 @@ async function loadCoverage() {
   const el = document.getElementById('coverageList');
   if (!el) return;
   try {
-    const r = await fetchSettings('/api/analytics/coverage');
+    const r = await fetchWithAuth('/api/analytics/coverage');
     if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
@@ -263,7 +236,7 @@ async function runSync() {
   if (!apiKeyConfigured) headers['X-API-Key'] = document.getElementById('apiKey').value.trim();
 
   try {
-    const r = await fetchSettings('/api/sync-stream', {
+    const r = await fetchWithAuth('/api/sync-stream', {
       method: 'POST',
       headers,
       body: JSON.stringify({ startDate, endDate }),

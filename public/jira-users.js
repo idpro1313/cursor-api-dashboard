@@ -1,21 +1,6 @@
 /**
- * Страница «Пользователи Jira» — просмотр и загрузка CSV
+ * Страница «Пользователи Jira». Требует common.js (escapeHtml, fetchWithAuth, getAllKeys).
  */
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(s);
-  return div.innerHTML;
-}
-
-function getAllKeys(users) {
-  const set = new Set();
-  users.forEach((obj) => {
-    if (obj && typeof obj === 'object') Object.keys(obj).forEach((k) => set.add(k));
-  });
-  return Array.from(set);
-}
-
 function renderTable(users) {
   if (!users || users.length === 0) {
     return '<p class="muted">Нет данных. Загрузите CSV.</p>';
@@ -44,8 +29,8 @@ async function loadUsers() {
   const summary = document.getElementById('usersSummary');
   if (!container) return;
   try {
-    const r = await fetch('/api/jira-users', { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/jira-users');
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const users = data.users || [];
@@ -90,13 +75,12 @@ function init() {
         reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
         reader.readAsText(file, 'UTF-8');
       });
-      const r = await fetch('/api/jira-users/upload', {
+      const r = await fetchWithAuth('/api/jira-users/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv: text }),
-        credentials: 'same-origin',
       });
-      if (r.status === 401) { window.location.href = '/login.html'; return; }
+      if (!r) return;
       const data = await r.json();
       resultEl.style.display = 'block';
       if (!r.ok) {

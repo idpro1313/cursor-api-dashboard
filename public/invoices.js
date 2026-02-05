@@ -1,18 +1,6 @@
 /**
- * Страница «Счета Cursor» — загрузка PDF через страницу и отображение счетов
+ * Страница «Счета Cursor». Требует common.js (escapeHtml, formatCentsDollar, fetchWithAuth).
  */
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(s);
-  return div.innerHTML;
-}
-
-function formatCents(cents) {
-  if (cents == null) return '—';
-  return '$' + (cents / 100).toFixed(2).replace(/\.?0+$/, '') || '0';
-}
-
 function showResult(el, message, isError) {
   el.style.display = 'block';
   el.className = isError ? 'sync-result error' : 'sync-result ok';
@@ -23,8 +11,8 @@ async function loadInvoices() {
   const listEl = document.getElementById('invoicesList');
   const summaryEl = document.getElementById('invoicesSummary');
   try {
-    const r = await fetch('/api/invoices', { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/invoices');
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
     const invoices = data.invoices || [];
@@ -64,11 +52,8 @@ async function loadInvoices() {
 async function deleteInvoice(id, liEl) {
   if (!confirm('Удалить этот счёт из списка? Позиции будут удалены безвозвратно.')) return;
   try {
-    const r = await fetch('/api/invoices/' + id, {
-      method: 'DELETE',
-      credentials: 'same-origin',
-    });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/invoices/' + id, { method: 'DELETE' });
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
     document.getElementById('invoiceDetail').style.display = 'none';
@@ -83,8 +68,8 @@ async function showInvoiceItems(id, title) {
   const titleEl = document.getElementById('invoiceDetailTitle');
   const tableEl = document.getElementById('invoiceItemsTable');
   try {
-    const r = await fetch('/api/invoices/' + id + '/items', { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/invoices/' + id + '/items');
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) {
       tableEl.innerHTML = '<p class="error">' + escapeHtml(data.error || r.statusText) + '</p>';
@@ -103,9 +88,9 @@ async function showInvoiceItems(id, title) {
         <tr>
           <td>${escapeHtml(it.description || '—')}</td>
           <td class="num">${formatQty(it.quantity)}</td>
-          <td class="num">${formatCents(it.unit_price_cents)}</td>
+          <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
           <td class="num">${formatTax(it.tax_pct)}</td>
-          <td class="num">${formatCents(it.amount_cents)}</td>
+          <td class="num">${formatCentsDollar(it.amount_cents)}</td>
         </tr>
       `).join('');
       tableEl.innerHTML = `
@@ -134,12 +119,11 @@ async function uploadPdf() {
   resultEl.style.display = 'block';
   resultEl.textContent = 'Загрузка...';
   try {
-    const r = await fetch('/api/invoices/upload', {
+    const r = await fetchWithAuth('/api/invoices/upload', {
       method: 'POST',
       body: formData,
-      credentials: 'same-origin',
     });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) {
       if (r.status === 409 && data.alreadyUploaded) {

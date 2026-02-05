@@ -102,6 +102,9 @@ function getApiKey(req) {
 }
 
 const app = express();
+if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 const CURSOR_API = 'https://api.cursor.com';
 const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS) || 60000;
 const MAX_DAYS = 30;
@@ -208,11 +211,61 @@ function requireSettingsAuth(req, res, next) {
 // Редирект со старой страницы дашборда на главную (страницу удалили)
 app.get('/users-dashboard.html', (req, res) => res.redirect(302, '/index.html'));
 
+// Ограничение попыток входа (защита от перебора пароля): N попыток с одного IP за окно
+const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000; // 15 мин
+const LOGIN_MAX_ATTEMPTS = 5;
+const loginAttempts = new Map();
+
+function getClientIp(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
+}
+
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  let bucket = loginAttempts.get(ip);
+  if (!bucket) {
+    bucket = { count: 0, resetAt: now + LOGIN_RATE_WINDOW_MS };
+    loginAttempts.set(ip, bucket);
+  }
+  if (now >= bucket.resetAt) {
+    bucket.count = 0;
+    bucket.resetAt = now + LOGIN_RATE_WINDOW_MS;
+  }
+  return bucket.count < LOGIN_MAX_ATTEMPTS;
+}
+
+function incrementLoginAttempts(ip) {
+  const now = Date.now();
+  let bucket = loginAttempts.get(ip);
+  if (!bucket) {
+    bucket = { count: 0, resetAt: now + LOGIN_RATE_WINDOW_MS };
+    loginAttempts.set(ip, bucket);
+  }
+  if (now >= bucket.resetAt) {
+    bucket.count = 0;
+    bucket.resetAt = now + LOGIN_RATE_WINDOW_MS;
+  }
+  bucket.count++;
+}
+
+// Очистка устаревших записей попыток входа (каждые 15 мин)
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, bucket] of loginAttempts.entries()) {
+    if (now >= bucket.resetAt) loginAttempts.delete(ip);
+  }
+}, LOGIN_RATE_WINDOW_MS);
+
 app.post('/api/login', (req, res) => {
+  const ip = getClientIpForLogin(req);
+  if (!checkLoginRateLimit(ip)) {
+    return res.status(429).json({ error: 'Слишком много попыток входа. Попробуйте через 15 минут.' });
+  }
   const login = (req.body && req.body.login) ? String(req.body.login).trim() : '';
   const password = req.body && req.body.password ? String(req.body.password) : '';
   const cred = getAuthCredentials();
   if (!login || login !== cred.login || password !== cred.password) {
+    incrementLoginAttempts(ip);
     return res.status(401).json({ error: 'Неверный логин или пароль' });
   }
   const token = signSession(login);
@@ -332,10 +385,6 @@ const RATE_LIMIT_BACKOFF_BASE_MS = 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 120;
 const rateLimitMap = new Map();
-
-function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
-}
 
 function checkRateLimit(ip) {
   const now = Date.now();
@@ -1183,6 +1232,20 @@ app.get('/api/teams/snapshot', async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Ошибка запроса к Cursor API' });
+  }
+});
+
+/** Период по умолчанию для дашборда (без авторизации): min/max даты Daily Usage в БД. */
+app.get('/api/users/default-period', (req, res) => {
+  try {
+    const coverage = db.getCoverage();
+    const daily = coverage.find((c) => c.endpoint === '/teams/daily-usage-data');
+    if (daily && daily.min_date && daily.max_date) {
+      return res.json({ startDate: daily.min_date, endDate: daily.max_date });
+    }
+    res.json({ startDate: null, endDate: null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

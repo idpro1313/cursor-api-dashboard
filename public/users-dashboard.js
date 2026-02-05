@@ -71,30 +71,6 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-/** Подпись месяца: "янв 2025" */
-function formatMonthLabel(monthStr) {
-  if (!monthStr || monthStr.length < 7) return monthStr || '—';
-  const [y, m] = monthStr.split('-').map(Number);
-  const d = new Date(y, (m || 1) - 1, 1);
-  return d.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
-}
-
-/** Форматирование стоимости из центов (Usage Events). */
-function formatCostCents(cents) {
-  if (cents == null || cents === 0) return '0';
-  const d = (cents / 100).toFixed(2);
-  return d.replace(/\.?0+$/, '') || '0';
-}
-
-/** Сокращение больших чисел: М — миллионы (25,88М), К — тысячи (1,5К). */
-function formatTokensShort(n) {
-  if (n == null || n === 0) return '0';
-  const num = Number(n);
-  if (num >= 1e6) return (num / 1e6).toFixed(2).replace('.', ',') + 'М';
-  if (num >= 1e3) return (num / 1e3).toFixed(2).replace('.', ',') + 'К';
-  return String(Math.round(num));
-}
-
 /** Считаем итоги по пользователю за весь период (в т.ч. стоимость по моделям). */
 function getUserTotals(user) {
   const activity = user.monthlyActivity || user.weeklyActivity || [];
@@ -166,13 +142,6 @@ function getIntensity(value, maxValue) {
   return Math.min(1, value / maxValue);
 }
 
-/** Дата YYYY-MM-DD → DD.MM.YYYY */
-function formatJiraDate(ymd) {
-  if (!ymd || String(ymd).length < 10) return '—';
-  const parts = String(ymd).slice(0, 10).split('-');
-  return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : ymd;
-}
-
 /** Бейдж статуса из Jira: Активный / Архивный (по данным Jira, самый поздний статус). */
 function formatJiraStatusBadge(user) {
   if (user.jiraStatus == null) return '';
@@ -193,14 +162,6 @@ function formatUserStatusAndDates(user) {
   const parts = [badge, datesHtml, projectHtml].filter(Boolean);
   if (!parts.length) return '';
   return `<span class="user-meta-block">${parts.join(' ')}</span>`;
-}
-
-/** Подпись месяца YYYY-MM для заголовка таблицы */
-function formatMonthShort(monthStr) {
-  if (!monthStr || monthStr.length < 7) return monthStr || '—';
-  const [y, m] = monthStr.split('-').map(Number);
-  const d = new Date(y, (m || 1) - 1, 1);
-  return d.toLocaleDateString('ru-RU', { month: 'short', year: '2-digit' });
 }
 
 /** Состояние сортировки таблицы «Активные в Jira, но не используют Cursor» */
@@ -858,13 +819,11 @@ async function setDefaultDates() {
   const elStart = document.getElementById('startDate');
   if (!elEnd || !elStart) return;
   try {
-    const r = await fetch('/api/analytics/coverage');
+    const r = await fetch('/api/users/default-period');
     const data = await r.json();
-    const coverage = data.coverage || [];
-    const daily = coverage.find((c) => c.endpoint === DAILY_USAGE_ENDPOINT);
-    if (daily && daily.min_date && daily.max_date) {
-      elStart.value = daily.min_date;
-      elEnd.value = daily.max_date;
+    if (data.startDate && data.endDate) {
+      elStart.value = data.startDate;
+      elEnd.value = data.endDate;
       return;
     }
   } catch (_) {}
@@ -1007,7 +966,7 @@ function init() {
   if (viewModeEl) viewModeEl.addEventListener('change', refresh);
   if (sortByEl) sortByEl.addEventListener('change', refresh);
   if (showOnlyActiveEl) showOnlyActiveEl.addEventListener('change', refresh);
-  document.body.addEventListener('click', copyTableFromButton);
+  // Копирование таблиц обрабатывается делегатом из common.js
 }
 
 if (document.readyState === 'loading') {

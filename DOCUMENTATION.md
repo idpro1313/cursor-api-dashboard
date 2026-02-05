@@ -59,6 +59,7 @@ cursor-api-dashboard/
 │   ├── invoices.js
 │   ├── audit.html      # Аудит (события Audit Logs)
 │   ├── audit.js
+│   ├── common.js             # Общие утилиты: escapeHtml, копирование таблиц (TSV), ENDPOINT_LABELS/getEndpointLabel
 │   ├── users-dashboard.js    # Логика дашборда (index.html)
 │   ├── team-snapshot.html
 │   ├── team-snapshot.js
@@ -224,12 +225,13 @@ chmod +x scripts/deploy.sh
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| GET | `/api/analytics?endpoint=...&startDate=...&endDate=...` | Выборка из таблицы `analytics`. Ответ: `{ data: [ { endpoint, date, payload, updated_at }, ... ] }`. |
-| GET | `/api/analytics/coverage` | Ответ: `{ coverage: [ { endpoint, min_date, max_date, days }, ... ] }`. |
-| POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД: таблицы `analytics` и `jira_users`; при `clearSettings: true` — также `settings` (API key). Ответ: `{ ok, message }`. |
-| GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage и Usage Events по пользователям и месяцам. Ответ: `{ users, months }`. У пользователя: `displayName`, `email`, `jiraStatus`, `jiraProject`, `jiraConnectedAt`, `jiraDisconnectedAt`, `monthlyActivity: [ { month, activeDays, requests, linesAdded, linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageCostByModel }, ... ]`. Пользователи — из Jira (CSV) и/или из Cursor по email. |
+| GET | `/api/analytics?endpoint=...&startDate=...&endDate=...` | Выборка из таблицы `analytics`. Ответ: `{ data: [ { endpoint, date, payload, updated_at }, ... ] }`. (только после входа) |
+| GET | `/api/analytics/coverage` | Ответ: `{ coverage: [ { endpoint, min_date, max_date, days }, ... ] }`. (только после входа) |
+| GET | `/api/users/default-period` | **Без авторизации.** Период по умолчанию для дашборда: min/max даты Daily Usage в БД. Ответ: `{ startDate, endDate }` или `{ startDate: null, endDate: null }`. |
+| GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage и Usage Events по пользователям и месяцам. Ответ: `{ users, months }`. У пользователя: `displayName`, `email`, `jiraStatus`, `jiraProject`, `jiraConnectedAt`, `jiraDisconnectedAt`, `monthlyActivity: [ ... ]`. Пользователи — из Jira (CSV) и/или из Cursor по email. |
+| POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД. (только после входа) |
 | GET | `/api/jira-users` | Ответ: `{ users: [ ... ] }` — массив объектов из таблицы `jira_users`. |
-| POST | `/api/jira-users/upload` | Тело: `{ csv: "строка CSV" }`. Полная замена записей в `jira_users`. |
+| POST | `/api/jira-users/upload` | Тело: `{ csv: "строка CSV" }`. Полная замена записей в `jira_users`. (только после входа) |
 
 ---
 
@@ -320,6 +322,7 @@ chmod +x scripts/deploy.sh
 | `OPENDATALOADER_TABLE_METHOD` | Метод детекции таблиц OpenDataLoader: `default` (по границам) или `cluster`. | не задаётся |
 | `OPENDATALOADER_USE_STRUCT_TREE` | Если `1` или `true` — использовать структуру тегов PDF (tagged PDF) для порядка чтения. | не задаётся |
 | `INVOICE_LOGS_DIR` | Каталог логов парсинга счетов. Для каждого счёта — файл `имя_файла.pdf.log`; при удалении счёта лог удаляется. | `DATA_DIR/invoice-logs` |
+| `TRUST_PROXY` | Если `1` или `true` — доверять заголовку `X-Forwarded-For` (за прокси). Нужно при работе за nginx/apache для корректного IP при лимитах входа и rate limit. | не задаётся |
 
 ---
 
@@ -369,9 +372,12 @@ chmod +x scripts/deploy.sh
 
 ## 11. Безопасность
 
-- **Настройки:** доступ к разделам admin, data, jira-users, audit и к связанным API возможен только после входа. Логин и пароль хранятся в `data/auth.json` (каталог `data/` в `.gitignore`). Рекомендуется сменить пароль по умолчанию (admin/admin).
+- **Защищённые страницы (только после входа):** доступ по прямой ссылке без авторизации закрыт. Список: `admin.html`, `data.html`, `jira-users.html`, `invoices.html`, `audit.html`, `settings.html`. Проверка пути выполняется без учёта регистра; перед отдачей статики запрос перехватывается и требуется валидная сессия, иначе редирект на `/login.html`.
+- **Учётные данные:** логин и пароль хранятся в `data/auth.json` (каталог `data/` в `.gitignore`). Рекомендуется сменить пароль по умолчанию (admin/admin).
+- **Ограничение попыток входа:** с одного IP допускается не более 5 неудачных попыток входа за 15 минут; при превышении возвращается 429 с сообщением «Слишком много попыток входа…».
 - **Сессия:** подпись cookie через HMAC-SHA256, секрет в `data/session_secret` или в `SESSION_SECRET`. Срок жизни сессии — 24 часа.
 - **API key** не логируется и не отдаётся клиенту; хранится в БД.
+- **Обратный прокси:** при работе за nginx/apache задайте переменную окружения `TRUST_PROXY=1`, чтобы корректно определялся IP клиента для лимитов входа и общего rate limit.
 - Для продакшена: задать `CORS_ORIGIN`, при необходимости ограничить доступ по сети (фаервол, обратный прокси).
 
 ---

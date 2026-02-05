@@ -1,23 +1,10 @@
 /**
- * Страница аудита: события Audit Logs с фильтрами по дате и типу
+ * Страница аудита. Требует common.js (escapeHtml, formatAuditDate, fetchWithAuth).
  */
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(s);
-  return div.innerHTML;
-}
-
-function formatAuditDate(ts) {
-  if (ts == null) return '—';
-  const d = new Date(typeof ts === 'number' ? ts : Number(ts) || ts);
-  return isNaN(d.getTime()) ? String(ts) : d.toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
-}
-
 async function loadEventTypes() {
   try {
-    const r = await fetch('/api/audit-events?limit=1', { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/audit-events?limit=1');
+    if (!r) return;
     const data = await r.json();
     const types = data.eventTypes || [];
     const select = document.getElementById('auditEventType');
@@ -57,8 +44,8 @@ async function loadAudit() {
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
     if (eventType) params.set('eventType', eventType);
-    const r = await fetch('/api/audit-events?' + params, { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/audit-events?' + params);
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const events = data.events || [];
@@ -105,8 +92,8 @@ function init() {
   if (btn) btn.addEventListener('click', loadAudit);
   const coverageEl = document.getElementById('auditStartDate');
   if (coverageEl && !coverageEl.value) {
-    fetch('/api/analytics/coverage', { credentials: 'same-origin' })
-      .then((r) => { if (r.status === 401) { window.location.href = '/login.html'; return null; } return r.json(); })
+    fetchWithAuth('/api/analytics/coverage')
+      .then((r) => r ? r.json() : null)
       .then((data) => {
         if (!data) return;
         const cov = data.coverage || [];
