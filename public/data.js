@@ -21,7 +21,7 @@ async function loadCoverage() {
     }
     el.innerHTML = `
       <table class="data-table coverage-table">
-        <thead><tr><th>Эндпоинт</th><th>С</th><th>По</th><th>Дней</th></tr></thead>
+        <thead><tr><th>Эндпоинт</th><th>С</th><th>По</th><th>Дней</th><th>Выгрузка</th></tr></thead>
         <tbody>
           ${cov.map(c => `
             <tr>
@@ -29,6 +29,7 @@ async function loadCoverage() {
               <td>${escapeHtml(c.min_date)}</td>
               <td>${escapeHtml(c.max_date)}</td>
               <td>${c.days}</td>
+              <td><button type="button" class="btn btn-secondary btn-download-coverage" data-endpoint="${escapeHtml(c.endpoint)}" data-min="${escapeHtml(c.min_date)}" data-max="${escapeHtml(c.max_date)}">Скачать JSON</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -52,6 +53,43 @@ async function loadCoverage() {
   } catch (e) {
     el.innerHTML = '<span class="error">' + escapeHtml(e.message) + '</span>';
   }
+}
+
+async function downloadEndpointData(endpoint, minDate, maxDate) {
+  const params = new URLSearchParams({ endpoint, startDate: minDate, endDate: maxDate });
+  const r = await fetchWithAuth('/api/analytics?' + params);
+  if (!r) return;
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
+  const rows = data.data || [];
+  const records = flattenRowsToRecords(rows);
+  const slug = (endpoint || 'data').replace(/_/g, '-');
+  const filename = slug + '_' + minDate + '_' + maxDate + '.json';
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function onCoverageContainerClick(ev) {
+  const btn = ev.target.closest('.btn-download-coverage');
+  if (!btn) return;
+  const endpoint = btn.getAttribute('data-endpoint');
+  const min = btn.getAttribute('data-min');
+  const max = btn.getAttribute('data-max');
+  if (!endpoint || !min || !max) return;
+  btn.disabled = true;
+  btn.textContent = '…';
+  downloadEndpointData(endpoint, min, max)
+    .catch(function (e) {
+      alert('Ошибка выгрузки: ' + (e && e.message ? e.message : String(e)));
+    })
+    .finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'Скачать JSON';
+    });
 }
 
 function getAllKeys(arr) {
@@ -192,8 +230,11 @@ async function loadData() {
 }
 
 function init() {
-  document.getElementById('btnRefreshCoverage').addEventListener('click', loadCoverage);
-  document.getElementById('btnLoad').addEventListener('click', loadData);
+  const refreshBtn = document.getElementById('btnRefreshCoverage');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadCoverage);
+  const loadBtn = document.getElementById('btnLoad');
+  if (loadBtn) loadBtn.addEventListener('click', loadData);
+  document.body.addEventListener('click', onCoverageContainerClick);
   loadCoverage();
 }
 

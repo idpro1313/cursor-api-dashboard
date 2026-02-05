@@ -1,5 +1,5 @@
 /**
- * Страница «Счета Cursor». Требует common.js (escapeHtml, formatCentsDollar, fetchWithAuth).
+ * Страница «Счета Cursor». Требует common.js (escapeHtml, formatCentsDollar, formatCostCents, fetchWithAuth).
  */
 function showResult(el, message, isError) {
   el.style.display = 'block';
@@ -78,7 +78,7 @@ function renderAllItemsTable() {
       <td class="num">${formatQty(it.quantity)}</td>
       <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
       <td class="num">${formatTax(it.tax_pct)}</td>
-      <td class="num">${formatCentsDollar(it.amount_cents)}</td>
+      <td class="num">${it.amount_cents != null ? formatCostCents(it.amount_cents) : '—'}</td>
     </tr>
   `).join('');
   const dateOfIssueHeader = `Date of issue${allItemsSortKey === 'invoice_issue_date' ? arrow : ''}`;
@@ -106,6 +106,10 @@ async function loadAllItems() {
     const items = data.items || [];
     allItemsData = items;
     summaryEl.textContent = `Позиций всего: ${items.length}`;
+    const downloadBtn = document.getElementById('btnDownloadAllItems');
+    if (downloadBtn) {
+      downloadBtn.style.display = items.length ? 'inline-block' : 'none';
+    }
     if (items.length === 0) {
       tableEl.innerHTML = '<p class="muted">Нет позиций. Загрузите счета выше.</p>';
       return;
@@ -163,7 +167,7 @@ async function showInvoiceItems(id, title) {
           <td class="num">${formatQty(it.quantity)}</td>
           <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
           <td class="num">${formatTax(it.tax_pct)}</td>
-          <td class="num">${formatCentsDollar(it.amount_cents)}</td>
+          <td class="num">${it.amount_cents != null ? formatCostCents(it.amount_cents) : '—'}</td>
         </tr>
       `).join('');
       tableEl.innerHTML = `
@@ -217,9 +221,22 @@ async function uploadPdf() {
   }
 }
 
+function downloadAllItemsJson() {
+  if (!allItemsData || allItemsData.length === 0) return;
+  const filename = 'invoice-items_' + new Date().toISOString().slice(0, 10) + '.json';
+  const blob = new Blob([JSON.stringify(allItemsData, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function init() {
   const btn = document.getElementById('btnUploadPdf');
   if (btn) btn.addEventListener('click', uploadPdf);
+  const downloadBtn = document.getElementById('btnDownloadAllItems');
+  if (downloadBtn) downloadBtn.addEventListener('click', downloadAllItemsJson);
   loadInvoices();
 }
 
