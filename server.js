@@ -1134,7 +1134,7 @@ function getMonthKey(dateStr) {
   return String(dateStr).slice(0, 7);
 }
 
-/** Период биллинга Cursor (цикл 6–5): дата YYYY-MM-DD → ключ периода YYYY-MM (период заканчивается 5-го). */
+/** Период биллинга Cursor (цикл 6–5): дата события YYYY-MM-DD → ключ периода YYYY-MM (период заканчивается 5-го). */
 function getBillingPeriodKey(dateStr) {
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))) return null;
   const parts = String(dateStr).split('-').map(Number);
@@ -1144,6 +1144,15 @@ function getBillingPeriodKey(dateStr) {
     if (m > 12) { m = 1; y += 1; }
   }
   return y + '-' + String(m).padStart(2, '0');
+}
+
+/** Период для позиции счёта: дата счёта 6-го = счёт за период, закончившийся 5-го этого месяца → ключ YYYY-MM. Иначе как getBillingPeriodKey. */
+function getBillingPeriodKeyForInvoice(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))) return null;
+  const parts = String(dateStr).split('-').map(Number);
+  const d = parts[2];
+  if (d === 6) return parts[0] + '-' + String(parts[1]).padStart(2, '0');
+  return getBillingPeriodKey(dateStr);
 }
 
 /** Найти ключ с email в объекте Jira (приоритет: известные имена, затем значение с @) */
@@ -2677,7 +2686,7 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
       if (type !== 'token_usage' && type !== 'token_fee') continue;
       const dateStr = it.invoice_issue_date;
       if (!dateStr) continue;
-      const periodKey = getBillingPeriodKey(dateStr);
+      const periodKey = getBillingPeriodKeyForInvoice(dateStr);
       if (!periodKey) continue;
       const cents = it.amount_cents != null ? Number(it.amount_cents) : 0;
       if (!invoiceByPeriod[periodKey]) invoiceByPeriod[periodKey] = { costCents: 0, itemCount: 0 };
