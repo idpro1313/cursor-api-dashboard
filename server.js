@@ -1732,7 +1732,10 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
     });
   };
   for (let line of afterHeader) {
-    line = String(line).replace(/\u0000/g, ' ').trim();
+    line = String(line)
+      .replace(/\u0000\s*\$/g, '-$')
+      .replace(/\u0000/g, ' ')
+      .trim();
     if (!line) continue;
     if (skipRe.test(line) || /^\s*\$[\d,.]+(\s+\$[\d,.]+)*\s*$/.test(line)) continue;
     if (/^Subtotal\s+/.test(line) || /Total\s+\$/.test(line) || /VAT\s+-/.test(line)) continue;
@@ -1877,10 +1880,11 @@ function extractInvoiceRowsFromOdlTable(table) {
   return { rows: out, columnIndices };
 }
 
-/** Парсинг суммы из строки (например "$1,234.56", "-$116.99") в центы. */
+/** Парсинг суммы из строки (например "$1,234.56", "-$116.99", "\u0000$450.83" — отрицательная в PDF). */
 function parseCurrencyToCents(str) {
   if (str == null || str === '') return null;
-  const s = String(str).replace(/[$,\s]/g, '').replace(',', '.');
+  let s = String(str).replace(/\u0000\s*\$/g, '-$').replace(/\u0000/g, ' ');
+  s = s.replace(/[$,\s]/g, '').replace(',', '.');
   const n = parseFloat(s);
   return Number.isNaN(n) ? null : Math.round(n * 100);
 }
