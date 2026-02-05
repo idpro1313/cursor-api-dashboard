@@ -2718,6 +2718,8 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
       };
     });
 
+    const totalUsageCents = comparison.reduce((sum, r) => sum + (r.usageCostCents || 0), 0);
+    const totalInvoiceCents = comparison.reduce((sum, r) => sum + (r.invoiceCostCents || 0), 0);
     res.json({
       usageByPeriod: Object.entries(usageByPeriod).map(([k, v]) => ({
         periodKey: k,
@@ -2728,6 +2730,7 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
         ...v,
       })),
       comparison,
+      totals: { totalUsageCents, totalInvoiceCents, totalDiffCents: totalInvoiceCents - totalUsageCents },
     });
   } catch (e) {
     res.status(500).json({ error: e.message });

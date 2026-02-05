@@ -10,7 +10,7 @@
     return (Number(cents) / 100).toFixed(2);
   }
 
-  function renderTable(comparison) {
+  function renderTable(comparison, totals) {
     if (!comparison || comparison.length === 0) {
       return '<p class="muted">Нет данных для сверки. Загрузите Usage Events и счета за один и тот же период.</p>';
     }
@@ -29,6 +29,19 @@
         '</tr>'
       );
     });
+    var totalRow = '';
+    if (totals) {
+      var t = totals.totalDiffCents;
+      var tClass = t === 0 ? 'diff-ok' : (Math.abs(t) < 100 ? 'diff-warn' : 'diff-bad');
+      totalRow = '<tr class="total-row">' +
+        '<td><strong>Итого</strong></td>' +
+        '<td class="num">—</td>' +
+        '<td class="num">' + formatDollars(totals.totalUsageCents) + '</td>' +
+        '<td class="num">—</td>' +
+        '<td class="num">' + formatDollars(totals.totalInvoiceCents) + '</td>' +
+        '<td class="num ' + tClass + '">' + (t === 0 ? '0' : (t > 0 ? '+' : '') + formatDollars(t)) + '</td>' +
+        '</tr>';
+    }
     return (
       '<table class="recon-table data-table">' +
       '<thead><tr>' +
@@ -39,7 +52,7 @@
       '<th class="num">Сумма счёт ($)</th>' +
       '<th class="num">Разница ($)</th>' +
       '</tr></thead>' +
-      '<tbody>' + rows.join('') + '</tbody></table>'
+      '<tbody>' + rows.join('') + totalRow + '</tbody></table>'
     );
   }
 
@@ -65,7 +78,7 @@
           errorEl.style.display = 'block';
           return;
         }
-        tableEl.innerHTML = renderTable(data.comparison || []);
+        tableEl.innerHTML = renderTable(data.comparison || [], data.totals || null);
         contentEl.style.display = 'block';
       })
       .catch(function (e) {

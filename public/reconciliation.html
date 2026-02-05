@@ -15,6 +15,7 @@
     .recon-table .diff-ok { color: var(--green); }
     .recon-table .diff-warn { color: var(--muted); }
     .recon-table .diff-bad { color: var(--red); }
+    .recon-table .total-row { font-weight: 600; background: var(--accent-light); }
     .recon-muted { color: var(--muted); font-size: 0.95rem; margin-bottom: 16px; }
     .recon-loading, .recon-error { padding: 20px; }
     .recon-error { color: var(--red); }
@@ -51,7 +52,7 @@
         <ul class="meta" style="margin: 0;">
           <li><strong>Usage Events</strong> — только on-demand (kind = Usage-based); включённые в $20/место (Included in Business) не учитываются.</li>
           <li><strong>Счета</strong> — позиции из загруженных PDF с типами «Использование токенов» и «Комиссия за токены».</li>
-          <li><strong>Разница</strong> — счёт минус Usage Events; положительная = по счёту больше (например, часть событий не в БД или учтена в другом периоде).</li>
+          <li><strong>Разница</strong> — счёт минус Usage. Положительная разница в одном периоде (счёт больше Usage) часто бывает из‑за «догоняющего» биллинга: часть usage из прошлых периодов может попасть на счёт следующего. Строка <strong>Итого</strong> показывает общий баланс по всем периодам.</li>
         </ul>
       </div>
     </div>
