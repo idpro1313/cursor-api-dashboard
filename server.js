@@ -1679,8 +1679,10 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
   const afterHeader = contentLines.slice(headerIndex + 1);
   const amountLineRe = /^\s*(\d+)\s+\$([\d,.]+)\s+\$([\d,.]+)\s*$/;
   const amountLineTaxRe = /^\s*(\d+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
+  const amountLineUnitTaxRe = /^\s*(\d+)\s+\$([\d,.]+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
   const amountAtEndRe = /\s+(\d+)\s+\$([\d,.]+)\s+\$([\d,.]+)\s*$/;
   const amountTaxAtEndRe = /\s+(\d+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
+  const amountUnitTaxAtEndRe = /\s+(\d+)\s+\$([\d,.]+)\s+(\d+)%\s+\$([\d,.]+)\s*$/;
   const skipRe = /^(Subtotal|Total|Amount\s+due|VAT\s|Applied\s+balance)\s+/i;
   const out = [];
   const pendingDescs = [];
@@ -1702,6 +1704,7 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
     if (!line) continue;
     if (skipRe.test(line) || /^\s*\$[\d,.]+(\s+\$[\d,.]+)*\s*$/.test(line)) continue;
     if (/^Subtotal\s+/.test(line) || /Total\s+\$/.test(line) || /VAT\s+-/.test(line)) continue;
+    if (/Total\s+excluding\s+tax/i.test(line)) continue;
     let m = line.match(amountLineRe);
     let taxPct = null;
     let unitCents = null;
@@ -1711,9 +1714,16 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
       m = line.match(amountLineTaxRe);
       if (m) taxPct = parseNum(m[2]);
     }
+    if (!m) {
+      m = line.match(amountLineUnitTaxRe);
+      if (m) {
+        unitCents = parseCurrencyToCents(m[2]);
+        taxPct = parseNum(m[3]);
+      }
+    }
     if (m && m[0].length === line.length) {
       const qty = parseNum(m[1]);
-      const amountCents = parseCurrencyToCents(m[3]);
+      const amountCents = parseCurrencyToCents(m[m.length - 1]);
       const desc = pendingDescs.length > 0 ? pendingDescs.shift() : null;
       pushRow(desc, qty, unitCents, taxPct, amountCents);
       continue;
@@ -1734,6 +1744,16 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
       const taxPctEnd = parseNum(endM[2]);
       const amountCents = parseCurrencyToCents(endM[3]);
       pushRow(descPart, qty, null, taxPctEnd, amountCents);
+      continue;
+    }
+    endM = line.match(amountUnitTaxAtEndRe);
+    if (endM) {
+      const descPart = line.slice(0, line.length - endM[0].length).trim();
+      const qty = parseNum(endM[1]);
+      const unitCentsEnd = parseCurrencyToCents(endM[2]);
+      const taxPctEnd = parseNum(endM[3]);
+      const amountCents = parseCurrencyToCents(endM[4]);
+      pushRow(descPart, qty, unitCentsEnd, taxPctEnd, amountCents);
       continue;
     }
     pendingDescs.push(line);
