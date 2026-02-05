@@ -2510,16 +2510,19 @@ function classifyInvoiceItem(description, issueDate) {
   const day = issueDate && /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? parseInt(issueDate.slice(8, 10), 10) : null;
   const is6th = day === 6;
 
-  if (/^Cursor (Teams|Business) [A-Za-z]{3} \d+ – [A-Za-z]{3} \d+, \d{4}$/.test(desc)) {
+  if (/^Cursor (Teams|Business) [A-Za-z]{3} \d+(, \d{4})? – [A-Za-z]{3} \d+, \d{4}$/.test(desc)) {
     return { charge_type: is6th ? 'monthly_subscription' : 'other', model: null };
   }
   if (/^Fast Premium Requests Per Seat /.test(desc)) {
     return { charge_type: 'fast_premium_per_seat', model: null };
   }
-  if (/^Remaining time on \d+ × Cursor (Teams|Business) /.test(desc)) {
+  if (/^\d+ extra fast premium requests? beyond 500\/month /i.test(desc)) {
+    return { charge_type: 'fast_premium_usage', model: null };
+  }
+  if (/^Remaining time on (\d+ × )?Cursor (Teams|Business) /.test(desc)) {
     return { charge_type: 'proration_charge', model: null };
   }
-  if (/^Unused time on \d+ × Cursor (Teams|Business) /.test(desc)) {
+  if (/^Unused time on (\d+ × )?Cursor (Teams|Business) /.test(desc)) {
     return { charge_type: 'proration_refund', model: null };
   }
   if (/^Cursor token fee for /.test(desc)) {

@@ -3,15 +3,30 @@
  */
 const CHARGE_TYPE_LABELS = {
   monthly_subscription: 'Ежемесячная подписка',
-  fast_premium_per_seat: 'Fast Premium',
+  fast_premium_per_seat: 'Fast Premium (тариф)',
+  fast_premium_usage: 'Fast Premium (сверх 500/мес)',
   proration_charge: 'Начисление (добавление мест)',
   proration_refund: 'Возврат (снятие мест)',
   token_fee: 'Комиссия за токены',
   token_usage: 'Использование токенов',
   other: 'Прочее',
 };
+/** Подсказки по тарифам (Cursor Teams): https://cursor.com/docs/account/teams/pricing */
+const CHARGE_TYPE_TITLES = {
+  monthly_subscription: 'Teams: $40/место/мес (в т.ч. $20 включённого использования)',
+  fast_premium_per_seat: 'Доп. опция Fast Premium за период',
+  fast_premium_usage: 'Доп. запросы Fast Premium сверх 500/мес (4¢ за запрос)',
+  proration_charge: 'Пропорция при добавлении мест; billing adjusts immediately',
+  proration_refund: 'Возврат при снятии мест (account credit)',
+  token_fee: 'Cursor Token Fee: $0.25 за 1 млн токенов',
+  token_usage: 'API prices + Cursor Token Fee (включённые $20 или on-demand)',
+  other: '',
+};
 function chargeTypeLabel(chargeType) {
   return (chargeType && CHARGE_TYPE_LABELS[chargeType]) ? CHARGE_TYPE_LABELS[chargeType] : '—';
+}
+function chargeTypeTitle(chargeType) {
+  return (chargeType && CHARGE_TYPE_TITLES[chargeType]) ? CHARGE_TYPE_TITLES[chargeType] : '';
 }
 
 function showResult(el, message, isError) {
@@ -179,7 +194,7 @@ async function showInvoiceItems(id, title) {
         <tr>
           <td>${displayIssueDate}</td>
           <td>${escapeHtml(it.description || '—')}</td>
-          <td>${escapeHtml(chargeTypeLabel(it.charge_type))}</td>
+          <td title="${escapeHtml(chargeTypeTitle(it.charge_type))}">${escapeHtml(chargeTypeLabel(it.charge_type))}</td>
           <td>${escapeHtml(it.model || '—')}</td>
           <td class="num">${formatQty(it.quantity)}</td>
           <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
