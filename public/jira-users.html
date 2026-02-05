@@ -11,10 +11,9 @@
     <div class="site-wrap">
       <h1>Статистика Cursor</h1>
       <nav class="nav-links">
+        <a href="settings.html">Настройки и загрузки</a>
         <a href="index.html">Дашборд</a>
         <a href="team-snapshot.html">Участники и расходы</a>
-        <a href="settings.html">Настройки</a>
-        <a href="admin.html">Загрузка в БД</a>
         <a href="data.html">Данные в БД</a>
         <a href="jira-users.html" class="current">Jira</a>
         <a href="invoices.html">Счета</a>
@@ -24,22 +23,7 @@
   </header>
   <main class="site-wrap">
   <h2 style="margin-top: 0;">Пользователи Jira</h2>
-  <p class="muted">Данные по пользователям из Jira. Обогащение загрузкой CSV — при загрузке нового списка предыдущие данные полностью заменяются.</p>
-
-  <div class="panel">
-    <h2>Загрузить CSV</h2>
-    <p class="meta">Формат — экспорт из Jira (<code>export.csv</code>): первая строка — заголовки (например: Internal Object ID, Key, Наименование, «Пользователь, которому выдан доступ», Проект, Внешний почтовый адрес, Статус и т.д.). Поля в кавычках с запятыми поддерживаются. При загрузке все текущие записи удаляются и заменяются данными из файла.</p>
-    <div class="row">
-      <div class="field">
-        <label>Файл CSV (export.csv)</label>
-        <input type="file" id="csvFile" accept=".csv,text/csv">
-      </div>
-      <div class="field" style="align-self: flex-end;">
-        <button class="btn" id="btnUpload">Загрузить CSV (затрёт текущие данные)</button>
-      </div>
-    </div>
-    <div id="uploadResult" class="sync-result" style="display: none; margin-top: 12px;"></div>
-  </div>
+  <p class="muted">Просмотр списка пользователей из Jira. Загрузка CSV — в <a href="settings.html">Настройки и загрузки</a>.</p>
 
   <div class="panel">
     <h2>Текущий список</h2>

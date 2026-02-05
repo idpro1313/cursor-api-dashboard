@@ -2,92 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Настройки и загрузка — Cursor Admin API</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta http-equiv="refresh" content="0;url=settings.html">
+  <title>Перенаправление — Настройки и загрузки</title>
 </head>
 <body>
-  <header class="site-header">
-    <div class="site-wrap">
-      <h1>Статистика Cursor</h1>
-      <nav class="nav-links">
-        <a href="index.html">Дашборд</a>
-        <a href="team-snapshot.html">Участники и расходы</a>
-        <a href="settings.html">Настройки</a>
-        <a href="admin.html" class="current">Загрузка в БД</a>
-        <a href="data.html">Данные в БД</a>
-        <a href="jira-users.html">Jira</a>
-        <a href="invoices.html">Счета</a>
-        <a href="audit.html">Аудит</a>
-      </nav>
-    </div>
-  </header>
-  <main class="site-wrap">
-  <h2 style="margin-top: 0;">Настройки и загрузка данных</h2>
-  <p class="muted">API key, загрузка данных из Cursor API в БД, просмотр покрытия.</p>
-
-  <div class="panel">
-    <h2>Настройки</h2>
-    <p id="apiKeyHint" class="meta" style="display: none; margin-bottom: 10px;">Для выгрузки данных введите API key и нажмите «Сохранить ключ в БД».</p>
-    <div id="apiKeyRow" class="row">
-      <div class="field">
-        <label>API Key (Cursor Team)</label>
-        <input type="password" id="apiKey" placeholder="Вставьте API key" autocomplete="off">
-      </div>
-      <div class="field" style="align-self: flex-end;">
-        <button type="button" class="btn btn-secondary" id="btnSaveApiKey">Сохранить ключ в БД</button>
-      </div>
-    </div>
-    <div id="apiKeySavedNote" class="meta" style="display: none; margin-bottom: 12px;">
-      Ключ сохранён в БД. <button type="button" class="btn-link" id="btnChangeApiKey">Изменить ключ</button>
-    </div>
-    <div id="apiKeyError" class="meta error" style="display: none; margin-top: 8px;"></div>
-  </div>
-
-  <div class="panel">
-    <h2>Сохранение в локальную БД</h2>
-    <p class="meta">Загружает данные по эндпоинтам Admin API с указанной даты по вчера (текущий день не загружается). Уже загруженные дни не запрашиваются повторно — подтягиваются только новые. Начальная дата по умолчанию — 01.09.2025.</p>
-    <div class="row">
-      <div class="field">
-        <label>Начальная дата (с какой даты загружать)</label>
-        <input type="date" id="syncStartDate">
-      </div>
-      <div class="field" style="align-self: flex-end;">
-        <button class="btn" id="btnSync">Загрузить и сохранить в БД</button>
-      </div>
-    </div>
-    <div class="sync-progress-block" id="syncProgressRow" style="display: none;">
-      <div class="progress-row" style="align-items: center; gap: 12px;">
-        <div class="spinner" id="syncSpinner"></div>
-        <span id="syncProgressText">Подготовка...</span>
-      </div>
-      <div class="progress-bar-wrap" aria-hidden="true">
-        <div class="progress-bar-fill" id="syncProgressBar" style="width: 0%;"></div>
-      </div>
-      <div class="sync-plan" id="syncPlan" style="display: none; margin-top: 10px;"></div>
-      <div class="sync-log-wrap" id="syncLogWrap">
-        <div class="sync-log" id="syncLog" role="log" aria-live="polite"></div>
-      </div>
-      <div class="meta" id="syncProgressDetail" style="margin-top: 6px;"></div>
-    </div>
-    <div id="syncResult" class="sync-result" style="display: none;"></div>
-    <p style="margin-top: 12px;"><a href="data.html" class="btn btn-secondary">Просмотр данных в БД →</a></p>
-    <div class="section coverage-section" style="margin-top: 16px;">
-      <h3 style="font-size: 1rem; margin: 0 0 8px; color: var(--muted);">Покрытие БД по всем эндпоинтам</h3>
-      <p class="meta" style="margin-bottom: 8px;">Какие эндпоинты и за какие даты уже сохранены (загружаются все: Team Members, Audit Logs, Daily Usage Data, Spending Data, Usage Events).</p>
-      <div id="coverageList" class="meta">Загрузка...</div>
-      <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-        <button class="btn btn-secondary" id="btnRefreshCoverage">Обновить</button>
-        <button class="btn btn-danger" id="btnClearApiData" type="button">Очистить только данные API</button>
-        <button class="btn btn-danger" id="btnClearDb" type="button">Полная очистка БД</button>
-        <label class="clear-db-option" style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted);">
-          <input type="checkbox" id="clearDbIncludeSettings"> удалить и настройки (API key)
-        </label>
-      </div>
-    </div>
-  </div>
-  </main>
-  <script src="common.js"></script>
-  <script src="app.js"></script>
+  <p>Перенаправление на <a href="settings.html">Настройки и загрузки</a>…</p>
 </body>
 </html>

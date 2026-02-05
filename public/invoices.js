@@ -188,7 +188,8 @@ async function uploadPdf() {
 }
 
 function init() {
-  document.getElementById('btnUploadPdf').addEventListener('click', uploadPdf);
+  const btn = document.getElementById('btnUploadPdf');
+  if (btn) btn.addEventListener('click', uploadPdf);
   loadInvoices();
 }
 
