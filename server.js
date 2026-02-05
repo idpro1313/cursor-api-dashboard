@@ -2197,7 +2197,10 @@ async function parseCursorInvoicePdf(buffer) {
       logSteps.push({ phase: 'java', message: `JAVA_HOME=${process.env.JAVA_HOME}`, detail: null });
     }
 
-    const { convert } = require('@opendataloader/pdf');
+    // Динамический import() загружает ESM-сборку пакета, где определён import.meta.url.
+    // require() ведёт к CJS-сборке, в которой fileURLToPath(import.meta.url) даёт undefined и падает при загрузке.
+    const odl = await import('@opendataloader/pdf');
+    const convert = odl.convert;
     const os = require('os');
     const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
     fs.mkdirSync(tmpDir, { recursive: true });
