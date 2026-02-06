@@ -22,11 +22,22 @@ services:
       # - PROXY_TIMEOUT_MS=60000
       # - OPENDATALOADER_TABLE_METHOD=cluster
       # - OPENDATALOADER_USE_STRUCT_TREE=1
+      # Логирование (раскомментируйте для отладки)
+      - NODE_OPTIONS=--max-old-space-size=2048
     volumes:
       # Каталог данных на хосте. deploy.sh задаёт HOST_DATA_DIR (по умолчанию на 2 уровня выше scripts/ → …/data).
       # Без deploy: по умолчанию /var/cursor/data. На Windows — можно использовать именованный том (см. ниже).
       - ${HOST_DATA_DIR:-/var/cursor/data}:/data
       # - cursor_data:/data
+    # Настройки логирования Docker для анализа
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "cursor-api-dashboard"
+    # Автоматический перезапуск контейнера при сбоях
+    restart: unless-stopped
 
 # Раскомментировать при использовании именованного тома (например на Windows):
 # volumes:

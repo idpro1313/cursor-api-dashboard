@@ -6,7 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "parse-pdf": "node server.js --parse-pdf"
+    "start:log": "node server.js 2>&1 | tee logs/app.log",
+    "start:log:json": "node server.js 2>&1 | tee logs/app.log",
+    "parse-pdf": "node server.js --parse-pdf",
+    "logs:view": "tail -f logs/app.log",
+    "logs:error": "grep -i error logs/app.log",
+    "logs:activity": "grep ACTIVITY-BY-MONTH logs/app.log"
   },
   "dependencies": {
     "@opendataloader/pdf": "1.10.0",

@@ -62,3 +62,19 @@ docker image prune -f
 
 echo "--- Готово ---"
 $DCC ps
+
+echo ""
+echo "--- Просмотр логов ---"
+echo "Последние 20 строк логов:"
+$DCC logs --tail=20 app
+
+echo ""
+echo "Для просмотра логов в реальном времени:"
+echo "  $DCC logs -f app"
+echo ""
+echo "Для просмотра логов приложения из файла:"
+echo "  tail -f $DATA_DIR/logs/app.log"
+echo ""
+echo "Для фильтрации логов по типу:"
+echo "  grep 'ACTIVITY-BY-MONTH' $DATA_DIR/logs/app.log"
+echo "  grep 'ERROR' $DATA_DIR/logs/app.log"

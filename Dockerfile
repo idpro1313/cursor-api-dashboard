@@ -28,4 +28,10 @@ EXPOSE 3333
 
 ENV PORT=3333
 ENV NODE_ENV=production
-CMD ["node", "server.js"]
+
+# Разрешаем запись логов, создаем директорию
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
+# Запуск с перенаправлением логов (stdout + stderr) в файл + консоль
+# Используем tee для дублирования логов
+CMD ["sh", "-c", "node server.js 2>&1 | tee -a /data/logs/app.log"]
