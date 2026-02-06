@@ -809,7 +809,10 @@ async function setDefaultDates() {
   if (!elEnd || !elStart) return;
   try {
     const r = await fetchWithAuth('/api/analytics/coverage');
-    if (!r) return;
+    if (!r) {
+      setFallbackDates(elStart, elEnd);
+      return;
+    }
     const data = await r.json();
     const coverage = data.coverage || [];
     if (coverage.length) {
@@ -821,7 +824,13 @@ async function setDefaultDates() {
         return;
       }
     }
-  } catch (_) {}
+    setFallbackDates(elStart, elEnd);
+  } catch (_) {
+    setFallbackDates(elStart, elEnd);
+  }
+}
+
+function setFallbackDates(elStart, elEnd) {
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - 90);
@@ -847,13 +856,13 @@ function showDataFreshness(dataEndDate) {
     message = '✓ Данные актуальны (обновлено сегодня)';
     freshnessEl.style.background = 'var(--accent-light)';
   } else if (diffDays === 1) {
-    message = 'Данные актуальны на вчера (' + formatDateLocal(dataEndDate) + ')';
+    message = 'Данные актуальны на вчера (' + formatJiraDate(dataEndDate) + ')';
     freshnessEl.style.background = 'var(--accent-light)';
   } else if (diffDays <= 7) {
-    message = 'Данные за ' + formatDateLocal(dataEndDate) + ' (' + diffDays + ' дн. назад)';
+    message = 'Данные за ' + formatJiraDate(dataEndDate) + ' (' + diffDays + ' дн. назад)';
     freshnessEl.style.background = '#fff3cd';
   } else {
-    message = '⚠ Данные устарели: ' + formatDateLocal(dataEndDate) + ' (' + diffDays + ' дн. назад)';
+    message = '⚠ Данные устарели: ' + formatJiraDate(dataEndDate) + ' (' + diffDays + ' дн. назад)';
     freshnessEl.style.background = '#f8d7da';
   }
   freshnessText.textContent = message;
