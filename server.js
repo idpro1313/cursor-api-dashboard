@@ -1269,23 +1269,31 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
+          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
           emailByMonth.set(key, rec);
         }
-        rec.usageEventsCount += 1;
         if (dateStr && (!rec.lastDate || dateStr > rec.lastDate)) rec.lastDate = dateStr;
         rec.usageRequestsCosts += Number(e.requestsCosts ?? 0);
         const tu = e.tokenUsage || {};
         const tokenCents = Number(tu.totalCents ?? 0) || 0;
         const cursorFee = Number(e.cursorTokenFee ?? 0) || 0;
-        rec.usageCostCents += tokenCents + cursorFee;
         rec.usageInputTokens = (rec.usageInputTokens || 0) + Number(tu.inputTokens ?? 0);
         rec.usageOutputTokens = (rec.usageOutputTokens || 0) + Number(tu.outputTokens ?? 0);
         rec.usageCacheWriteTokens = (rec.usageCacheWriteTokens || 0) + Number(tu.cacheWriteTokens ?? 0);
         rec.usageCacheReadTokens = (rec.usageCacheReadTokens || 0) + Number(tu.cacheReadTokens ?? 0);
         rec.usageTokenCents = (rec.usageTokenCents || 0) + tokenCents;
         const modelKey = (e.model || e.modelId || e.modelName || e.providerModelId || '').toString().trim() || 'Другое';
-        rec.usageCostByModel[modelKey] = (rec.usageCostByModel[modelKey] || 0) + tokenCents + cursorFee;
+        const kind = (e.kind || e.billingKind || '').toString().toLowerCase();
+        const isUsageBased = kind === 'usage-based' || kind === 'usage_based';
+        if (isUsageBased) {
+          rec.usageEventsCount += 1;
+          rec.usageCostCents += tokenCents + cursorFee;
+          rec.usageCostByModel[modelKey] = (rec.usageCostByModel[modelKey] || 0) + tokenCents + cursorFee;
+        } else {
+          rec.includedEventsCount += 1;
+          rec.includedCostCents += tokenCents + cursorFee;
+          rec.includedCostByModel[modelKey] = (rec.includedCostByModel[modelKey] || 0) + tokenCents + cursorFee;
+        }
       }
     }
 
@@ -1316,9 +1324,9 @@ app.get('/api/users/activity-by-month', (req, res) => {
       const jiraProject = getJiraProjectFromRow(jira);
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
+        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
         if (!rec) return def;
-        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) } };
+        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) }, includedCostByModel: { ...def.includedCostByModel, ...(rec.includedCostByModel || {}) } };
       });
       const jiraConnectedAt = firstDate || null;
       const jiraDisconnectedAt = jiraStatus === 'archived' && lastDate ? lastDate : null;
@@ -1332,9 +1340,9 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const email of cursorOnlyEmails) {
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {} };
+        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
         if (!rec) return def;
-        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) } };
+        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) }, includedCostByModel: { ...def.includedCostByModel, ...(rec.includedCostByModel || {}) } };
       });
       users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
     }
@@ -1347,7 +1355,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
       let totalRequests = 0;
       for (const a of u.monthlyActivity || []) {
         totalRequests += a.requests || 0;
-        if ((a.requests || 0) + (a.usageEventsCount || 0) > 0) {
+        if ((a.requests || 0) + (a.usageEventsCount || 0) + (a.includedEventsCount || 0) > 0) {
           lastActivityMonth = a.month;
           const d = a.lastDate || null;
           if (d && (!lastActivityDate || d > lastActivityDate)) lastActivityDate = d;
@@ -1645,7 +1653,7 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
   const skipFooterRe = /(?:^|\s)(?:Anysphere|EIN\s+\d|Applied\s+balance|Amount\s+due\s+\$)/i;
   const out = [];
   const pendingDescs = [];
-  const cleanDesc = (s) => (s && typeof s === 'string' ? s.replace(/\u0000/g, ' ').replace(/\s*[0-9a-f]{8}\)?\s*$/i, '').trim() || null : null);
+  const cleanDesc = (s) => (s && typeof s === 'string' ? s.replace(/\u0000/g, ' ').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').replace(/\s*[0-9a-f]{8}\)?\s*$/i, '').trim() || null : null);
   const pushRow = (desc, qty, unitCents, taxPct, amountCents) => {
     if (amountCents == null && !desc) return;
     out.push({
@@ -1810,7 +1818,8 @@ function extractInvoiceRowsFromOdlTable(table) {
     const row = rows[r];
     const cells = row.cells || [];
     const getCell = (idx) => (idx >= 0 && idx < cells.length ? getTextFromOdlElement(cells[idx]) : '');
-    const desc = getCell(idxDesc).trim() || null;
+    const rawDesc = getCell(idxDesc);
+    const desc = rawDesc ? rawDesc.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() || null : null;
     const qtyStr = getCell(idxQty).trim();
     const unitStr = idxUnit >= 0 ? getCell(idxUnit).trim() : '';
     const taxStr = idxTax >= 0 ? getCell(idxTax).trim() : '';
@@ -2419,7 +2428,7 @@ async function parseCursorInvoicePdf(buffer) {
 
 /** Классификация позиции счёта: тип начисления и (для токенов) модель. issueDate — дата счёта YYYY-MM-DD (6-е число = ежемесячное списание). */
 function classifyInvoiceItem(description, issueDate) {
-  const desc = description && typeof description === 'string' ? description.trim() : '';
+  const desc = description && typeof description === 'string' ? description.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
   if (/^Cursor (Teams|Business) [A-Za-z]{3} \d+(, \d{4})?\s*[\u2013\u2014\-]\s*[A-Za-z]{3} \d+, \d{4}$/.test(desc)) {
     return { charge_type: 'monthly_subscription', model: null };
   }

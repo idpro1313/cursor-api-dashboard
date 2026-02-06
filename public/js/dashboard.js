@@ -9,6 +9,8 @@ function getUserTotals(user) {
   let usageEventsCount = 0, usageCostCents = 0, usageRequestsCosts = 0;
   let usageInputTokens = 0, usageOutputTokens = 0, usageCacheWriteTokens = 0, usageCacheReadTokens = 0, usageTokenCents = 0;
   const usageCostByModel = {};
+  let includedEventsCount = 0, includedCostCents = 0;
+  const includedCostByModel = {};
   for (const a of activity) {
     requests += a.requests || 0;
     activeDays += a.activeDays || 0;
@@ -24,12 +26,18 @@ function getUserTotals(user) {
     usageCacheWriteTokens += a.usageCacheWriteTokens || 0;
     usageCacheReadTokens += a.usageCacheReadTokens || 0;
     usageTokenCents += a.usageTokenCents || 0;
+    includedEventsCount += a.includedEventsCount || 0;
+    includedCostCents += a.includedCostCents || 0;
     const byModel = a.usageCostByModel || {};
     for (const [model, cents] of Object.entries(byModel)) {
       usageCostByModel[model] = (usageCostByModel[model] || 0) + cents;
     }
+    const inclByModel = a.includedCostByModel || {};
+    for (const [model, cents] of Object.entries(inclByModel)) {
+      includedCostByModel[model] = (includedCostByModel[model] || 0) + cents;
+    }
   }
-  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts, usageInputTokens, usageOutputTokens, usageCacheWriteTokens, usageCacheReadTokens, usageTokenCents, usageCostByModel };
+  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts, usageInputTokens, usageOutputTokens, usageCacheWriteTokens, usageCacheReadTokens, usageTokenCents, usageCostByModel, includedEventsCount, includedCostCents, includedCostByModel };
 }
 
 /** Направление сортировки по имени (таблица/тепловая карта). */
@@ -48,7 +56,7 @@ function prepareUsers(data, sortBy, showOnlyActive) {
   let users = (data.users || []).slice();
   users = users.map((u) => ({ ...u, totals: getUserTotals(u) }));
   if (showOnlyActive) {
-    users = users.filter((u) => u.totals.requests > 0 || u.totals.activeDays > 0 || u.totals.linesTotal > 0);
+    users = users.filter((u) => u.totals.requests > 0 || u.totals.activeDays > 0 || u.totals.linesTotal > 0 || u.totals.usageEventsCount > 0 || u.totals.includedEventsCount > 0);
   }
   const cmp = (a, b) => {
     switch (sortBy) {
@@ -256,7 +264,20 @@ function renderCostByProject(costByProjectByMonth, projectTotals, months, sortSt
 function renderSummaryCostByModelTable(entries, sortState) {
   const state = sortState || summaryCostByModelSort;
   const dir = state.dir === 'desc' ? -1 : 1;
-  const sorted = entries.slice().sort((a, b) => {
+  const inclEntries = (summaryCostByModelData.includedEntries || []);
+  const inclMap = {};
+  for (var ie = 0; ie < inclEntries.length; ie++) { inclMap[inclEntries[ie][0]] = inclEntries[ie][1]; }
+  var hasIncl = inclEntries.length > 0;
+  // Merge all model keys
+  var allModels = new Set(entries.map(function (e) { return e[0]; }));
+  inclEntries.forEach(function (e) { allModels.add(e[0]); });
+  var merged = Array.from(allModels).map(function (model) {
+    var onDemand = 0;
+    for (var i = 0; i < entries.length; i++) { if (entries[i][0] === model) { onDemand = entries[i][1]; break; } }
+    var incl = inclMap[model] || 0;
+    return [model, onDemand, incl];
+  });
+  const sorted = merged.sort((a, b) => {
     if (state.key === 'model') {
       return dir * String(a[0]).localeCompare(String(b[0]), 'ru');
     }
@@ -264,8 +285,9 @@ function renderSummaryCostByModelTable(entries, sortState) {
   });
   const modelArrow = state.key === 'model' ? (state.dir === 'asc' ? ' ↑' : ' ↓') : '';
   const costArrow = state.key === 'cost' ? (state.dir === 'asc' ? ' ↑' : ' ↓') : '';
+  const inclHeader = hasIncl ? '<th class="num included-col">Included</th>' : '';
   return `
-    <div class="summary-cost-by-model-label">Стоимость по моделям ($)</div>
+    <div class="summary-cost-by-model-label">Стоимость по моделям</div>
     <div class="table-actions">
       <button type="button" class="btn btn-icon btn-copy-table" data-copy-target="#summaryCostByModelTableWrap" title="Копировать в буфер" aria-label="Копировать">${COPY_ICON_SVG}</button>
       <span class="copy-feedback" aria-live="polite"></span>
@@ -274,10 +296,11 @@ function renderSummaryCostByModelTable(entries, sortState) {
       <table class="data-table summary-cost-by-model-table">
         <thead><tr>
           <th class="sortable" data-sort="model" title="Сортировать">Модель${modelArrow}</th>
-          <th class="sortable num" data-sort="cost" title="Сортировать">Стоимость ($)${costArrow}</th>
+          <th class="sortable num" data-sort="cost" title="Сортировать">$ on-demand${costArrow}</th>
+          ${inclHeader}
         </tr></thead>
         <tbody>
-          ${sorted.map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('')}
+          ${sorted.map(([model, cents, inclCents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td>${hasIncl ? '<td class="num included-col">($' + formatCostCents(inclCents) + ')</td>' : ''}</tr>`).join('')}
         </tbody>
       </table>
     </div>
@@ -288,8 +311,9 @@ function renderSummary(data, preparedUsers) {
   const allUsers = data.users || [];
   let totalRequests = 0, totalLinesAdded = 0, totalLinesDeleted = 0, activeUserCount = 0;
   let totalUsageEvents = 0, totalUsageCostCents = 0;
+  let totalIncludedEvents = 0, totalIncludedCostCents = 0;
   const withActivity = (data.users || []).map((u) => ({ ...u, totals: u.totals || getUserTotals(u) }))
-    .filter((u) => (u.totals.requests || 0) > 0 || (u.totals.activeDays || 0) > 0 || (u.totals.linesTotal || 0) > 0 || (u.totals.usageEventsCount || 0) > 0);
+    .filter((u) => (u.totals.requests || 0) > 0 || (u.totals.activeDays || 0) > 0 || (u.totals.linesTotal || 0) > 0 || (u.totals.usageEventsCount || 0) > 0 || (u.totals.includedEventsCount || 0) > 0);
   let totalInputTokens = 0, totalOutputTokens = 0, totalCacheWrite = 0, totalCacheRead = 0;
   for (const u of withActivity) {
     totalRequests += u.totals.requests || 0;
@@ -297,6 +321,8 @@ function renderSummary(data, preparedUsers) {
     totalLinesDeleted += u.totals.linesDeleted || 0;
     totalUsageEvents += u.totals.usageEventsCount || 0;
     totalUsageCostCents += u.totals.usageCostCents || 0;
+    totalIncludedEvents += u.totals.includedEventsCount || 0;
+    totalIncludedCostCents += u.totals.includedCostCents || 0;
     totalInputTokens += u.totals.usageInputTokens || 0;
     totalOutputTokens += u.totals.usageOutputTokens || 0;
     totalCacheWrite += u.totals.usageCacheWriteTokens || 0;
@@ -308,11 +334,21 @@ function renderSummary(data, preparedUsers) {
   const usageCards = totalUsageEvents > 0 || totalUsageCostCents > 0 ? `
     <div class="stat-card">
       <span class="stat-value">${totalUsageEvents.toLocaleString('ru-RU')}</span>
-      <span class="stat-label">событий Usage Events</span>
+      <span class="stat-label">событий (on-demand)</span>
     </div>
     <div class="stat-card">
       <span class="stat-value">$${formatCostCents(totalUsageCostCents)}</span>
-      <span class="stat-label">стоимость (Usage Events)</span>
+      <span class="stat-label">стоимость (on-demand)</span>
+    </div>
+  ` : '';
+  const includedCards = totalIncludedEvents > 0 || totalIncludedCostCents > 0 ? `
+    <div class="stat-card stat-card-included">
+      <span class="stat-value">${totalIncludedEvents.toLocaleString('ru-RU')}</span>
+      <span class="stat-label">событий (included)</span>
+    </div>
+    <div class="stat-card stat-card-included">
+      <span class="stat-value">($${formatCostCents(totalIncludedCostCents)})</span>
+      <span class="stat-label">условная стоимость (included)</span>
     </div>
   ` : '';
   const snapshotLinkCard = `
@@ -322,15 +358,21 @@ function renderSummary(data, preparedUsers) {
     </a>
   `;
   const totalByModel = {};
+  const totalInclByModel = {};
   for (const u of withActivity) {
     const t = u.totals || getUserTotals(u);
     const byModel = t.usageCostByModel || {};
     for (const [model, cents] of Object.entries(byModel)) {
       totalByModel[model] = (totalByModel[model] || 0) + cents;
     }
+    const inclByModel = t.includedCostByModel || {};
+    for (const [model, cents] of Object.entries(inclByModel)) {
+      totalInclByModel[model] = (totalInclByModel[model] || 0) + cents;
+    }
   }
   const costByModelEntries = Object.entries(totalByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
   summaryCostByModelData.entries = costByModelEntries.slice();
+  summaryCostByModelData.includedEntries = Object.entries(totalInclByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
   const costByModelHtml = costByModelEntries.length
     ? `<div id="summaryCostByModelBlock" class="summary-cost-by-model">${renderSummaryCostByModelTable(costByModelEntries, summaryCostByModelSort)}</div>`
     : '';
@@ -357,6 +399,7 @@ function renderSummary(data, preparedUsers) {
       <span class="stat-label">строк удалено</span>
     </div>
     ${usageCards}
+    ${includedCards}
     <div class="stat-card stat-card-highlight">
       <span class="stat-value">${escapeHtml(topLabel)}</span>
       <span class="stat-label">самый активный по запросам</span>
@@ -408,10 +451,14 @@ function renderUserCardDetail(user, months, viewMetric, maxVal) {
   }
   const monthlyBars = act.map((a) => {
     const cents = a.usageCostCents || 0;
+    const inclCents = a.includedCostCents || 0;
     const intensity = maxCostCents > 0 ? getIntensity(cents, maxCostCents) : 0;
     const label = monthKey === 'month' ? formatMonthShort(a[monthKey]) : a[monthKey];
     const valueStr = cents > 0 ? `$${formatCostCents(cents)}` : '—';
-    const title = `${monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey]}: ${valueStr}${(a.usageEventsCount || 0) > 0 ? `, событий ${a.usageEventsCount}` : ''}`;
+    const inclStr = inclCents > 0 ? `, included ($${formatCostCents(inclCents)})` : '';
+    const eventsStr = (a.usageEventsCount || 0) > 0 ? `, событий ${a.usageEventsCount}` : '';
+    const inclEvStr = (a.includedEventsCount || 0) > 0 ? `, included ${a.includedEventsCount}` : '';
+    const title = `${monthKey === 'month' ? formatMonthLabel(a[monthKey]) : a[monthKey]}: ${valueStr}${inclStr}${eventsStr}${inclEvStr}`;
     return `<div class="user-card-chart-bar" style="--intensity:${intensity}" title="${escapeHtml(title)}">
       <span class="user-card-chart-value">${valueStr}</span>
       <span class="user-card-chart-label">${escapeHtml(label)}</span>
@@ -419,7 +466,8 @@ function renderUserCardDetail(user, months, viewMetric, maxVal) {
   }).join('');
 
   const applyAccept = (t.applies || t.accepts) ? ` <span class="user-card-stat">применений: ${t.applies || 0} / принято: ${t.accepts || 0}</span>` : '';
-  const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} · $${formatCostCents(t.usageCostCents)}</span>` : '';
+  const usageStats = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` <span class="user-card-stat">событий: ${t.usageEventsCount || 0} - $${formatCostCents(t.usageCostCents)}</span>` : '';
+  const includedStats = (t.includedEventsCount > 0 || t.includedCostCents > 0) ? ` <span class="user-card-stat user-card-stat-included">included: ${t.includedEventsCount || 0} - ($${formatCostCents(t.includedCostCents)})</span>` : '';
   const hasTokens = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
   const tokenStats = hasTokens ? `
     <div class="user-card-tokens-wrap">
@@ -434,8 +482,17 @@ function renderUserCardDetail(user, months, viewMetric, maxVal) {
     </div>
   ` : '';
   const teamSpendStat = (user.teamSpendCents > 0) ? ` <span class="user-card-stat">Расходы текущего месяца: $${formatCostCents(user.teamSpendCents)}</span>` : '';
-  const byModelRows = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `<tr><td>${escapeHtml(model)}</td><td class="num">$${formatCostCents(cents)}</td></tr>`).join('') : '';
-  const costByModelBlock = byModelRows ? `<div class="user-card-section user-card-section-models"><div class="user-card-section-title">Стоимость по моделям</div><div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th></tr></thead><tbody>${byModelRows}</tbody></table></div></div>` : '';
+  const allModelKeys = new Set([...Object.keys(t.usageCostByModel || {}), ...Object.keys(t.includedCostByModel || {})]);
+  const hasIncludedModels = t.includedCostByModel && Object.keys(t.includedCostByModel).some(function (k) { return (t.includedCostByModel[k] || 0) > 0; });
+  const byModelRows = allModelKeys.size > 0 ? Array.from(allModelKeys).map(function (model) {
+    const onDemand = (t.usageCostByModel || {})[model] || 0;
+    const incl = (t.includedCostByModel || {})[model] || 0;
+    return { model: model, onDemand: onDemand, incl: incl, total: onDemand + incl };
+  }).filter(function (r) { return r.total > 0; }).sort(function (a, b) { return b.total - a.total; }).map(function (r) {
+    return '<tr><td>' + escapeHtml(r.model) + '</td><td class="num">$' + formatCostCents(r.onDemand) + '</td>' + (hasIncludedModels ? '<td class="num included-col">($' + formatCostCents(r.incl) + ')</td>' : '') + '</tr>';
+  }).join('') : '';
+  const modelTheadIncl = hasIncludedModels ? '<th class="num included-col">Included</th>' : '';
+  const costByModelBlock = byModelRows ? '<div class="user-card-section user-card-section-models"><div class="user-card-section-title">Стоимость по моделям</div><div class="user-card-cost-by-model-wrap"><table class="user-card-cost-by-model-table"><thead><tr><th>Модель</th><th class="num">$</th>' + modelTheadIncl + '</tr></thead><tbody>' + byModelRows + '</tbody></table></div></div>' : '';
 
   return `
     <div class="user-card user-card-detail">
@@ -457,7 +514,7 @@ function renderUserCardDetail(user, months, viewMetric, maxVal) {
         <div class="user-card-section user-card-section-spend">
           <div class="user-card-section-title">Расходы</div>
           <div class="user-card-stats user-card-stats-block">
-            ${(usageStats || teamSpendStat) ? [usageStats, teamSpendStat].filter(Boolean).join('') : '<span class="muted">Нет данных</span>'}
+            ${(usageStats || includedStats || teamSpendStat) ? [usageStats, includedStats, teamSpendStat].filter(Boolean).join('') : '<span class="muted">Нет данных</span>'}
           </div>
         </div>
         <div class="user-card-section user-card-section-tokens">
@@ -615,7 +672,8 @@ function renderHeatmap(preparedUsers, months, viewMetric) {
       const intensity = getIntensity(v, maxVal);
       const a = act[i];
       const usagePart = (a && (a.usageEventsCount > 0 || a.usageCostCents > 0)) ? `; событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
-      const title = v > 0 ? `Месяц: ${v}${usagePart}` : '';
+      const inclPart = (a && (a.includedEventsCount > 0 || a.includedCostCents > 0)) ? `; included ${a.includedEventsCount || 0}, ($${formatCostCents(a.includedCostCents)})` : '';
+      const title = v > 0 ? `Месяц: ${v}${usagePart}${inclPart}` : '';
       return `<td class="heatmap-td" style="--intensity:${intensity}" title="${title}">${v > 0 ? v : ''}</td>`;
     }).join('');
     return `<tr><th class="heatmap-th-name">${name} ${statusAndDates}</th>${cells}</tr>`;
@@ -658,18 +716,20 @@ function renderTable(preparedUsers, months, viewMetric) {
       const v = viewMetric === 'requests' ? (a.requests || 0) : viewMetric === 'lines' ? (a.linesAdded || 0) + (a.linesDeleted || 0) : (a.activeDays || 0);
       const intensity = getIntensity(v, maxVal);
       const usagePart = (a.usageEventsCount > 0 || a.usageCostCents > 0) ? `; событий ${a.usageEventsCount || 0}, $${formatCostCents(a.usageCostCents)}` : '';
-      const title = `${a.activeDays} дн., запросов: ${a.requests}, +${a.linesAdded}/−${a.linesDeleted}${usagePart}`;
+      const inclPart = (a.includedEventsCount > 0 || a.includedCostCents > 0) ? `; included ${a.includedEventsCount || 0}, ($${formatCostCents(a.includedCostCents)})` : '';
+      const title = `${a.activeDays} дн., запросов: ${a.requests}, +${a.linesAdded}/−${a.linesDeleted}${usagePart}${inclPart}`;
       const text = viewMetric === 'lines' ? `+${a.linesAdded}/−${a.linesDeleted}` : v;
       return `<td class="table-cell-intensity" style="--intensity:${intensity}" title="${escapeHtml(title)}">${text}</td>`;
     }).join('');
     const usageTotals = (t.usageEventsCount > 0 || t.usageCostCents > 0) ? ` · Событий: ${t.usageEventsCount} · $${formatCostCents(t.usageCostCents)}` : '';
+    const inclTotals = (t.includedEventsCount > 0 || t.includedCostCents > 0) ? ` · Included: ${t.includedEventsCount} · ($${formatCostCents(t.includedCostCents)})` : '';
     const hasTokenTotals = t.usageInputTokens > 0 || t.usageOutputTokens > 0 || t.usageCacheWriteTokens > 0 || t.usageCacheReadTokens > 0;
     const tokenTotals = hasTokenTotals ? ` · Токены: in ${formatTokensShort(t.usageInputTokens)}, out ${formatTokensShort(t.usageOutputTokens)}, cW ${formatTokensShort(t.usageCacheWriteTokens)}, cR ${formatTokensShort(t.usageCacheReadTokens)}` : '';
     const teamSpendLine = (u.teamSpendCents > 0) ? ` · Расходы текущего месяца: $${formatCostCents(u.teamSpendCents)}` : '';
     const byModel = t.usageCostByModel && Object.keys(t.usageCostByModel).length ? Object.entries(t.usageCostByModel).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([model, cents]) => `${model}: $${formatCostCents(cents)}`).join('; ') : '';
     const costByModelLine = byModel ? `<div class="table-user-cost-by-model" title="Стоимость по моделям">${escapeHtml(byModel)}</div>` : '';
     return `<tr>
-      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}${tokenTotals}${teamSpendLine}</div>${costByModelLine}</td>
+      <td class="table-user-cell">${name} ${statusAndDates}${email}<div class="table-user-totals">Запросов: ${t.requests} · Дней: ${t.activeDays}${usageTotals}${inclTotals}${tokenTotals}${teamSpendLine}</div>${costByModelLine}</td>
       ${cells}
     </tr>`;
   }).join('');

@@ -441,6 +441,8 @@ select {
 }
 .stat-card-link:hover { border-color: var(--accent); background: var(--accent-light); }
 .stat-card-link .stat-value { color: var(--accent); }
+.stat-card-included { border-color: #b0bec5; background: #f5f7fa; }
+.stat-card-included .stat-value { color: #78909c; }
 .stat-value { display: block; font-size: 1.4rem; font-weight: 700; color: var(--text); }
 .stat-value.stat-green { color: var(--green); }
 .stat-value.stat-red { color: var(--red); }
@@ -663,6 +665,8 @@ select {
 .user-card-stat strong { color: var(--text); }
 .user-card-stat.stat-add { color: var(--green); }
 .user-card-stat.stat-del { color: var(--red); }
+.user-card-stat-included { color: #78909c; font-style: italic; }
+.included-col { color: #78909c; font-style: italic; }
 .user-card-tokens-wrap { flex-basis: 100%; margin-top: 4px; min-width: 0; }
 .user-card-tokens-table { width: 100%; font-size: 0.75rem; color: var(--muted); border-collapse: collapse; table-layout: fixed; }
 .user-card-tokens-table td { padding: 1px 6px 1px 0; border: none; }
