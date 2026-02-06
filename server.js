@@ -517,7 +517,10 @@ async function cursorFetch(apiKey, apiPath, options, logContext) {
 
 /** Timestamp (ms или строка) -> YYYY-MM-DD. Строки-числа ("1769701107073") — миллисекунды. */
 function toDateKey(ts) {
-  if (ts == null) return null;
+  if (ts == null) {
+    console.log('[HELPER] toDateKey NULL_INPUT');
+    return null;
+  }
   let ms;
   if (typeof ts === 'string') {
     const n = Number(ts);
@@ -525,7 +528,10 @@ function toDateKey(ts) {
   } else {
     ms = Number(ts);
   }
-  if (isNaN(ms)) return null;
+  if (isNaN(ms)) {
+    console.log('[HELPER] toDateKey INVALID_MS', JSON.stringify({ ts: ts, tsType: typeof ts }));
+    return null;
+  }
   return new Date(ms).toISOString().slice(0, 10);
 }
 
@@ -1079,7 +1085,10 @@ app.post('/api/clear-jira', requireSettingsAuth, (req, res) => {
 
 /** Ключ месяца YYYY-MM для даты YYYY-MM-DD */
 function getMonthKey(dateStr) {
-  if (!dateStr || String(dateStr).length < 7) return null;
+  if (!dateStr || String(dateStr).length < 7) {
+    if (!dateStr) console.log('[HELPER] getMonthKey EMPTY_INPUT');
+    return null;
+  }
   return String(dateStr).slice(0, 7);
 }
 
@@ -1210,28 +1219,51 @@ app.get('/api/teams/snapshot', async (req, res) => {
 
 /** Агрегация активности по пользователям и месяцам только по данным из БД (Daily Usage Data + Usage Events Data). */
 app.get('/api/users/activity-by-month', (req, res) => {
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+  console.log('[ACTIVITY-BY-MONTH] REQUEST_START', JSON.stringify({ requestId: requestId, startDate: req.query.startDate, endDate: req.query.endDate, timestamp: new Date().toISOString() }));
+  
   try {
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
+    console.log('[ACTIVITY-BY-MONTH] PARAMS_PARSED', JSON.stringify({ requestId: requestId, startDate: startDate, endDate: endDate }));
+    
     if (!startDate || !endDate) {
+      console.log('[ACTIVITY-BY-MONTH] PARAMS_MISSING', JSON.stringify({ requestId: requestId }));
       return res.status(400).json({ error: 'Нужны параметры startDate и endDate (YYYY-MM-DD).' });
     }
+    console.log('[ACTIVITY-BY-MONTH] FETCHING_JIRA', JSON.stringify({ requestId: requestId }));
     const jiraRows = db.getJiraUsers();
-    const jiraUsers = jiraRows.map((r) => r.data);
+    console.log('[ACTIVITY-BY-MONTH] JIRA_FETCHED', JSON.stringify({ requestId: requestId, jiraRowsCount: jiraRows.length }));
+    
+    const jiraUsers = jiraRows.map(function(r) { return r.data; });
+    console.log('[ACTIVITY-BY-MONTH] JIRA_MAPPED', JSON.stringify({ requestId: requestId, jiraUsersCount: jiraUsers.length }));
+    
     const allKeys = jiraUsers.length ? getAllKeysFromRows(jiraUsers) : [];
+    console.log('[ACTIVITY-BY-MONTH] ALL_KEYS_EXTRACTED', JSON.stringify({ requestId: requestId, allKeysCount: allKeys.length }));
+    
     const emailByMonth = new Map();
     const monthSet = new Set();
 
     // Daily Usage Data: активные дни, запросы, строки, applies/accepts
+    console.log('[ACTIVITY-BY-MONTH] FETCHING_DAILY_USAGE', JSON.stringify({ requestId: requestId, endpoint: '/teams/daily-usage-data', startDate: startDate, endDate: endDate }));
     const dailyRows = db.getAnalytics({
       endpoint: '/teams/daily-usage-data',
       startDate: startDate,
       endDate: endDate
     });
-    for (const row of dailyRows) {
+    console.log('[ACTIVITY-BY-MONTH] DAILY_USAGE_FETCHED', JSON.stringify({ requestId: requestId, dailyRowsCount: dailyRows.length }));
+    console.log('[ACTIVITY-BY-MONTH] PROCESSING_DAILY_USAGE', JSON.stringify({ requestId: requestId }));
+    for (let dailyIdx = 0; dailyIdx < dailyRows.length; dailyIdx++) {
+      const row = dailyRows[dailyIdx];
+      if (dailyIdx === 0) {
+        console.log('[ACTIVITY-BY-MONTH] FIRST_DAILY_ROW', JSON.stringify({ requestId: requestId, rowKeys: Object.keys(row), hasPayload: !!row.payload }));
+      }
       const payload = row.payload || {};
       const data = payload.data;
-      if (!Array.isArray(data)) continue;
+      if (!Array.isArray(data)) {
+        if (dailyIdx === 0) console.log('[ACTIVITY-BY-MONTH] DAILY_DATA_NOT_ARRAY', JSON.stringify({ requestId: requestId, dataType: typeof data }));
+        continue;
+      }
       for (const r of data) {
         const email = (r.email || r.user_email || r.userEmail || '').toString().trim().toLowerCase();
         if (!email) continue;
@@ -1261,16 +1293,28 @@ app.get('/api/users/activity-by-month', (req, res) => {
       }
     }
 
+    console.log('[ACTIVITY-BY-MONTH] DAILY_USAGE_PROCESSED', JSON.stringify({ requestId: requestId, emailByMonthSize: emailByMonth.size, monthSetSize: monthSet.size }));
+    
     // Usage Events Data (Get Usage Events Data): события, стоимость, requestsCosts
+    console.log('[ACTIVITY-BY-MONTH] FETCHING_USAGE_EVENTS', JSON.stringify({ requestId: requestId, endpoint: '/teams/filtered-usage-events', startDate: startDate, endDate: endDate }));
     const usageEventsRows = db.getAnalytics({
       endpoint: '/teams/filtered-usage-events',
       startDate: startDate,
       endDate: endDate
     });
-    for (const row of usageEventsRows) {
+    console.log('[ACTIVITY-BY-MONTH] USAGE_EVENTS_FETCHED', JSON.stringify({ requestId: requestId, usageEventsRowsCount: usageEventsRows.length }));
+    console.log('[ACTIVITY-BY-MONTH] PROCESSING_USAGE_EVENTS', JSON.stringify({ requestId: requestId }));
+    for (let evtIdx = 0; evtIdx < usageEventsRows.length; evtIdx++) {
+      const row = usageEventsRows[evtIdx];
+      if (evtIdx === 0) {
+        console.log('[ACTIVITY-BY-MONTH] FIRST_USAGE_EVENT_ROW', JSON.stringify({ requestId: requestId, rowKeys: Object.keys(row), hasPayload: !!row.payload }));
+      }
       const payload = row.payload || {};
       const events = payload.usageEvents;
-      if (!Array.isArray(events)) continue;
+      if (!Array.isArray(events)) {
+        if (evtIdx === 0) console.log('[ACTIVITY-BY-MONTH] EVENTS_NOT_ARRAY', JSON.stringify({ requestId: requestId, eventsType: typeof events }));
+        continue;
+      }
       for (const e of events) {
         const email = (e.userEmail || e.user_email || e.email || '').toString().trim().toLowerCase();
         if (!email) continue;
@@ -1309,10 +1353,16 @@ app.get('/api/users/activity-by-month', (req, res) => {
       }
     }
 
+    console.log('[ACTIVITY-BY-MONTH] USAGE_EVENTS_PROCESSED', JSON.stringify({ requestId: requestId, emailByMonthSize: emailByMonth.size, monthSetSize: monthSet.size }));
+    
+    console.log('[ACTIVITY-BY-MONTH] CREATING_MONTHS_ARRAY', JSON.stringify({ requestId: requestId }));
     const months = Array.from(monthSet).sort();
+    console.log('[ACTIVITY-BY-MONTH] MONTHS_CREATED', JSON.stringify({ requestId: requestId, monthsCount: months.length, months: months }));
+    
     const users = [];
     const jiraEmails = new Set();
     // По каждому email: первая и последняя дата по всем строкам Jira, последняя запись для статуса/имени
+    console.log('[ACTIVITY-BY-MONTH] BUILDING_JIRA_INFO_MAP', JSON.stringify({ requestId: requestId, jiraRowsCount: jiraRows.length }));
     const emailToJiraInfo = new Map();
     for (let i = 0; i < jiraRows.length; i++) {
       const row = jiraRows[i];
@@ -1335,6 +1385,9 @@ app.get('/api/users/activity-by-month', (req, res) => {
         emailToJiraInfo.set(email, updated);
       }
     }
+    console.log('[ACTIVITY-BY-MONTH] JIRA_INFO_MAP_BUILT', JSON.stringify({ requestId: requestId, emailToJiraInfoSize: emailToJiraInfo.size }));
+    
+    console.log('[ACTIVITY-BY-MONTH] BUILDING_USERS_FROM_JIRA', JSON.stringify({ requestId: requestId }));
     for (const entry of emailToJiraInfo) {
       const email = entry[0];
       const info = entry[1];
@@ -1357,6 +1410,9 @@ app.get('/api/users/activity-by-month', (req, res) => {
       const jiraDisconnectedAt = jiraStatus === 'archived' && lastDate ? lastDate : null;
       users.push({ jira: jira, email: email, displayName: String(displayName), jiraStatus: jiraStatus, jiraProject: jiraProject, jiraConnectedAt: jiraConnectedAt, jiraDisconnectedAt: jiraDisconnectedAt, monthlyActivity: monthlyActivity });
     }
+    console.log('[ACTIVITY-BY-MONTH] JIRA_USERS_BUILT', JSON.stringify({ requestId: requestId, usersFromJiraCount: users.length }));
+    
+    console.log('[ACTIVITY-BY-MONTH] FINDING_CURSOR_ONLY_USERS', JSON.stringify({ requestId: requestId }));
     const cursorOnlyEmails = new Set();
     for (const key of emailByMonth.keys()) {
       const email = key.split('\n')[0];
@@ -1374,8 +1430,10 @@ app.get('/api/users/activity-by-month', (req, res) => {
       });
       users.push({ jira: {}, email: email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity: monthlyActivity });
     }
+    console.log('[ACTIVITY-BY-MONTH] CURSOR_ONLY_USERS_ADDED', JSON.stringify({ requestId: requestId, cursorOnlyEmailsCount: cursorOnlyEmails.size, totalUsersCount: users.length }));
 
     // lastActivityMonth, lastActivityDate и totalRequestsInPeriod по каждому пользователю
+    console.log('[ACTIVITY-BY-MONTH] CALCULATING_USER_STATS', JSON.stringify({ requestId: requestId }));
     const lastMonthInRange = months.length ? months[months.length - 1] : null;
     for (const u of users) {
       let lastActivityMonth = null;
@@ -1393,20 +1451,24 @@ app.get('/api/users/activity-by-month', (req, res) => {
       u.lastActivityDate = lastActivityDate;
       u.totalRequestsInPeriod = totalRequests;
     }
+    console.log('[ACTIVITY-BY-MONTH] USER_STATS_CALCULATED', JSON.stringify({ requestId: requestId }));
 
     // Team Members и Spending Data — только из БД не берём; отдельный дашборд /team-snapshot.html запрашивает их через API
+    console.log('[ACTIVITY-BY-MONTH] SETTING_TEAM_SPEND', JSON.stringify({ requestId: requestId }));
     for (const u of users) {
       u.teamSpendCents = 0;
     }
 
     // Активные в Jira, но не используют / редко используют Cursor (после назначения teamSpendCents)
-    const activeJiraButInactiveCursor = users.filter((u) => {
+    console.log('[ACTIVITY-BY-MONTH] FILTERING_INACTIVE_USERS', JSON.stringify({ requestId: requestId }));
+    const activeJiraButInactiveCursor = users.filter(function(u) {
       if (u.jiraStatus === 'archived' || u.jiraStatus == null) return false;
       const noUse = (u.totalRequestsInPeriod || 0) === 0;
       const noRecentUse = lastMonthInRange && (u.lastActivityMonth == null || u.lastActivityMonth < lastMonthInRange);
       const rarelyUse = (u.totalRequestsInPeriod || 0) > 0 && (u.totalRequestsInPeriod || 0) < 5;
       return noUse || noRecentUse || rarelyUse;
-    }).map((u) => ({
+    }).map(function(u) {
+      return {
       email: u.email,
       displayName: u.displayName,
       jiraProject: u.jiraProject,
@@ -1416,10 +1478,13 @@ app.get('/api/users/activity-by-month', (req, res) => {
       lastActivityMonth: u.lastActivityMonth,
       lastActivityDate: u.lastActivityDate,
       totalRequestsInPeriod: u.totalRequestsInPeriod,
-      teamSpendCents: u.teamSpendCents,
-    }));
+      teamSpendCents: u.teamSpendCents
+      };
+    });
+    console.log('[ACTIVITY-BY-MONTH] INACTIVE_USERS_FILTERED', JSON.stringify({ requestId: requestId, inactiveUsersCount: activeJiraButInactiveCursor.length }));
 
     // Затраты по проекту помесячно (usageCostCents по месяцам)
+    console.log('[ACTIVITY-BY-MONTH] CALCULATING_PROJECT_COSTS', JSON.stringify({ requestId: requestId }));
     const costByProjectByMonth = {};
     for (const u of users) {
       const projectKey = u.jiraProject && String(u.jiraProject).trim() ? String(u.jiraProject).trim() : '— Без проекта';
@@ -1442,16 +1507,23 @@ app.get('/api/users/activity-by-month', (req, res) => {
       }
       projectTotals[projectKey] = sum;
     }
+    console.log('[ACTIVITY-BY-MONTH] PROJECT_COSTS_CALCULATED', JSON.stringify({ requestId: requestId, projectsCount: Object.keys(projectTotals).length }));
 
-    res.json({
-      users,
-      months,
-      activeJiraButInactiveCursor,
-      costByProjectByMonth,
-      projectTotals,
-    });
+    console.log('[ACTIVITY-BY-MONTH] BUILDING_RESPONSE', JSON.stringify({ requestId: requestId, usersCount: users.length, monthsCount: months.length }));
+    const responseData = {
+      users: users,
+      months: months,
+      activeJiraButInactiveCursor: activeJiraButInactiveCursor,
+      costByProjectByMonth: costByProjectByMonth,
+      projectTotals: projectTotals
+    };
+    console.log('[ACTIVITY-BY-MONTH] RESPONSE_READY', JSON.stringify({ requestId: requestId }));
+    
+    res.json(responseData);
+    console.log('[ACTIVITY-BY-MONTH] RESPONSE_SENT', JSON.stringify({ requestId: requestId }));
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('[ACTIVITY-BY-MONTH] ERROR', JSON.stringify({ requestId: requestId, errorMessage: e.message, errorStack: e.stack }));
+    res.status(500).json({ error: e.message || 'Ошибка сервера', requestId: requestId });
   }
 });
 

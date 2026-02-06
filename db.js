@@ -119,10 +119,14 @@ function upsertAnalytics(endpoint, date, payload) {
 
 function getAnalytics(options) {
   options = options || {};
+  console.log('[DB] getAnalytics CALL', JSON.stringify({ options: options }));
+  
   const d = getDb();
   const endpoint = options.endpoint;
   const startDate = options.startDate;
   const endDate = options.endDate;
+  console.log('[DB] getAnalytics PARAMS', JSON.stringify({ endpoint: endpoint, startDate: startDate, endDate: endDate }));
+  
   let sql = 'SELECT endpoint, date, payload, updated_at FROM analytics WHERE 1=1';
   const params = [];
   if (endpoint) {
@@ -138,8 +142,12 @@ function getAnalytics(options) {
     params.push(endDate);
   }
   sql += ' ORDER BY endpoint, date';
+  console.log('[DB] getAnalytics SQL', JSON.stringify({ sql: sql, paramsCount: params.length }));
+  
   const stmt = d.prepare(sql);
   const rows = stmt.all.apply(stmt, params);
+  console.log('[DB] getAnalytics ROWS_FETCHED', JSON.stringify({ rowsCount: rows.length }));
+  
   return rows.map(function(r) {
     return {
       endpoint: r.endpoint,
@@ -155,6 +163,8 @@ function getAnalytics(options) {
     };
   });
 }
+
+console.log('[DB] Module loaded successfully');
 
 /** Возвращает массив дат (YYYY-MM-DD), по которым уже есть данные для эндпоинта в указанном диапазоне. */
 function getExistingDates(endpoint, startDate, endDate) {
@@ -179,9 +189,11 @@ function getCoverage() {
 }
 
 function getJiraUsers() {
+  console.log('[DB] getJiraUsers CALL');
   const d = getDb();
   const stmt = d.prepare('SELECT id, data, updated_at FROM jira_users ORDER BY id');
   const rows = stmt.all();
+  console.log('[DB] getJiraUsers ROWS_FETCHED', JSON.stringify({ rowsCount: rows.length }));
   return rows.map(function(r) {
     var data;
     try {
