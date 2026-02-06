@@ -2134,7 +2134,6 @@ async function parseCursorInvoicePdf(buffer) {
         }
       }
     }
-    const { convert } = require('@opendataloader/pdf');
     const os = require('os');
     const baseTmp = (typeof os.tmpdir === 'function' && os.tmpdir()) || process.cwd();
     const tmpDir = path.resolve(path.join(baseTmp, 'cursor-invoice'));
@@ -2157,8 +2156,35 @@ async function parseCursorInvoicePdf(buffer) {
     if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
       convertOptions.useStructTree = true;
     }
-    // Вызов с одним путём (строка): в части версий пакета при передаче массива внутрь уходит undefined
-    await convert(tmpPdf, convertOptions);
+    const cwd = process.cwd();
+    if (!process.env.PWD) process.env.PWD = cwd;
+    const pathModule = require('path');
+    let pkgRoot = cwd;
+    try {
+      pkgRoot = pathModule.dirname(require.resolve('@opendataloader/pdf'));
+    } catch (_) {}
+    const origJoin = pathModule.join;
+    pathModule.join = function safeJoin(...args) {
+      const fixed = args.map((a) => {
+        if (a === undefined || a === null) return pkgRoot;
+        return a;
+      });
+      return origJoin.apply(pathModule, fixed);
+    };
+    try {
+      const { convert } = require('@opendataloader/pdf');
+      try {
+        await convert([tmpPdf], convertOptions);
+      } catch (e) {
+        if (e && typeof e.message === 'string' && /path.*Received undefined/i.test(e.message)) {
+          await convert(tmpPdf, convertOptions);
+        } else {
+          throw e;
+        }
+      }
+    } finally {
+      pathModule.join = origJoin;
+    }
     let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
     for (const e of files) {
