@@ -986,6 +986,8 @@ function init() {
     const startEl = document.getElementById('startDate');
     const endEl = document.getElementById('endDate');
     if (startEl && endEl && startEl.value && endEl.value) load();
+  }).catch((err) => {
+    console.error('Error in setDefaultDates:', err);
   });
   const btnLoad = document.getElementById('btnLoad');
   if (btnLoad) btnLoad.addEventListener('click', load);

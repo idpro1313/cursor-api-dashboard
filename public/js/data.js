@@ -63,7 +63,9 @@ function sortKeysWithFirst(keys, firstKeys) {
   return first.concat(rest);
 }
 
-function renderTableFromArray(arr, maxRows = 500, options = {}) {
+function renderTableFromArray(arr, maxRows, options) {
+  maxRows = maxRows !== undefined ? maxRows : 500;
+  options = options || {};
   if (!Array.isArray(arr) || arr.length === 0) return '<p class="muted">Нет записей</p>';
   let keys = getAllKeys(arr.slice(0, Math.max(100, Math.min(arr.length, 500))));
   if (options.keyOrder) keys = sortKeysWithFirst(keys, options.keyOrder);
