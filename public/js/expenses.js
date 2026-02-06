@@ -1,21 +1,6 @@
 /**
- * Дашборд «Участники команды и расходы» — одна таблица с обогащением из Jira, сортировка, копирование
+ * Дашборд «Участники команды и расходы». Требует js/common.js (escapeHtml, formatCostCents, COPY_ICON_SVG).
  */
-const COPY_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(s);
-  return div.innerHTML;
-}
-
-function formatCostCents(cents) {
-  if (cents == null || cents === 0) return '0';
-  const d = (cents / 100).toFixed(2);
-  return d.replace(/\.?0+$/, '') || '0';
-}
-
 function getEmailFromJiraRow(row) {
   const emailKeys = ['Внешний почтовый адрес', 'Email', 'email', 'E-mail', 'e-mail', 'Почта'];
   for (const k of emailKeys) {

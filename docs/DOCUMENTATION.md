@@ -52,18 +52,19 @@ cursor-api-dashboard/
 │   ├── index.html      # Главная: дашборд по пользователям (без входа)
 │   ├── login.html      # Вход в настройки (логин/пароль)
 │   ├── team-snapshot.html    # Расходы: участники и spend за месяц
-│   ├── team-snapshot.js
 │   ├── invoices.html   # Счета и учёт: табы Счета | Отчёт | Сверка (после входа)
-│   ├── accounting.js   # Логика счетов, отчёта и сверки
 │   ├── settings.html   # Настройки (после входа): табы Загрузка в БД | Данные в БД | Jira | Аудит
-│   ├── settings-tabs.js     # Переключение табов на странице настроек
-│   ├── app.js          # Загрузка в БД (sync-stream, покрытие, очистка)
-│   ├── data.js         # Просмотр данных в БД
-│   ├── jira-users.js   # Пользователи Jira (CSV)
-│   ├── audit.js        # Аудит (события Audit Logs)
-│   ├── users-dashboard.js    # Логика дашборда (index.html)
-│   ├── common.js       # Общие утилиты, навигация, fetchWithAuth
-│   └── styles.css
+│   ├── styles.css
+│   └── js/             # Скрипты (подключаются из HTML как js/…)
+│       ├── common.js       # Общие утилиты, навигация, fetchWithAuth
+│       ├── dashboard.js    # Логика дашборда (index.html)
+│       ├── expenses.js     # Участники и расходы (team-snapshot.html)
+│       ├── accounting.js   # Счета, отчёт, сверка (invoices.html)
+│       ├── settings-tabs.js   # Переключение табов на странице настроек
+│       ├── app.js          # Загрузка в БД (sync-stream, покрытие)
+│       ├── data.js         # Просмотр данных в БД
+│       ├── jira-users.js   # Пользователи Jira (CSV)
+│       └── audit.js        # Аудит (события Audit Logs)
 ├── scripts/
 │   └── deploy.sh       # Скрипт деплоя (git pull + docker compose)
 └── data/               # Локально: создаётся при первом запуске. В Docker — каталог хоста /var/cursor/data

@@ -202,13 +202,13 @@
     </div>
   </main>
   <footer class="site-footer" id="footer-root"></footer>
-  <script src="common.js"></script>
+  <script src="js/common.js"></script>
   <script>checkAuthAndRenderNav('nav-root', 'footer-root', 'settings');</script>
-  <script src="settings-tabs.js"></script>
-  <script src="app.js"></script>
-  <script src="data.js"></script>
-  <script src="jira-users.js"></script>
-  <script src="audit.js"></script>
+  <script src="js/settings-tabs.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/jira-users.js"></script>
+  <script src="js/audit.js"></script>
   <script>
     fetch('/api/auth/check', { credentials: 'same-origin' })
       .then((r) => r.json())
