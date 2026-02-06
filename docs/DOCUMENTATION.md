@@ -11,12 +11,8 @@
 - **Просмотр данных в БД** — фильтрация по эндпоинту и диапазону дат, просмотр покрытия.
 - **Пользователи Jira** — загрузка CSV (экспорт из Jira) для сопоставления с активностью Cursor по email.
 - **Дашборд по пользователям** — статистика использования Cursor по месяцам: запросы, дни активности, строки кода, применения/принятия; виды: карточки, тепловая карта, таблица.
-- **Счета Cursor (PDF)** — загрузка PDF-счетов, парсинг таблицы позиций через [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (требуется Java 11+). Извлекаются строки с полями Description, Qty, Unit price, Tax, Amount; при сохранении каждой позиции автоматически определяется **тип начисления** (подписка, Fast Premium, перерасчёты, комиссия/использование токенов и т.д.) и **модель** (для токенов). Логирование каждого разбора в отдельный файл в `data/invoice-logs/`. Поддержка тарифов Cursor Teams ($40/место, $20 включено, Token Fee $0.25/1M).
-- **Отчёт по счетам** — сводные таблицы по периодам биллинга (6–5) и по типам начислений; матрица период × тип.
-- **Сверка Usage Events и счетов** — сопоставление сумм по Usage Events (только on-demand, kind = Usage-based) с начислениями по счетам (token_usage, token_fee) по периодам биллинга; учёт привязки счёта от 6-го числа к периоду текущего месяца.
-- **Выгрузки в JSON** — выгрузка всех записей по эндпоинту (покрытие БД) и всех позиций по счетам для анализа.
-- **Очистка БД от счетов** — кнопка удаления всех счетов и позиций из БД.
-- **Доступ к настройкам по логину и паролю** — разделы «Настройки и загрузка», «Данные в БД», «Пользователи Jira», «Счета», «Аудит», «Отчёт по счетам», «Сверка» вынесены на отдельную страницу настроек; доступ по логину и паролю. Учётные данные хранятся в файле `data/auth.json`.
+- **Счета Cursor (PDF)** — загрузка PDF-счетов, парсинг таблицы позиций через [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (требуется Java 11+). Извлекаются строки с полями Description, Qty, Unit price, Tax, Amount. Логирование каждого разбора в отдельный файл в `data/invoice-logs/`.
+- **Доступ к настройкам по логину и паролю** — разделы «Настройки и загрузка», «Данные в БД», «Пользователи Jira», «Счета», «Аудит» вынесены на отдельную страницу настроек; доступ по логину и паролю. Учётные данные хранятся в файле `data/auth.json`.
 
 ---
 
@@ -47,28 +43,33 @@ cursor-api-dashboard/
 ├── docker-compose.yml
 ├── .dockerignore
 ├── .gitignore
-├── DOCUMENTATION.md    # Этот файл
-├── README.md           # Краткая инструкция по запуску
+├── README.md           # Краткая инструкция по запуску (для GitHub)
+├── docs/               # Документация
+│   ├── DOCUMENTATION.md    # Этот файл
+│   ├── PURPOSE-AND-VISION.md
+│   └── AUDIT-REPORT.md
 ├── public/             # Статика
 │   ├── index.html      # Главная: дашборд по пользователям (без входа)
 │   ├── login.html      # Вход в настройки (логин/пароль)
-│   ├── settings.html   # Настройки и загрузки (после входа): API key, загрузка в БД, Jira CSV, PDF-счета
-│   ├── admin.html      # Редирект на settings.html
-│   ├── app.js          # Логика настроек и загрузки в БД (sync-stream, покрытие, очистка)
-│   ├── settings-uploads.js # Загрузка Jira CSV и PDF-счетов на странице настроек
-│   ├── data.html       # Просмотр данных: вкладки «Данные в БД», «Jira», «Счета», «Аудит»
+│   ├── settings.html   # Страница настроек (после входа): ссылки на разделы
+│   ├── admin.html      # Настройки и загрузка в БД (только после входа)
+│   ├── app.js          # Логика admin.html (sync-stream, покрытие, очистка)
+│   ├── data.html       # Просмотр данных в БД
 │   ├── data.js
-│   ├── jira-users.js   # Вкладка Jira на data.html
-│   ├── invoices.js     # Вкладка Счета на data.html
-│   ├── audit.js        # Вкладка Аудит на data.html
-│   ├── common.js             # Общие утилиты: escapeHtml, копирование таблиц (TSV), ENDPOINT_LABELS/getEndpointLabel
+│   ├── jira-users.html # Пользователи Jira (CSV)
+│   ├── jira-users.js
+│   ├── invoices.html   # Счета Cursor (загрузка PDF, просмотр позиций)
+│   ├── invoices.js
+│   ├── audit.html      # Аудит (события Audit Logs)
+│   ├── audit.js
+│   ├── report.html     # Отчёт по счетам
+│   ├── report.js
+│   ├── reconciliation.html  # Сверка Usage vs счета
+│   ├── reconciliation.js
 │   ├── users-dashboard.js    # Логика дашборда (index.html)
 │   ├── team-snapshot.html
 │   ├── team-snapshot.js
-│   ├── report.html           # Сводный отчёт по счетам (по периодам биллинга и по типам начислений)
-│   ├── report.js
-│   ├── reconciliation.html   # Отчёт-сверка: Usage Events и счета по периодам
-│   ├── reconciliation.js
+│   ├── common.js
 │   └── styles.css
 ├── scripts/
 │   └── deploy.sh       # Скрипт деплоя (git pull + docker compose)
@@ -132,55 +133,46 @@ chmod +x scripts/deploy.sh
 ### 5.2 Вход и страница настроек (`login.html`, `settings.html`)
 
 - **Вход:** логин и пароль из файла `data/auth.json`. При первом запуске создаётся файл с учётными данными по умолчанию (admin/admin). Сессия хранится в cookie (24 ч).
-- **После входа** открывается `settings.html` — одна страница «Настройки и загрузки»: API key, загрузка в БД, загрузка Jira CSV, загрузка PDF-счетов. Ссылки внизу ведут на Дашборд, Участники и расходы, Данные.
+- **После входа** открывается `settings.html` — список разделов: Настройки и загрузка, Данные в БД, Пользователи Jira, Счета, Аудит, Отчёт по счетам, Сверка. Каждый пункт — ссылка на соответствующую страницу.
 
-### 5.3 Настройки и загрузки (`settings.html`), только после входа
+### 5.3 Настройки и загрузка (`admin.html`), только после входа
 
 - **Настройки:** ввод API key, сохранение в БД (кнопка «Сохранить ключ в БД»). Если ключ уже сохранён, отображается «Ключ сохранён в БД» и ссылка «Изменить ключ».
-- **Загрузка в БД:** поле «Начальная дата» (по умолчанию 01.09.2025), кнопка «Загрузить и сохранить в БД» — потоковая синхронизация (`/api/sync-stream`), прогресс и лог. Покрытие БД по эндпоинтам, кнопки «Очистить только данные API», «Полная очистка БД».
-- **Загрузка CSV (Jira):** выбор файла, кнопка «Загрузить CSV» — полная замена записей в `jira_users`.
-- **Загрузка PDF (счета Cursor):** выбор одного или нескольких PDF, кнопка «Загрузить выбранные PDF». Парсинг через OpenDataLoader; дубликаты по хешу файла не принимаются (409).
+- **Сохранение в локальную БД:** поле «Начальная дата» (по умолчанию 01.09.2025), кнопка «Загрузить и сохранить в БД» — потоковая синхронизация (`/api/sync-stream`), прогресс и лог. Запрашиваются только недостающие диапазоны дат.
+- **Покрытие БД:** таблица по эндпоинтам (мин/макс дата, количество дней), кнопки «Обновить» и «Полная очистка БД».
+- Ссылка «← К дашборду» ведёт на главную (`index.html`).
 
-Запрос к `admin.html` — редирект на `settings.html`.
+### 5.4 Данные в БД (`data.html`)
 
-### 5.4 Просмотр данных (`data.html`), только после входа
+- Покрытие БД, фильтры по эндпоинту и датам. Кнопка «Показать данные» — отображение карточек по датам и эндпоинтам. Для Usage Events поля `tokenUsage` развёрнуты в отдельные колонки (inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens, totalCents).
 
-Одна страница с вкладками:
+### 5.5 Пользователи Jira (`jira-users.html`)
 
-- **Данные в БД:** покрытие БД (таблица по эндпоинтам с датами и числом дней), кнопка «Скачать JSON» по каждому эндпоинту (выгрузка всех записей за период в JSON для анализа). Фильтры по эндпоинту и датам, кнопка «Показать данные» — единая таблица записей. Для Usage Events поля `tokenUsage` развёрнуты в отдельные колонки.
-- **Jira:** текущий список пользователей из БД (таблица), кнопки «Обновить» и «Очистить данные Jira».
-- **Счета:** справочно — тариф Teams ($40/место, $20 включено, Cursor Token Fee $0.25/1M токенов). Список загруженных счетов; кнопка «Очистить БД от счетов» (удаление всех счетов и позиций); просмотр позиций счёта с колонками **Тип** (тип начисления) и **Модель** (для токенов); единая таблица «Все позиции по счетам» с теми же колонками и кнопка «Скачать JSON». Удаление отдельного счёта — по кнопке у каждого счёта.
-- **Аудит:** события Audit Logs из БД. Фильтры: период, тип события, лимит. Кнопка «Показать» — таблица событий.
+- Загрузка CSV (экспорт из Jira). При загрузке записи в `jira_users` **полностью заменяются**. Кнопка «Очистить данные Jira» — очистка только таблицы Jira (данные API не затрагиваются).
+- Отображение текущего списка пользователей из БД.
 
-Переключение вкладок — по ссылкам или по хешу в URL (`#data`, `#jira`, `#invoices`, `#audit`).
+### 5.6 Аудит (`audit.html`)
 
-### 5.5 Отчёт по счетам (`report.html`), только после входа
+- События Audit Logs из БД. Фильтры: период, тип события, лимит записей. Кнопка «Показать» — загрузка и отображение таблицы событий.
 
-Сводный отчёт по данным из загруженных счетов. Доступ по ссылке «Отчёт по счетам» в навигации.
+### 5.7 Счета Cursor (`invoices.html`), только после входа
 
-- **По периодам биллинга** — таблица: период (подпись «6 [месяц] – 5 [след. месяц]», цикл с 6-го по 5-е включительно), число позиций, сумма в $. Период определяется по дате счёта: ключ периода = месяц окончания цикла (5-го числа).
-- **По типам начислений** — таблица: тип (Ежемесячная подписка, Fast Premium, начисление/возврат мест, комиссия за токены, использование токенов, прочее), число позиций, сумма в $, % от общей.
-- **Матрица период × тип** — суммы в $ по каждому периоду и типу, итоги по строкам и столбцам.
+- Загрузка PDF-счета: выбор файла, отправка на сервер. Парсинг выполняется **только** через OpenDataLoader; при отключённом парсере (`USE_OPENDATALOADER=0`), ошибке выполнения (нет Java или сбой OpenDataLoader) или пустом результате сервер возвращает ошибку клиенту (резервных парсеров нет).
+- Дубликаты: счёт с тем же SHA-256 хешем файла не принимается (409), отображается ссылка на уже загруженный счёт.
+- Список загруженных счетов с количеством позиций; просмотр позиций счёта (description, quantity, unit price, tax, amount); удаление счёта (при удалении удаляется и соответствующий лог в `data/invoice-logs/`).
 
-Данные запрашиваются из `/api/invoices/all-items` и агрегируются на клиенте.
+### 5.8 Отчёт по счетам (`report.html`) и Сверка (`reconciliation.html`)
 
-### 5.6 Отчёт-сверка (`reconciliation.html`), только после входа
+- **Отчёт по счетам:** сводка по загруженным счетам — по периодам биллинга (цикл 6–5) и по типам начислений. API: `GET /api/invoices/all-items`.
+- **Сверка:** сопоставление Usage Events и позиций счетов по периодам биллинга; разница в $. API: `GET /api/reconciliation`. Доступ только после входа.
 
-Сопоставление данных **Usage Events** (из БД) с начислениями по **счетам** (позиции token_usage и token_fee) по периодам биллинга. Доступ по ссылке «Сверка» в навигации.
-
-- **Сводная таблица по периодам:** для каждого периода — число событий Usage (только **kind = Usage-based**, on-demand), сумма по Usage ($), число позиций счёта, сумма по счёту ($), разница ($). Строка **Итого** — общая сумма Usage, общая сумма счёта и общая разница.
-- **Правила:** события «Included in Business» (в рамках $20/место) в сумму Usage не попадают — на счёт они отдельно не выставляются. Периоды подписаны «6 [месяц] – 5 [след. месяц]». Счета с датой **6-го числа** относятся к периоду, закончившемуся 5-го этого месяца (тот же месяц в ключе). Положительная разница в одном периоде может быть из‑за «догоняющего» биллинга (часть usage из прошлых периодов попала на счёт следующего).
-
-Данные запрашиваются из `GET /api/reconciliation`.
-
-### 5.7 Редиректы
+### 5.9 Редирект
 
 - Запрос к `/users-dashboard.html` — редирект 302 на `/index.html`.
-- Запрос к `admin.html` — редирект на `settings.html`.
 
 ---
 
-### 5.8 Что загружается в БД и что отображается на дашборде
+## 5.10 Что загружается в БД и что отображается на дашборде
 
 | Эндпоинт (загрузка) | Где отображается | Примечание |
 |--------------------|------------------|------------|
@@ -188,10 +180,10 @@ chmod +x scripts/deploy.sh
 | **Usage Events** (filtered-usage-events) | Дашборд (index) | События, стоимость в $, разбивка по моделям. |
 | **Пользователи Jira** (CSV) | Дашборд (index), страница Jira | Имена, статус активный/архивный, проект, даты подключения/отключения. |
 | **Team Members** | Дашборд (сводка), Данные в БД | Число участников и список в сводке; сырые данные в data.html. |
-| **Audit Logs** | Страница «Данные» → вкладка «Аудит» | Фильтр по дате и типу на data.html#audit. |
+| **Audit Logs** | Страница «Аудит», Данные в БД | Фильтр по дате и типу на audit.html. |
 | **Spending Data** | Дашборд (сводка и по пользователям) | Расходы текущего месяца из `/teams/spend` в сводке и в карточках/таблице пользователей. |
 
-Всё загруженное можно просмотреть на странице **«Данные»** (вкладки «Данные в БД», «Jira», «Счета», «Аудит»). На **главном дашборде** используются Daily Usage, Usage Events, Jira, Team Members и Spending Data.
+Всё загруженное можно просмотреть на странице **«Данные в БД»**. На **главном дашборде** используются Daily Usage, Usage Events, Jira, Team Members и Spending Data.
 
 ---
 
@@ -238,23 +230,26 @@ chmod +x scripts/deploy.sh
 |-------|------|----------|
 | POST | `/api/invoices/upload` | Тело: `multipart/form-data`, поле `pdf` — файл PDF. Парсинг через OpenDataLoader; при успехе — сохранение в БД, ответ `{ ok, invoice_id, filename, items_count }`. При дубликате по хешу файла — 409 и `existing_invoice`. При ошибке парсинга (OPENDATALOADER_DISABLED, OPENDATALOADER_ERROR, OPENDATALOADER_EMPTY) — 400 с сообщением. |
 | GET | `/api/invoices` | Список счетов: `{ invoices: [ { id, filename, parsed_at, items_count }, ... ] }`. |
-| GET | `/api/invoices/:id/items` | Позиции счёта: `{ items, issue_date }`. Каждый item: row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns, **charge_type**, **model**. 404 если счёт не найден. |
-| GET | `/api/invoices/all-items` | Все позиции по всем счетам (для отчётов): `{ items: [ { invoice_id, invoice_filename, invoice_issue_date, ..., charge_type, model }, ... ] }`. |
-| DELETE | `/api/invoices` | Удаление **всех** счетов и позиций из БД. Ответ `{ ok: true, message }`. |
+| GET | `/api/invoices/all-items` | Все позиции всех счетов для отчёта: `{ items: [ { issue_date, amount_cents, charge_type, ... }, ... ] }`. |
+| GET | `/api/invoices/:id/items` | Позиции счёта: `{ items: [ { row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns }, ... ] }`. 404 если счёт не найден. |
 | DELETE | `/api/invoices/:id` | Удаление счёта и всех его позиций; удаляется также лог в `INVOICE_LOGS_DIR` (имя файла счёта + `.log`). Ответ `{ ok: true }` или 404. |
-| GET | `/api/reconciliation` | Сводка для сверки Usage Events и счетов: `{ usageByPeriod, invoiceByPeriod, comparison: [ { periodKey, periodLabel, usageEventCount, usageCostCents, invoiceItemCount, invoiceCostCents, diffCents }, ... ], totals: { totalUsageCents, totalInvoiceCents, totalDiffCents } }`. Учитываются только события с kind = Usage-based; периоды биллинга 6–5. |
 
-### 6.5 Аналитика и пользователи
+### 6.5 Сверка (только после входа)
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| GET | `/api/analytics?endpoint=...&startDate=...&endDate=...` | Выборка из таблицы `analytics`. Ответ: `{ data: [ { endpoint, date, payload, updated_at }, ... ] }`. (только после входа) |
-| GET | `/api/analytics/coverage` | Ответ: `{ coverage: [ { endpoint, min_date, max_date, days }, ... ] }`. (только после входа) |
-| GET | `/api/users/default-period` | **Без авторизации.** Период по умолчанию для дашборда: min/max даты Daily Usage в БД. Ответ: `{ startDate, endDate }` или `{ startDate: null, endDate: null }`. |
-| GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage и Usage Events по пользователям и месяцам. Ответ: `{ users, months }`. У пользователя: `displayName`, `email`, `jiraStatus`, `jiraProject`, `jiraConnectedAt`, `jiraDisconnectedAt`, `monthlyActivity: [ ... ]`. Пользователи — из Jira (CSV) и/или из Cursor по email. |
-| POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД. (только после входа) |
+| GET | `/api/reconciliation` | Сопоставление Usage Events и позиций счетов по периодам биллинга. Ответ: `{ comparison: [ { periodLabel, usageEventCount, usageCostCents, invoiceItemCount, invoiceCostCents, diffCents } ], totals }`. |
+
+### 6.6 Аналитика и пользователи
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/analytics?endpoint=...&startDate=...&endDate=...` | Выборка из таблицы `analytics`. Ответ: `{ data: [ { endpoint, date, payload, updated_at }, ... ] }`. |
+| GET | `/api/analytics/coverage` | Ответ: `{ coverage: [ { endpoint, min_date, max_date, days }, ... ] }`. |
+| POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД: таблицы `analytics` и `jira_users`; при `clearSettings: true` — также `settings` (API key). Ответ: `{ ok, message }`. |
+| GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage и Usage Events по пользователям и месяцам. Ответ: `{ users, months }`. У пользователя: `displayName`, `email`, `jiraStatus`, `jiraProject`, `jiraConnectedAt`, `jiraDisconnectedAt`, `monthlyActivity: [ { month, activeDays, requests, linesAdded, linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageCostByModel }, ... ]`. Пользователи — из Jira (CSV) и/или из Cursor по email. |
 | GET | `/api/jira-users` | Ответ: `{ users: [ ... ] }` — массив объектов из таблицы `jira_users`. |
-| POST | `/api/jira-users/upload` | Тело: `{ csv: "строка CSV" }`. Полная замена записей в `jira_users`. (только после входа) |
+| POST | `/api/jira-users/upload` | Тело: `{ csv: "строка CSV" }`. Полная замена записей в `jira_users`. |
 
 ---
 
@@ -293,7 +288,6 @@ chmod +x scripts/deploy.sh
 | filename | TEXT | Имя загруженного файла. |
 | file_path | TEXT | Не используется (оставлено для совместимости). |
 | file_hash | TEXT | SHA-256 хеш файла; уникальный индекс для проверки дубликатов. |
-| issue_date | TEXT | Дата счёта YYYY-MM-DD (извлекается из PDF при парсинге). |
 | parsed_at | TEXT | Время загрузки/парсинга. |
 
 **`cursor_invoice_items`**
@@ -309,19 +303,13 @@ chmod +x scripts/deploy.sh
 | tax_pct | REAL | Налог, %. |
 | amount_cents | INTEGER | Сумма в центах. |
 | raw_columns | TEXT | JSON массива сырых значений колонок. |
-| charge_type | TEXT | Тип начисления: monthly_subscription, fast_premium_per_seat, fast_premium_usage, proration_charge, proration_refund, token_fee, token_usage, other. Заполняется при загрузке PDF. |
-| model | TEXT | Модель (для token_fee и token_usage), например gpt-5.2-codex. Заполняется при загрузке PDF. |
 
 Уникальность: `(invoice_id, row_index)`.
-
-**Классификация позиций счёта (charge_type, model).** При сохранении позиций после парсинга PDF сервер вызывает классификатор по полю `description` и дате счёта (`issue_date`). Типы: `monthly_subscription` (ежемесячная подписка, дата 6-го), `fast_premium_per_seat`, `fast_premium_usage` (сверх лимита 500/месяц), `proration_charge` / `proration_refund`, `token_fee` / `token_usage` (модель извлекается из описания, например gpt-5.2-codex), `other`. Учитываются форматы дат вида «Dec 5, 2025 – Jan 5, 2026» и строки «Remaining/Unused time on Cursor Business» без префикса «N ×». Функция очистки только счетов: `clearCursorInvoices()` в db.js (удаляет `cursor_invoice_items` и `cursor_invoices`).
-
-**Периоды биллинга.** Цикл с 6-го по 5-е включительно. Ключ периода для событий Usage: месяц даты окончания цикла (5-го). Для счетов: счёт с датой **6-го числа** относится к периоду текущего месяца (цикл только что закончился 5-го); счета с другой датой — к периоду по общему правилу. Подпись периода в интерфейсе: «6 [месяц] – 5 [след. месяц]».
 
 ### 7.4 Вспомогательные функции (db.js)
 
 - `getExistingDates(endpoint, startDate, endDate)` — массив дат (YYYY-MM-DD), по которым уже есть данные для эндпоинта в указанном диапазоне. Используется при синхронизации для построения недостающих диапазонов: запрашиваются только чанки по «дырам» (без повторной загрузки одних и тех же дней).
-- Для счетов: `getCursorInvoices`, `getCursorInvoiceById`, `getCursorInvoiceItems`, `getCursorInvoiceByFileHash`, `insertCursorInvoice`, `insertCursorInvoiceItem(..., chargeType, model)`, `deleteCursorInvoice`, `clearCursorInvoices` (только счета и позиции). При полной очистке БД (`clearAllData`) удаляются также `cursor_invoices` и `cursor_invoice_items`.
+- Для счетов: `getCursorInvoices`, `getCursorInvoiceById`, `getCursorInvoiceItems`, `getCursorInvoiceByFileHash`, `insertCursorInvoice`, `insertCursorInvoiceItem`, `deleteCursorInvoice`. При полной очистке БД (`clearAllData`) удаляются также `cursor_invoices` и `cursor_invoice_items`.
 
 ---
 
@@ -352,7 +340,6 @@ chmod +x scripts/deploy.sh
 | `OPENDATALOADER_TABLE_METHOD` | Метод детекции таблиц OpenDataLoader: `default` (по границам) или `cluster`. | не задаётся |
 | `OPENDATALOADER_USE_STRUCT_TREE` | Если `1` или `true` — использовать структуру тегов PDF (tagged PDF) для порядка чтения. | не задаётся |
 | `INVOICE_LOGS_DIR` | Каталог логов парсинга счетов. Для каждого счёта — файл `имя_файла.pdf.log`; при удалении счёта лог удаляется. | `DATA_DIR/invoice-logs` |
-| `TRUST_PROXY` | Если `1` или `true` — доверять заголовку `X-Forwarded-For` (за прокси). Нужно при работе за nginx/apache для корректного IP при лимитах входа и rate limit. | не задаётся |
 
 ---
 
@@ -387,21 +374,7 @@ chmod +x scripts/deploy.sh
 
 **Извлечение таблицы:** в JSON ищется таблица с заголовками Description, Qty, Unit price (опционально), Tax (опционально), Amount. Функция `extractInvoiceRowsFromOdlTable()` определяет индексы колонок по заголовкам и для каждой строки данных извлекает: description, quantity, unit_price_cents, tax_pct, amount_cents. Поддерживаются форматы с колонкой Tax и без неё. Числа и валютные суммы парсятся с учётом символа `$` и запятых; применяется нормализация текста (в т.ч. склейка сумм, разорванных переносами строк, и нестандартных пробелов).
 
-**Логирование:** для каждого загружаемого счёта создаётся/перезаписывается файл в `INVOICE_LOGS_DIR` с именем `имя_файла.pdf.log` (недопустимые символы в имени заменяются на `_`). В лог пишутся:
-- заголовок: время, имя файла, парсер, число извлечённых строк, длительность (мс), код ошибки при наличии;
-- **этапы парсинга (logSteps):** для поиска проблем с парсером по шагам:
-  - `start` — размер буфера PDF;
-  - `java` — JAVA_HOME (авто или из окружения);
-  - `temp` — путь к временному PDF и каталогу вывода;
-  - `convert_options` — параметры вызова OpenDataLoader (tableMethod, useStructTree и т.д.);
-  - `convert_done` — длительность convert() в мс;
-  - `output_dir` — список файлов в каталоге после конвертации;
-  - `json_read` — какой .json прочитан и его размер;
-  - `doc_structure` — число элементов doc.kids и типы верхнего уровня;
-  - `find_table` — найдена ли таблица с заголовками Description/Qty/Amount, число строк, текст заголовков;
-  - `extract_rows` — число извлечённых строк, индексы колонок, пример первой строки;
-  - `success` / `empty_extract` / `no_doc_kids` / `error` — итог или причина пустого результата;
-- фрагмент JSON OpenDataLoader (до 50K символов) при наличии. При удалении счёта через API соответствующий лог-файл удаляется.
+**Логирование:** для каждого загружаемого счёта создаётся/перезаписывается файл в `INVOICE_LOGS_DIR` с именем `имя_файла.pdf.log` (недопустимые символы в имени заменяются на `_`). В лог пишутся: timestamp, filename, parser (`opendataloader`), rows_count, код ошибки (если есть), длина и содержимое извлечённого JSON (поле `parser_output`, обрезано до 50K символов). При удалении счёта через API соответствующий лог-файл удаляется.
 
 ---
 
@@ -416,12 +389,9 @@ chmod +x scripts/deploy.sh
 
 ## 11. Безопасность
 
-- **Защищённые страницы (только после входа):** доступ по прямой ссылке без авторизации закрыт. Список: `admin.html`, `data.html`, `settings.html`. Проверка пути выполняется без учёта регистра; перед отдачей статики запрос перехватывается и требуется валидная сессия, иначе редирект на `/login.html`.
-- **Учётные данные:** логин и пароль хранятся в `data/auth.json` (каталог `data/` в `.gitignore`). Рекомендуется сменить пароль по умолчанию (admin/admin).
-- **Ограничение попыток входа:** с одного IP допускается не более 5 неудачных попыток входа за 15 минут; при превышении возвращается 429 с сообщением «Слишком много попыток входа…».
+- **Настройки:** доступ к разделам admin, data, jira-users, invoices, audit, report, reconciliation и к связанным API возможен только после входа. Логин и пароль хранятся в `data/auth.json` (каталог `data/` в `.gitignore`). Рекомендуется сменить пароль по умолчанию (admin/admin).
 - **Сессия:** подпись cookie через HMAC-SHA256, секрет в `data/session_secret` или в `SESSION_SECRET`. Срок жизни сессии — 24 часа.
 - **API key** не логируется и не отдаётся клиенту; хранится в БД.
-- **Обратный прокси:** при работе за nginx/apache задайте переменную окружения `TRUST_PROXY=1`, чтобы корректно определялся IP клиента для лимитов входа и общего rate limit.
 - Для продакшена: задать `CORS_ORIGIN`, при необходимости ограничить доступ по сети (фаервол, обратный прокси).
 
 ---

@@ -1,32 +1,16 @@
 /**
- * Страница «Счета Cursor». Требует common.js (escapeHtml, formatCentsDollar, formatCostCents, fetchWithAuth).
+ * Страница «Счета Cursor» — загрузка PDF через страницу и отображение счетов
  */
-const CHARGE_TYPE_LABELS = {
-  monthly_subscription: 'Ежемесячная подписка',
-  fast_premium_per_seat: 'Fast Premium (тариф)',
-  fast_premium_usage: 'Fast Premium (сверх 500/мес)',
-  proration_charge: 'Начисление (добавление мест)',
-  proration_refund: 'Возврат (снятие мест)',
-  token_fee: 'Комиссия за токены',
-  token_usage: 'Использование токенов',
-  other: 'Прочее',
-};
-/** Подсказки по тарифам (Cursor Teams): https://cursor.com/docs/account/teams/pricing */
-const CHARGE_TYPE_TITLES = {
-  monthly_subscription: 'Teams: $40/место/мес (в т.ч. $20 включённого использования)',
-  fast_premium_per_seat: 'Доп. опция Fast Premium за период',
-  fast_premium_usage: 'Доп. запросы Fast Premium сверх 500/мес (4¢ за запрос)',
-  proration_charge: 'Пропорция при добавлении мест; billing adjusts immediately',
-  proration_refund: 'Возврат при снятии мест (account credit)',
-  token_fee: 'Cursor Token Fee: $0.25 за 1 млн токенов',
-  token_usage: 'API prices + Cursor Token Fee (включённые $20 или on-demand)',
-  other: '',
-};
-function chargeTypeLabel(chargeType) {
-  return (chargeType && CHARGE_TYPE_LABELS[chargeType]) ? CHARGE_TYPE_LABELS[chargeType] : '—';
+function escapeHtml(s) {
+  if (s == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
 }
-function chargeTypeTitle(chargeType) {
-  return (chargeType && CHARGE_TYPE_TITLES[chargeType]) ? CHARGE_TYPE_TITLES[chargeType] : '';
+
+function formatCents(cents) {
+  if (cents == null) return '—';
+  return '$' + (cents / 100).toFixed(2).replace(/\.?0+$/, '') || '0';
 }
 
 function showResult(el, message, isError) {
@@ -39,8 +23,8 @@ async function loadInvoices() {
   const listEl = document.getElementById('invoicesList');
   const summaryEl = document.getElementById('invoicesSummary');
   try {
-    const r = await fetchWithAuth('/api/invoices');
-    if (!r) return;
+    const r = await fetch('/api/invoices', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
     const invoices = data.invoices || [];
@@ -75,92 +59,20 @@ async function loadInvoices() {
     listEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
     summaryEl.textContent = '';
   }
-  loadAllItems();
-}
-
-let allItemsData = [];
-let allItemsSortKey = 'invoice_issue_date';
-let allItemsSortDir = 'desc';
-
-function sortAllItems(items, key, dir) {
-  return items.slice().sort((a, b) => {
-    const va = a[key] != null ? String(a[key]) : '';
-    const vb = b[key] != null ? String(b[key]) : '';
-    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
-    return dir === 'asc' ? cmp : -cmp;
-  });
-}
-
-function renderAllItemsTable() {
-  const tableEl = document.getElementById('allItemsTable');
-  if (!tableEl || allItemsData.length === 0) return;
-  const formatQty = (q) => (q != null && q !== '') ? Number(q) : '—';
-  const formatTax = (t) => (t != null && t !== '') ? (Number(t) + '%') : '—';
-  const sorted = sortAllItems(allItemsData, allItemsSortKey, allItemsSortDir);
-  const arrow = allItemsSortDir === 'asc' ? ' ↑' : ' ↓';
-  const rows = sorted.map((it) => `
-    <tr>
-      <td>${escapeHtml(it.invoice_filename || '—')}</td>
-      <td>${escapeHtml(it.invoice_issue_date || '—')}</td>
-      <td>${escapeHtml(it.description || '—')}</td>
-      <td>${escapeHtml(chargeTypeLabel(it.charge_type))}</td>
-      <td>${escapeHtml(it.model || '—')}</td>
-      <td class="num">${formatQty(it.quantity)}</td>
-      <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
-      <td class="num">${formatTax(it.tax_pct)}</td>
-      <td class="num">${it.amount_cents != null ? formatCostCents(it.amount_cents) : '—'}</td>
-    </tr>
-  `).join('');
-  const dateOfIssueHeader = `Date of issue${allItemsSortKey === 'invoice_issue_date' ? arrow : ''}`;
-  tableEl.innerHTML = `
-    <table class="data-table">
-      <thead><tr><th>Счёт</th><th class="sortable" data-sort="invoice_issue_date" title="Сортировать">${dateOfIssueHeader}</th><th>Description</th><th>Тип</th><th>Модель</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
-  tableEl.querySelector('th[data-sort="invoice_issue_date"]').addEventListener('click', () => {
-    allItemsSortDir = allItemsSortDir === 'asc' ? 'desc' : 'asc';
-    renderAllItemsTable();
-  });
-}
-
-async function loadAllItems() {
-  const summaryEl = document.getElementById('allItemsSummary');
-  const tableEl = document.getElementById('allItemsTable');
-  if (!summaryEl || !tableEl) return;
-  try {
-    const r = await fetchWithAuth('/api/invoices/all-items');
-    if (!r) return;
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || r.statusText);
-    const items = data.items || [];
-    allItemsData = items;
-    summaryEl.textContent = `Позиций всего: ${items.length}`;
-    const downloadBtn = document.getElementById('btnDownloadAllItems');
-    if (downloadBtn) {
-      downloadBtn.style.display = items.length ? 'inline-block' : 'none';
-    }
-    if (items.length === 0) {
-      tableEl.innerHTML = '<p class="muted">Нет позиций. Загрузите счета выше.</p>';
-      return;
-    }
-    renderAllItemsTable();
-  } catch (e) {
-    tableEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
-    summaryEl.textContent = '';
-  }
 }
 
 async function deleteInvoice(id, liEl) {
   if (!confirm('Удалить этот счёт из списка? Позиции будут удалены безвозвратно.')) return;
   try {
-    const r = await fetchWithAuth('/api/invoices/' + id, { method: 'DELETE' });
-    if (!r) return;
+    const r = await fetch('/api/invoices/' + id, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
     document.getElementById('invoiceDetail').style.display = 'none';
     loadInvoices();
-    loadAllItems();
   } catch (e) {
     alert(e.message || 'Ошибка удаления');
   }
@@ -171,50 +83,42 @@ async function showInvoiceItems(id, title) {
   const titleEl = document.getElementById('invoiceDetailTitle');
   const tableEl = document.getElementById('invoiceItemsTable');
   try {
-    const r = await fetchWithAuth('/api/invoices/' + id + '/items');
-    if (!r) return;
+    const r = await fetch('/api/invoices/' + id + '/items', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) {
       tableEl.innerHTML = '<p class="error">' + escapeHtml(data.error || r.statusText) + '</p>';
       detailEl.style.display = 'block';
       if (titleEl) titleEl.textContent = title || 'Позиции счёта';
-      detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     const items = data.items || [];
-    const issueDate = data.issue_date || null;
     titleEl.textContent = title || 'Позиции счёта';
     if (items.length === 0) {
       tableEl.innerHTML = '<p class="muted">Нет позиций.</p>';
     } else {
       const formatQty = (q) => (q != null && q !== '') ? Number(q) : '—';
       const formatTax = (t) => (t != null && t !== '') ? (Number(t) + '%') : '—';
-      const displayIssueDate = issueDate ? escapeHtml(issueDate) : '—';
       const rows = items.map((it) => `
         <tr>
-          <td>${displayIssueDate}</td>
           <td>${escapeHtml(it.description || '—')}</td>
-          <td title="${escapeHtml(chargeTypeTitle(it.charge_type))}">${escapeHtml(chargeTypeLabel(it.charge_type))}</td>
-          <td>${escapeHtml(it.model || '—')}</td>
           <td class="num">${formatQty(it.quantity)}</td>
-          <td class="num">${formatCentsDollar(it.unit_price_cents)}</td>
+          <td class="num">${formatCents(it.unit_price_cents)}</td>
           <td class="num">${formatTax(it.tax_pct)}</td>
-          <td class="num">${it.amount_cents != null ? formatCostCents(it.amount_cents) : '—'}</td>
+          <td class="num">${formatCents(it.amount_cents)}</td>
         </tr>
       `).join('');
       tableEl.innerHTML = `
         <table class="data-table">
-          <thead><tr><th>Date of issue</th><th>Description</th><th>Тип</th><th>Модель</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
+          <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       `;
     }
     detailEl.style.display = 'block';
-    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     tableEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
     detailEl.style.display = 'block';
-    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 }
 
@@ -230,11 +134,12 @@ async function uploadPdf() {
   resultEl.style.display = 'block';
   resultEl.textContent = 'Загрузка...';
   try {
-    const r = await fetchWithAuth('/api/invoices/upload', {
+    const r = await fetch('/api/invoices/upload', {
       method: 'POST',
       body: formData,
+      credentials: 'same-origin',
     });
-    if (!r) return;
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
     const data = await r.json();
     if (!r.ok) {
       if (r.status === 409 && data.alreadyUploaded) {
@@ -253,38 +158,8 @@ async function uploadPdf() {
   }
 }
 
-function downloadAllItemsJson() {
-  if (!allItemsData || allItemsData.length === 0) return;
-  const filename = 'invoice-items_' + new Date().toISOString().slice(0, 10) + '.json';
-  const blob = new Blob([JSON.stringify(allItemsData, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-async function clearAllInvoices() {
-  if (!confirm('Удалить из БД все загруженные счета и их позиции? Это действие нельзя отменить.')) return;
-  try {
-    const r = await fetchWithAuth('/api/invoices', { method: 'DELETE' });
-    if (!r) return;
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || r.statusText);
-    document.getElementById('invoiceDetail').style.display = 'none';
-    loadInvoices();
-  } catch (e) {
-    alert('Ошибка: ' + (e.message || String(e)));
-  }
-}
-
 function init() {
-  const btn = document.getElementById('btnUploadPdf');
-  if (btn) btn.addEventListener('click', uploadPdf);
-  const downloadBtn = document.getElementById('btnDownloadAllItems');
-  if (downloadBtn) downloadBtn.addEventListener('click', downloadAllItemsJson);
-  const clearBtn = document.getElementById('btnClearAllInvoices');
-  if (clearBtn) clearBtn.addEventListener('click', clearAllInvoices);
+  document.getElementById('btnUploadPdf').addEventListener('click', uploadPdf);
   loadInvoices();
 }
 

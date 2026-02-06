@@ -1,6 +1,21 @@
 /**
- * Дашборд «Участники команды и расходы». Требует common.js (escapeHtml, COPY_ICON_SVG, formatCostCents, делегат копирования).
+ * Дашборд «Участники команды и расходы» — одна таблица с обогащением из Jira, сортировка, копирование
  */
+const COPY_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+function formatCostCents(cents) {
+  if (cents == null || cents === 0) return '0';
+  const d = (cents / 100).toFixed(2);
+  return d.replace(/\.?0+$/, '') || '0';
+}
+
 function getEmailFromJiraRow(row) {
   const emailKeys = ['Внешний почтовый адрес', 'Email', 'email', 'E-mail', 'e-mail', 'Почта'];
   for (const k of emailKeys) {
@@ -196,6 +211,59 @@ function renderTable(rows) {
   `;
 }
 
+function tableToTsv(table) {
+  const rows = [];
+  table.querySelectorAll('tr').forEach((tr) => {
+    const cells = [];
+    tr.querySelectorAll('th, td').forEach((cell) => {
+      const text = (cell.textContent || '').trim().replace(/\s+/g, ' ').replace(/\t/g, ' ').replace(/\n/g, ' ');
+      cells.push(text);
+    });
+    if (cells.length) rows.push(cells.join('\t'));
+  });
+  return rows.join('\n');
+}
+
+function showCopyFeedback(btn, message) {
+  const feedback = btn.parentElement && btn.parentElement.querySelector('.copy-feedback');
+  if (feedback) {
+    feedback.textContent = message;
+    feedback.classList.add('visible');
+    setTimeout(() => { feedback.textContent = ''; feedback.classList.remove('visible'); }, 2000);
+  }
+}
+
+function setupCopyButton() {
+  document.getElementById('teamSnapshotTableWrap')?.closest('.table-block-with-copy')?.querySelector('.btn-copy-table')?.addEventListener('click', (ev) => {
+    const btn = ev.currentTarget;
+    const wrap = document.getElementById('teamSnapshotTableWrap');
+    if (!wrap) return;
+    const table = wrap.querySelector('table');
+    if (!table) return;
+    const tsv = tableToTsv(table);
+    const onSuccess = () => showCopyFeedback(btn, 'Скопировано');
+    const onError = () => showCopyFeedback(btn, 'Ошибка');
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(tsv).then(onSuccess).catch(onError);
+      return;
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = tsv;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.setAttribute('readonly', '');
+      document.body.appendChild(textarea);
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (ok) onSuccess(); else onError();
+    } catch (e) {
+      onError();
+    }
+  });
+}
+
 function handleTableClick(ev) {
   const th = ev.target.closest('th.sortable[data-sort]');
   if (!th) return;
@@ -209,6 +277,7 @@ function handleTableClick(ev) {
   }
   const container = document.getElementById('teamTableContainer');
   if (container) container.innerHTML = renderTable(tableRows);
+  setupCopyButton();
 }
 
 function setupSort() {
@@ -247,7 +316,8 @@ async function load() {
     tableContainer.innerHTML = renderTable(rows);
     resultPanel.style.display = 'block';
     statusEl.textContent = '';
-    setupSort();
+    setupSort(); // делегирование на teamTableContainer
+    setupCopyButton();
   } catch (e) {
     statusEl.textContent = e.message || 'Ошибка загрузки';
     statusEl.className = 'meta error';

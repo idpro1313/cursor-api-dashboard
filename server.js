@@ -50,7 +50,7 @@ function syncLog(action, fields = {}) {
   }
 }
 
-/** Запись в лог загрузки счёта: отдельный файл на каждый счёт (имя = имя файла счёта + .log). Подробные шаги для отладки парсера. */
+/** Запись в лог загрузки счёта: отдельный файл на каждый счёт (имя = имя файла счёта + .log), содержимое перезаписывается. */
 function invoiceParseLog(entry) {
   const filename = entry.filename || 'invoice.pdf';
   const logFile = getInvoiceLogPath(filename);
@@ -61,40 +61,18 @@ function invoiceParseLog(entry) {
     }
     const ts = new Date().toISOString();
     const lines = [
-      '========== Лог загрузки и парсинга счёта ==========',
-      `Время: ${ts}`,
-      `Файл: ${filename}`,
-      `Парсер: ${entry.parser || '?'}`,
-      `Строк извлечено: ${entry.rows_count ?? '?'}`,
-      entry.duration_ms != null ? `Длительность: ${entry.duration_ms} мс` : '',
-      entry.error ? `Код ошибки: ${entry.error}` : '',
-      '',
-    ].filter(Boolean);
-
-    if (entry.logSteps && entry.logSteps.length > 0) {
-      lines.push('--- Этапы парсинга ---');
-      entry.logSteps.forEach((step) => {
-        lines.push(`[${step.phase}] ${step.message}`);
-        if (step.detail != null && step.detail !== '') {
-          const detailStr = typeof step.detail === 'object' ? JSON.stringify(step.detail, null, 2) : String(step.detail);
-          const maxDetail = 2000;
-          const truncated = detailStr.length > maxDetail ? detailStr.slice(0, maxDetail) + '\n...(обрезано)' : detailStr;
-          lines.push(truncated);
-        }
-      });
-      lines.push('');
-    }
-
-    if (entry.pypdf_text !== undefined && entry.pypdf_text !== null) {
-      const raw = String(entry.pypdf_text);
+      '---',
+      `[${ts}] filename=${filename} parser=${entry.parser || '?'} rows_count=${entry.rows_count ?? '?'}${entry.error ? ' error=' + entry.error : ''}`,
+    ];
+    if (entry.parser_output !== undefined && entry.parser_output !== null) {
+      const raw = String(entry.parser_output);
       const maxLen = 50000;
       const truncated = raw.length > maxLen ? raw.slice(0, maxLen) + '\n...[обрезано ' + (raw.length - maxLen) + ' символов]' : raw;
-      lines.push('--- JSON OpenDataLoader (фрагмент) ---');
-      lines.push(`Длина: ${raw.length} символов`);
+      lines.push(`parser_output_length=${raw.length}`);
+      lines.push('parser_output:');
       lines.push(truncated);
     } else if (entry.parser === 'opendataloader') {
-      lines.push('--- JSON OpenDataLoader ---');
-      lines.push('(пусто или ошибка на этапе конвертации)');
+      lines.push('parser_output: (пусто или ошибка)');
     }
     lines.push('');
     fs.writeFileSync(logFile, lines.join('\n'), 'utf8');
@@ -124,9 +102,6 @@ function getApiKey(req) {
 }
 
 const app = express();
-if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true') {
-  app.set('trust proxy', 1);
-}
 const CURSOR_API = 'https://api.cursor.com';
 const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS) || 60000;
 const MAX_DAYS = 30;
@@ -233,61 +208,11 @@ function requireSettingsAuth(req, res, next) {
 // Редирект со старой страницы дашборда на главную (страницу удалили)
 app.get('/users-dashboard.html', (req, res) => res.redirect(302, '/index.html'));
 
-// Ограничение попыток входа (защита от перебора пароля): N попыток с одного IP за окно
-const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000; // 15 мин
-const LOGIN_MAX_ATTEMPTS = 5;
-const loginAttempts = new Map();
-
-function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
-}
-
-function checkLoginRateLimit(ip) {
-  const now = Date.now();
-  let bucket = loginAttempts.get(ip);
-  if (!bucket) {
-    bucket = { count: 0, resetAt: now + LOGIN_RATE_WINDOW_MS };
-    loginAttempts.set(ip, bucket);
-  }
-  if (now >= bucket.resetAt) {
-    bucket.count = 0;
-    bucket.resetAt = now + LOGIN_RATE_WINDOW_MS;
-  }
-  return bucket.count < LOGIN_MAX_ATTEMPTS;
-}
-
-function incrementLoginAttempts(ip) {
-  const now = Date.now();
-  let bucket = loginAttempts.get(ip);
-  if (!bucket) {
-    bucket = { count: 0, resetAt: now + LOGIN_RATE_WINDOW_MS };
-    loginAttempts.set(ip, bucket);
-  }
-  if (now >= bucket.resetAt) {
-    bucket.count = 0;
-    bucket.resetAt = now + LOGIN_RATE_WINDOW_MS;
-  }
-  bucket.count++;
-}
-
-// Очистка устаревших записей попыток входа (каждые 15 мин)
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, bucket] of loginAttempts.entries()) {
-    if (now >= bucket.resetAt) loginAttempts.delete(ip);
-  }
-}, LOGIN_RATE_WINDOW_MS);
-
 app.post('/api/login', (req, res) => {
-  const ip = getClientIpForLogin(req);
-  if (!checkLoginRateLimit(ip)) {
-    return res.status(429).json({ error: 'Слишком много попыток входа. Попробуйте через 15 минут.' });
-  }
   const login = (req.body && req.body.login) ? String(req.body.login).trim() : '';
   const password = req.body && req.body.password ? String(req.body.password) : '';
   const cred = getAuthCredentials();
   if (!login || login !== cred.login || password !== cred.password) {
-    incrementLoginAttempts(ip);
     return res.status(401).json({ error: 'Неверный логин или пароль' });
   }
   const token = signSession(login);
@@ -310,7 +235,7 @@ app.get('/api/auth/check', (req, res) => {
 });
 
 // Защищённые страницы настроек: только после входа. Перехват по пути без учёта регистра.
-const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'settings.html'];
+const SETTINGS_PAGES_LOWER = ['admin.html', 'data.html', 'jira-users.html', 'invoices.html', 'audit.html', 'settings.html', 'report.html', 'reconciliation.html'];
 
 function isProtectedPagePath(req) {
   const pathname = (req.originalUrl || req.url || req.path || '').split('?')[0].replace(/\/$/, '') || '/';
@@ -407,6 +332,10 @@ const RATE_LIMIT_BACKOFF_BASE_MS = 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 120;
 const rateLimitMap = new Map();
+
+function getClientIp(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
+}
 
 function checkRateLimit(ip) {
   const now = Date.now();
@@ -1134,27 +1063,6 @@ function getMonthKey(dateStr) {
   return String(dateStr).slice(0, 7);
 }
 
-/** Период биллинга Cursor (цикл 6–5): дата события YYYY-MM-DD → ключ периода YYYY-MM (период заканчивается 5-го). */
-function getBillingPeriodKey(dateStr) {
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))) return null;
-  const parts = String(dateStr).split('-').map(Number);
-  let y = parts[0], m = parts[1], d = parts[2];
-  if (d >= 6) {
-    m += 1;
-    if (m > 12) { m = 1; y += 1; }
-  }
-  return y + '-' + String(m).padStart(2, '0');
-}
-
-/** Период для позиции счёта: дата счёта 6-го = счёт за период, закончившийся 5-го этого месяца → ключ YYYY-MM. Иначе как getBillingPeriodKey. */
-function getBillingPeriodKeyForInvoice(dateStr) {
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))) return null;
-  const parts = String(dateStr).split('-').map(Number);
-  const d = parts[2];
-  if (d === 6) return parts[0] + '-' + String(parts[1]).padStart(2, '0');
-  return getBillingPeriodKey(dateStr);
-}
-
 /** Найти ключ с email в объекте Jira (приоритет: известные имена, затем значение с @) */
 function getEmailFromJiraRow(row, allKeys) {
   const emailKeys = ['Внешний почтовый адрес', 'Email', 'email', 'E-mail', 'e-mail', 'Почта'];
@@ -1275,20 +1183,6 @@ app.get('/api/teams/snapshot', async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Ошибка запроса к Cursor API' });
-  }
-});
-
-/** Период по умолчанию для дашборда (без авторизации): min/max даты Daily Usage в БД. */
-app.get('/api/users/default-period', (req, res) => {
-  try {
-    const coverage = db.getCoverage();
-    const daily = coverage.find((c) => c.endpoint === '/teams/daily-usage-data');
-    if (daily && daily.min_date && daily.max_date) {
-      return res.json({ startDate: daily.min_date, endDate: daily.max_date });
-    }
-    res.json({ startDate: null, endDate: null });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
   }
 });
 
@@ -1655,201 +1549,15 @@ function getTextFromOdlElement(el) {
   return '';
 }
 
-const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-
-/** Извлечь "Date of issue" из документа OpenDataLoader (строка в формате YYYY-MM-DD или null). */
-function extractInvoiceIssueDateFromOdlDoc(doc) {
-  if (!doc || !Array.isArray(doc.kids)) return null;
-  let fullText = '';
-  for (const k of doc.kids) {
-    fullText += ' ' + getTextFromOdlElement(k);
-  }
-  const m = fullText.match(/Date of issue\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})/i);
-  if (!m || !m[1]) return null;
-  const dateStr = m[1].trim();
-  const parts = dateStr.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/i);
-  if (!parts) return null;
-  const monthIdx = MONTH_NAMES.indexOf(parts[1].toLowerCase());
-  if (monthIdx < 0) return null;
-  const month = String(monthIdx + 1).padStart(2, '0');
-  const day = String(parseInt(parts[2], 10)).padStart(2, '0');
-  const year = parts[3];
-  return `${year}-${month}-${day}`;
-}
-
-/** Рекурсивно развернуть список (list) и вложенные списки в плоский массив строк (content, затем kids по порядку). */
-function flattenListItemsInto(listElement, lines) {
-  if (!listElement || !Array.isArray(listElement['list items'])) return;
-  for (const item of listElement['list items']) {
-    if (!item) continue;
-    const content = typeof item.content === 'string' ? item.content.trim() : getTextFromOdlElement(item);
-    if (content && content.length >= 2) lines.push(content);
-    if (Array.isArray(item.kids)) {
-      for (const c of item.kids) {
-        if (c && c.type === 'list' && Array.isArray(c['list items'])) {
-          flattenListItemsInto(c, lines);
-        } else {
-          const t = getTextFromOdlElement(c);
-          if (t && t.length >= 2) lines.push(t);
-        }
-      }
-    }
-  }
-}
-
-/** Собрать плоский список текстовых строк из doc.kids; списки (list) и вложенные списки разворачиваются в строки из list items (сначала content, затем текст из kids). */
-function flattenOdlContentLines(kids) {
-  const lines = [];
-  if (!Array.isArray(kids)) return lines;
-  for (const k of kids) {
-    if (!k || k.type === 'image') continue;
-    if (k.type === 'footer') continue;
-    if (k.type === 'list' && Array.isArray(k['list items'])) {
-      flattenListItemsInto(k, lines);
-      continue;
-    }
-    const text = getTextFromOdlElement(k);
-    if (!text || text.length < 2) continue;
-    if (/^Page\s+\d+\s+of\s+\d+/i.test(text)) continue;
-    lines.push(text);
-  }
-  return lines;
-}
-
-/** Собрать строки счёта из параграфов/заголовков и списков, когда OpenDataLoader не распознал таблицу. Поддерживаются форматы: "qty $unit $amount" и "qty tax% $amount". */
-function extractInvoiceRowsFromOdlParagraphs(doc) {
-  if (!doc || !Array.isArray(doc.kids)) return { rows: [], source: 'paragraphs' };
-  const contentLines = flattenOdlContentLines(doc.kids);
-  let headerIndex = -1;
-  for (let i = 0; i < contentLines.length; i++) {
-    const lower = contentLines[i].toLowerCase();
-    if (lower.includes('description') && (lower.includes('qty') || lower.includes('amount'))) {
-      headerIndex = i;
-      break;
-    }
-  }
-  if (headerIndex < 0) return { rows: [], source: 'paragraphs' };
-  const afterHeader = contentLines.slice(headerIndex + 1);
-  const amountLineRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s+(-?\$[\d,.]+)\s*$/;
-  const amountLineTwoRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s*$/;
-  const amountLineTaxRe = /^\s*(\d+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
-  const amountLineUnitTaxRe = /^\s*(\d+)\s+(-?\$[\d,.]+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
-  const amountAtEndRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s+(-?\$[\d,.]+)\s*$/;
-  const amountAtEndTwoRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s*$/;
-  const amountTaxAtEndRe = /\s+(\d+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
-  const amountUnitTaxAtEndRe = /\s+(\d+)\s+(-?\$[\d,.]+)\s+(\d+)%\s+(-?\$[\d,.]+)\s*$/;
-  const skipRe = /^(Subtotal|Total|Amount\s+due|VAT\s|Applied\s+balance)\s+/i;
-  const skipFooterRe = /(?:^|\s)(?:Anysphere|EIN\s+\d|Applied\s+balance|Amount\s+due\s+\$)/i;
-  const out = [];
-  const pendingDescs = [];
-  const cleanDesc = (s) => (s && typeof s === 'string' ? s.replace(/\u0000/g, ' ').replace(/\s*[0-9a-f]{8}\)?\s*$/i, '').trim() || null : null);
-  const pushRow = (desc, qty, unitCents, taxPct, amountCents) => {
-    if (amountCents == null && !desc) return;
-    out.push({
-      row_index: out.length,
-      description: cleanDesc(desc) || null,
-      quantity: qty != null && looksLikeQty(qty) ? qty : null,
-      unit_price_cents: unitCents != null ? unitCents : null,
-      tax_pct: taxPct != null && taxPct >= 0 && taxPct <= 100 ? taxPct : null,
-      amount_cents: amountCents,
-      raw_columns: taxPct != null ? [qty, unitCents != null ? unitCents / 100 : null, taxPct, amountCents] : [qty, unitCents != null ? unitCents / 100 : null, amountCents],
-    });
-  };
-  for (let line of afterHeader) {
-    line = String(line)
-      .replace(/\u0000\s*\$/g, '-$')
-      .replace(/\u0000/g, ' ')
-      .trim();
-    if (!line) continue;
-    if (skipRe.test(line) || /^\s*\$[\d,.]+(\s+\$[\d,.]+)*\s*$/.test(line)) continue;
-    if (/^Subtotal\s+/.test(line) || /Total\s+\$/.test(line) || /VAT\s+-/.test(line)) continue;
-    if (/Total\s+excluding\s+tax/i.test(line)) continue;
-    if (skipFooterRe.test(line)) continue;
-    let m = line.match(amountLineRe);
-    let taxPct = null;
-    let unitCents = null;
-    if (m) {
-      unitCents = parseCurrencyToCents(m[2]);
-    } else {
-      m = line.match(amountLineTaxRe);
-      if (m) taxPct = parseNum(m[2]);
-    }
-    if (!m) {
-      m = line.match(amountLineUnitTaxRe);
-      if (m) {
-        unitCents = parseCurrencyToCents(m[2]);
-        taxPct = parseNum(m[3]);
-      }
-    }
-    if (m && m[0].length === line.length) {
-      const qty = parseNum(m[1]);
-      const amountCents = parseCurrencyToCents(m[m.length - 1]);
-      const desc = pendingDescs.length > 0 ? pendingDescs.shift() : null;
-      pushRow(desc, qty, unitCents, taxPct, amountCents);
-      continue;
-    }
-    m = line.match(amountLineTwoRe);
-    if (m && m[0].length === line.length) {
-      const qty = parseNum(m[1]);
-      const amountCents = parseCurrencyToCents(m[2]);
-      const desc = pendingDescs.length > 0 ? pendingDescs.shift() : null;
-      const unitCentsTwo = qty && qty > 0 && amountCents != null ? Math.round(amountCents / qty) : null;
-      pushRow(desc, qty, unitCentsTwo, null, amountCents);
-      continue;
-    }
-    let endM = line.match(amountAtEndRe);
-    if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
-      const qty = parseNum(endM[1]);
-      const unitCentsEnd = parseCurrencyToCents(endM[2]);
-      const amountCents = parseCurrencyToCents(endM[3]);
-      pushRow(descPart, qty, unitCentsEnd, null, amountCents);
-      continue;
-    }
-    endM = line.match(amountTaxAtEndRe);
-    if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
-      const qty = parseNum(endM[1]);
-      const taxPctEnd = parseNum(endM[2]);
-      const amountCents = parseCurrencyToCents(endM[3]);
-      pushRow(descPart, qty, null, taxPctEnd, amountCents);
-      continue;
-    }
-    endM = line.match(amountUnitTaxAtEndRe);
-    if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
-      const qty = parseNum(endM[1]);
-      const unitCentsEnd = parseCurrencyToCents(endM[2]);
-      const taxPctEnd = parseNum(endM[3]);
-      const amountCents = parseCurrencyToCents(endM[4]);
-      pushRow(descPart, qty, unitCentsEnd, taxPctEnd, amountCents);
-      continue;
-    }
-    endM = line.match(amountAtEndTwoRe);
-    if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
-      if (descPart) {
-        const qty = parseNum(endM[1]);
-        const amountCents = parseCurrencyToCents(endM[2]);
-        pushRow(descPart, qty, null, null, amountCents);
-        continue;
-      }
-    }
-    pendingDescs.push(line);
-  }
-  return { rows: out, source: 'paragraphs' };
-}
-
-/** Найти таблицу счёта в документе OpenDataLoader. Возвращает { table, headerTexts, rowCount } или null. */
+/** Найти таблицу счёта в документе OpenDataLoader: первая таблица с заголовком Description и Qty/Amount. Ищем в doc.kids и рекурсивно в kids вложенных элементов. */
 function findInvoiceTableInOdlDoc(doc) {
   function walk(el) {
     if (!el) return null;
     if (el.type === 'table' && Array.isArray(el.rows) && el.rows.length > 1) {
       const headerCells = el.rows[0].cells || [];
-      const headerTexts = headerCells.map((c) => getTextFromOdlElement(c));
-      const headerText = headerTexts.join(' ').toLowerCase();
+      const headerText = headerCells.map((c) => getTextFromOdlElement(c)).join(' ').toLowerCase();
       if (headerText.includes('description') && (headerText.includes('qty') || headerText.includes('amount'))) {
-        return { table: el, headerTexts, rowCount: el.rows.length };
+        return el;
       }
     }
     if (Array.isArray(el.kids)) {
@@ -1869,12 +1577,10 @@ function findInvoiceTableInOdlDoc(doc) {
   return null;
 }
 
-/** Извлечь строки счёта из таблицы OpenDataLoader. table — объект с полем rows (или сам table из findInvoiceTableInOdlDoc.table). Возвращает { rows, columnIndices }. */
+/** Извлечь строки счёта из таблицы OpenDataLoader (schema: table.rows[].cells[], в ячейках kids с content). */
 function extractInvoiceRowsFromOdlTable(table) {
-  const tableRows = table && table.rows ? table.rows : (Array.isArray(table) ? table : null);
-  if (!Array.isArray(tableRows)) return { rows: [], columnIndices: null };
-  const rows = tableRows;
-  if (rows.length < 2) return { rows: [], columnIndices: null };
+  const rows = table.rows || [];
+  if (rows.length < 2) return [];
   const headerRow = rows[0];
   const headerCells = headerRow.cells || [];
   const colCount = headerCells.length;
@@ -1888,8 +1594,7 @@ function extractInvoiceRowsFromOdlTable(table) {
     if (h === 'tax' || h.includes('tax')) idxTax = i;
     if (h.includes('amount')) idxAmount = i;
   }
-  const columnIndices = { description: idxDesc, qty: idxQty, unit_price: idxUnit, tax: idxTax, amount: idxAmount };
-  if (idxDesc < 0 || idxQty < 0 || idxAmount < 0) return { rows: [], columnIndices };
+  if (idxDesc < 0 || idxQty < 0 || idxAmount < 0) return [];
   if (idxAmount < 0) idxAmount = colCount - 1;
 
   const out = [];
@@ -1921,14 +1626,13 @@ function extractInvoiceRowsFromOdlTable(table) {
       raw_columns: idxTax >= 0 ? [qtyVal, unitVal, taxVal, amountCents] : [qtyVal, unitVal, amountCents],
     });
   }
-  return { rows: out, columnIndices };
+  return out;
 }
 
-/** Парсинг суммы из строки (например "$1,234.56", "-$116.99", "\u0000$450.83" — отрицательная в PDF). */
+/** Парсинг суммы из строки (например "$1,234.56", "-$116.99") в центы. */
 function parseCurrencyToCents(str) {
   if (str == null || str === '') return null;
-  let s = String(str).replace(/\u0000\s*\$/g, '-$').replace(/\u0000/g, ' ');
-  s = s.replace(/[$,\s]/g, '').replace(',', '.');
+  const s = String(str).replace(/[$,\s]/g, '').replace(',', '.');
   const n = parseFloat(s);
   return Number.isNaN(n) ? null : Math.round(n * 100);
 }
@@ -2374,17 +2078,14 @@ function extractInvoiceTableFromText(text) {
 /** Парсинг PDF-буфера через OpenDataLoader PDF.
  * API: https://opendataloader.org/docs/quick-start-nodejs
  * JSON-схема: https://opendataloader.org/docs/json-schema
- * Требуется Java 11+ в PATH. Возвращает также logSteps для записи в лог-файл счёта. */
+ * Требуется Java 11+ в PATH. */
 async function parseCursorInvoicePdf(buffer) {
-  const logSteps = [];
   const useOpenDataLoader = process.env.USE_OPENDATALOADER !== '0' && process.env.USE_OPENDATALOADER !== 'false';
   if (!useOpenDataLoader) {
-    logSteps.push({ phase: 'config', message: 'Парсер отключён (USE_OPENDATALOADER=0 или false)', detail: null });
-    return { rows: [], parser: null, pypdfText: null, error: 'OPENDATALOADER_DISABLED', logSteps };
+    return { rows: [], parser: null, pypdfText: null, error: 'OPENDATALOADER_DISABLED' };
   }
-  logSteps.push({ phase: 'start', message: `Размер буфера: ${buffer.length} байт`, detail: { buffer_size: buffer.length } });
-
   try {
+    // В Alpine/Docker Java может быть в /usr/lib/jvm/...; задаём JAVA_HOME, если не задан
     if (!process.env.JAVA_HOME && process.platform === 'linux') {
       const candidates = ['/usr/lib/jvm/java-17-openjdk', '/usr/lib/jvm/java-11-openjdk', '/usr/lib/jvm/default-jvm'];
       for (const dir of candidates) {
@@ -2392,31 +2093,18 @@ async function parseCursorInvoicePdf(buffer) {
           if (fs.existsSync(path.join(dir, 'bin', 'java'))) {
             process.env.JAVA_HOME = dir;
             process.env.PATH = path.join(dir, 'bin') + path.delimiter + (process.env.PATH || '');
-            logSteps.push({ phase: 'java', message: `JAVA_HOME установлен автоматически: ${dir}`, detail: { JAVA_HOME: dir } });
             break;
           }
         } catch (_) {}
       }
     }
-    if (!process.env.JAVA_HOME) {
-      logSteps.push({ phase: 'java', message: 'JAVA_HOME не задан (будет использован PATH)', detail: { PATH: (process.env.PATH || '').slice(0, 200) } });
-    } else {
-      logSteps.push({ phase: 'java', message: `JAVA_HOME=${process.env.JAVA_HOME}`, detail: null });
-    }
-
-    // Динамический import() загружает ESM-сборку пакета, где определён import.meta.url.
-    // require() ведёт к CJS-сборке, в которой fileURLToPath(import.meta.url) даёт undefined и падает при загрузке.
-    const odl = await import('@opendataloader/pdf');
-    const convert = odl.convert;
+    const { convert } = require('@opendataloader/pdf');
     const os = require('os');
     const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
     fs.mkdirSync(tmpDir, { recursive: true });
     const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
     const tmpOut = path.join(tmpDir, 'out-' + Date.now());
-    fs.mkdirSync(tmpOut, { recursive: true });
     fs.writeFileSync(tmpPdf, buffer);
-    logSteps.push({ phase: 'temp', message: `Временный PDF записан: ${tmpPdf}, размер ${buffer.length} байт`, detail: { tmpPdf, tmpOut } });
-
     const convertOptions = {
       outputDir: tmpOut,
       format: 'json',
@@ -2428,133 +2116,43 @@ async function parseCursorInvoicePdf(buffer) {
     if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
       convertOptions.useStructTree = true;
     }
-    logSteps.push({ phase: 'convert_options', message: 'Параметры convert()', detail: convertOptions });
-
-    // API: convert([inputPath, outputFolder], options). Второй аргумент — каталог вывода (без него в path попадает undefined).
-    const tConvert = Date.now();
-    await convert([tmpPdf, tmpOut], convertOptions);
-    const convertDuration = Date.now() - tConvert;
-    logSteps.push({ phase: 'convert_done', message: `OpenDataLoader convert() выполнен за ${convertDuration} мс`, detail: { duration_ms: convertDuration } });
-
+    await convert([tmpPdf], convertOptions);
     let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
-    const fileList = files.map((e) => ({ name: e.name, isFile: e.isFile() }));
-    logSteps.push({ phase: 'output_dir', message: `Файлов в ${tmpOut}: ${files.length}`, detail: fileList });
-
     for (const e of files) {
       if (e.isFile() && e.name.toLowerCase().endsWith('.json')) {
-        const jsonPath = path.join(tmpOut, e.name);
-        const raw = fs.readFileSync(jsonPath, 'utf8');
-        logSteps.push({ phase: 'json_read', message: `Прочитан ${e.name}, размер ${raw.length} символов`, detail: { file: e.name, length: raw.length } });
+        const raw = fs.readFileSync(path.join(tmpOut, e.name), 'utf8');
         try {
           doc = JSON.parse(raw);
-          const kidsCount = doc && Array.isArray(doc.kids) ? doc.kids.length : 0;
-          const topLevelTypes = doc && Array.isArray(doc.kids) ? doc.kids.map((k) => k && k.type).filter(Boolean) : [];
-          logSteps.push({ phase: 'doc_structure', message: `doc.kids: ${kidsCount} элементов`, detail: { kids_count: kidsCount, top_level_types: topLevelTypes } });
-        } catch (parseErr) {
-          logSteps.push({ phase: 'json_parse_error', message: 'Ошибка разбора JSON: ' + (parseErr && parseErr.message), detail: parseErr ? String(parseErr.stack) : null });
-        }
+        } catch (_) {}
         break;
       }
     }
-    if (!doc) {
-      logSteps.push({ phase: 'no_json', message: 'В каталоге вывода нет .json файла или JSON не распарсился', detail: null });
-    }
-
     try {
       fs.unlinkSync(tmpPdf);
       fs.rmSync(tmpOut, { recursive: true, force: true });
     } catch (_) {}
-
     if (doc && Array.isArray(doc.kids)) {
-      const issueDate = extractInvoiceIssueDateFromOdlDoc(doc);
-      const found = findInvoiceTableInOdlDoc(doc);
-      if (found) {
-        logSteps.push({
-          phase: 'find_table',
-          message: `Таблица найдена: ${found.rowCount} строк, заголовки: ${(found.headerTexts || []).join(' | ')}`,
-          detail: { rowCount: found.rowCount, headerTexts: found.headerTexts },
-        });
-        const extracted = extractInvoiceRowsFromOdlTable(found.table);
-        const rows = extracted.rows;
-        logSteps.push({
-          phase: 'extract_rows',
-          message: `Извлечено строк данных: ${rows.length}. Индексы колонок: description=${extracted.columnIndices && extracted.columnIndices.description}, qty=${extracted.columnIndices && extracted.columnIndices.qty}, amount=${extracted.columnIndices && extracted.columnIndices.amount}`,
-          detail: {
-            columnIndices: extracted.columnIndices,
-            rows_count: rows.length,
-            first_row_sample: rows.length > 0 ? rows[0] : null,
-          },
-        });
+      const table = findInvoiceTableInOdlDoc(doc);
+      if (table) {
+        const rows = extractInvoiceRowsFromOdlTable(table);
         if (rows.length > 0) {
           const pypdfText = JSON.stringify(doc).slice(0, 50000);
-          logSteps.push({ phase: 'success', message: `Успех: ${rows.length} строк сохранено`, detail: null });
-          return { rows, issueDate, parser: 'opendataloader', pypdfText, error: null, logSteps };
-        }
-        logSteps.push({ phase: 'empty_extract', message: 'Таблица найдена, но после извлечения строк не осталось (не совпали колонки или пустые данные)', detail: null });
-      } else {
-        logSteps.push({ phase: 'find_table', message: 'Таблица с заголовками Description и Qty/Amount не найдена в документе', detail: null });
-        const fallback = extractInvoiceRowsFromOdlParagraphs(doc);
-        if (fallback.rows && fallback.rows.length > 0) {
-          logSteps.push({
-            phase: 'extract_rows',
-            message: `Fallback по параграфам: извлечено строк данных: ${fallback.rows.length}`,
-            detail: { source: fallback.source, rows_count: fallback.rows.length, first_row_sample: fallback.rows[0] },
-          });
-          const pypdfText = JSON.stringify(doc).slice(0, 50000);
-          return { rows: fallback.rows, issueDate, parser: 'opendataloader', pypdfText, error: null, logSteps };
+          return { rows, parser: 'opendataloader', pypdfText };
         }
       }
       const pypdfText = JSON.stringify(doc).slice(0, 50000);
-      return { rows: [], issueDate, parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY', logSteps };
+      return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY' };
     }
-    logSteps.push({ phase: 'no_doc_kids', message: 'Документ без doc.kids или документ не загружен', detail: null });
-    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY', logSteps };
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
   } catch (err) {
     const msg = err && (err.message || String(err));
-    const stack = err && err.stack ? String(err.stack) : '';
-    logSteps.push({ phase: 'error', message: 'Исключение: ' + msg, detail: stack || null });
     console.error('[OpenDataLoader]', msg || err);
     if (msg && /java|JAVA|not found|ENOENT|spawn/i.test(msg)) {
       console.error('[OpenDataLoader] Убедитесь, что Java 11+ установлена и в PATH (или задайте JAVA_HOME).');
     }
-    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR', logSteps };
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR' };
   }
-}
-
-/**
- * Классификация позиции счёта: тип начисления и (для токенов) модель.
- * issueDate — дата счёта YYYY-MM-DD (для определения 6-го числа = ежемесячное списание).
- */
-function classifyInvoiceItem(description, issueDate) {
-  const desc = description && typeof description === 'string' ? description.trim() : '';
-  const day = issueDate && /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? parseInt(issueDate.slice(8, 10), 10) : null;
-  const is6th = day === 6;
-
-  if (/^Cursor (Teams|Business) [A-Za-z]{3} \d+(, \d{4})? – [A-Za-z]{3} \d+, \d{4}$/.test(desc)) {
-    return { charge_type: is6th ? 'monthly_subscription' : 'other', model: null };
-  }
-  if (/^Fast Premium Requests Per Seat /.test(desc)) {
-    return { charge_type: 'fast_premium_per_seat', model: null };
-  }
-  if (/^\d+ extra fast premium requests? beyond 500\/month /i.test(desc)) {
-    return { charge_type: 'fast_premium_usage', model: null };
-  }
-  if (/^Remaining time on (\d+ × )?Cursor (Teams|Business) /.test(desc)) {
-    return { charge_type: 'proration_charge', model: null };
-  }
-  if (/^Unused time on (\d+ × )?Cursor (Teams|Business) /.test(desc)) {
-    return { charge_type: 'proration_refund', model: null };
-  }
-  if (/^Cursor token fee for /.test(desc)) {
-    const m = desc.match(/non-max-([a-z0-9]+(?:-[a-z0-9.]+)*)/i);
-    return { charge_type: 'token_fee', model: m ? m[1] : null };
-  }
-  if (/^\d+ token-based usage calls to /.test(desc)) {
-    const m = desc.match(/to non-max-([a-z0-9]+(?:-[a-z0-9.]+)*)/i);
-    return { charge_type: 'token_usage', model: m ? m[1] : null };
-  }
-  return { charge_type: 'other', model: null };
 }
 
 const uploadPdf = multer({
@@ -2574,8 +2172,6 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
   if (!req.file || !req.file.buffer) {
     return res.status(400).json({ error: 'Загрузите файл PDF (поле pdf).' });
   }
-  const filename = req.file.originalname || 'invoice.pdf';
-  const tUpload = Date.now();
   try {
     const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
     const existing = db.getCursorInvoiceByFileHash(fileHash);
@@ -2587,16 +2183,14 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
       });
     }
     const parseResult = await parseCursorInvoicePdf(req.file.buffer);
-    const rows = parseResult.rows || [];
-    const durationMs = Date.now() - tUpload;
+    const rows = parseResult.rows;
+    const filename = req.file.originalname || 'invoice.pdf';
     invoiceParseLog({
       filename,
       parser: parseResult.parser,
-      pypdf_text: parseResult.pypdfText,
+      parser_output: parseResult.pypdfText,
       rows_count: rows.length,
       error: parseResult.error,
-      duration_ms: durationMs,
-      logSteps: parseResult.logSteps || [],
     });
     if (parseResult.error) {
       const msg = parseResult.error === 'OPENDATALOADER_DISABLED' ? 'Парсер отключён (USE_OPENDATALOADER=0).'
@@ -2604,24 +2198,12 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
         : 'Таблица строк не распознана.';
       return res.status(400).json({ error: msg, code: parseResult.error });
     }
-    const invoiceId = db.insertCursorInvoice(filename, null, fileHash, parseResult.issueDate || null);
-    const issueDate = parseResult.issueDate || null;
+    const invoiceId = db.insertCursorInvoice(filename, null, fileHash);
     rows.forEach((r) => {
-      const { charge_type, model } = classifyInvoiceItem(r.description, issueDate);
-      db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents, r.tax_pct, charge_type, model);
+      db.insertCursorInvoiceItem(invoiceId, r.row_index, r.description, r.amount_cents, r.raw_columns, r.quantity, r.unit_price_cents, r.tax_pct);
     });
     res.json({ ok: true, invoice_id: invoiceId, filename, items_count: rows.length });
   } catch (e) {
-    const durationMs = Date.now() - tUpload;
-    invoiceParseLog({
-      filename,
-      parser: 'opendataloader',
-      pypdf_text: null,
-      rows_count: 0,
-      error: 'EXCEPTION',
-      duration_ms: durationMs,
-      logSteps: [{ phase: 'exception', message: e.message || String(e), detail: e.stack || null }],
-    });
     res.status(400).json({ error: e.message || 'Ошибка парсинга PDF' });
   }
 });
@@ -2635,103 +2217,28 @@ app.get('/api/invoices', requireSettingsAuth, (req, res) => {
   }
 });
 
+/** Все позиции всех счетов для отчёта (report.html). Формат: { items: [ { issue_date, amount_cents, charge_type }, ... ] }. */
 app.get('/api/invoices/all-items', requireSettingsAuth, (req, res) => {
   try {
-    const rows = db.getCursorInvoiceItemsAll();
-    res.json({ items: rows });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/** Сводка для отчёта-сверки: Usage Events по периодам биллинга и позиции счетов (token_usage + token_fee) по периодам. */
-app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
-  try {
-    const coverage = db.getCoverage();
-    const usageCoverage = coverage.find((c) => c.endpoint === '/teams/filtered-usage-events');
-    const startDate = usageCoverage ? usageCoverage.min_date : null;
-    const endDate = usageCoverage ? usageCoverage.max_date : null;
-
-    const usageByPeriod = {};
-    if (startDate && endDate) {
-      const rows = db.getAnalytics({
-        endpoint: '/teams/filtered-usage-events',
-        startDate,
-        endDate,
-      });
+    const invoices = db.getCursorInvoices();
+    const items = [];
+    for (const inv of invoices) {
+      const rows = db.getCursorInvoiceItems(inv.id);
+      const issueDate = (inv.parsed_at || '').slice(0, 10) || null;
       for (const row of rows) {
-        const events = row.payload?.usageEvents;
-        if (!Array.isArray(events)) continue;
-        for (const e of events) {
-          // На счёт попадает только on-demand (Usage-based). "Included in Business" = в рамках $20/место, отдельно не выставляется.
-          const kind = (e.kind || '').toString();
-          if (kind !== 'Usage-based') continue;
-          const dateStr = toDateKey(e.timestamp) || row.date;
-          if (!dateStr) continue;
-          const periodKey = getBillingPeriodKey(dateStr);
-          if (!periodKey) continue;
-          const tu = e.tokenUsage || {};
-          // totalCents и cursorTokenFee в ответе API уже в центах (не в долларах)
-          const costCents = Math.round((Number(tu.totalCents ?? 0) || 0) + (Number(e.cursorTokenFee ?? 0) || 0));
-          if (!usageByPeriod[periodKey]) {
-            usageByPeriod[periodKey] = { eventCount: 0, costCents: 0 };
-          }
-          usageByPeriod[periodKey].eventCount += 1;
-          usageByPeriod[periodKey].costCents += costCents;
-        }
+        items.push({
+          issue_date: issueDate,
+          invoice_issue_date: issueDate,
+          amount_cents: row.amount_cents,
+          charge_type: 'other',
+          description: row.description,
+          quantity: row.quantity,
+          unit_price_cents: row.unit_price_cents,
+          tax_pct: row.tax_pct,
+        });
       }
     }
-
-    const invoiceByPeriod = {};
-    const allItems = db.getCursorInvoiceItemsAll();
-    for (const it of allItems) {
-      const type = it.charge_type || 'other';
-      if (type !== 'token_usage' && type !== 'token_fee') continue;
-      const dateStr = it.invoice_issue_date;
-      if (!dateStr) continue;
-      const periodKey = getBillingPeriodKeyForInvoice(dateStr);
-      if (!periodKey) continue;
-      const cents = it.amount_cents != null ? Number(it.amount_cents) : 0;
-      if (!invoiceByPeriod[periodKey]) invoiceByPeriod[periodKey] = { costCents: 0, itemCount: 0 };
-      invoiceByPeriod[periodKey].costCents += cents;
-      invoiceByPeriod[periodKey].itemCount += 1;
-    }
-
-    const periodKeys = [...new Set([...Object.keys(usageByPeriod), ...Object.keys(invoiceByPeriod)])].sort();
-    const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-    const comparison = periodKeys.map((key) => {
-      const [y, m] = key.split('-').map(Number);
-      const startM = m === 1 ? 12 : m - 1;
-      const startY = m === 1 ? y - 1 : y;
-      const periodLabel = '6 ' + monthNames[startM - 1] + ' – 5 ' + monthNames[m - 1] + ' ' + y;
-      const usage = usageByPeriod[key] || { eventCount: 0, costCents: 0 };
-      const inv = invoiceByPeriod[key] || { costCents: 0, itemCount: 0 };
-      const diffCents = inv.costCents - usage.costCents;
-      return {
-        periodKey: key,
-        periodLabel,
-        usageEventCount: usage.eventCount,
-        usageCostCents: usage.costCents,
-        invoiceItemCount: inv.itemCount,
-        invoiceCostCents: inv.costCents,
-        diffCents,
-      };
-    });
-
-    const totalUsageCents = comparison.reduce((sum, r) => sum + (r.usageCostCents || 0), 0);
-    const totalInvoiceCents = comparison.reduce((sum, r) => sum + (r.invoiceCostCents || 0), 0);
-    res.json({
-      usageByPeriod: Object.entries(usageByPeriod).map(([k, v]) => ({
-        periodKey: k,
-        ...v,
-      })),
-      invoiceByPeriod: Object.entries(invoiceByPeriod).map(([k, v]) => ({
-        periodKey: k,
-        ...v,
-      })),
-      comparison,
-      totals: { totalUsageCents, totalInvoiceCents, totalDiffCents: totalInvoiceCents - totalUsageCents },
-    });
+    res.json({ items });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2744,16 +2251,7 @@ app.get('/api/invoices/:id/items', requireSettingsAuth, (req, res) => {
     const invoice = db.getCursorInvoiceById(id);
     if (!invoice) return res.status(404).json({ error: 'Счёт не найден.' });
     const items = db.getCursorInvoiceItems(id);
-    res.json({ items, issue_date: invoice.issue_date || null });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.delete('/api/invoices', requireSettingsAuth, (req, res) => {
-  try {
-    db.clearCursorInvoices();
-    res.json({ ok: true, message: 'Все счета удалены из БД.' });
+    res.json({ items });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2771,6 +2269,90 @@ app.delete('/api/invoices/:id', requireSettingsAuth, (req, res) => {
       if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
     } catch (_) {}
     res.json({ ok: true, message: 'Счёт удалён.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Период биллинга (цикл 6–5): дата YYYY-MM-DD → ключ YYYY-MM (месяц окончания периода). */
+function getBillingPeriodKey(dateStr) {
+  const s = (dateStr || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const parts = s.split('-').map(Number);
+  const y = parts[0], m = parts[1], d = parts[2];
+  if (d >= 6) {
+    if (m === 12) return (y + 1) + '-01';
+    return y + '-' + String(m + 1).padStart(2, '0');
+  }
+  return y + '-' + String(m).padStart(2, '0');
+}
+
+/** Подпись периода для сверки: "6 янв – 5 фев 2026". */
+function getBillingPeriodLabel(key) {
+  if (!key || key.length < 7) return key || '—';
+  const parts = key.split('-').map(Number);
+  const endYear = parts[0], endMonth = parts[1];
+  const startMonth = endMonth === 1 ? 12 : endMonth - 1;
+  const startYear = endMonth === 1 ? endYear - 1 : endYear;
+  const mon = (m) => new Date(2020, m - 1, 1).toLocaleDateString('ru-RU', { month: 'short' });
+  return '6 ' + mon(startMonth) + ' – 5 ' + mon(endMonth) + ' ' + endYear;
+}
+
+/** Сверка: Usage Events vs позиции счетов по периодам биллинга (reconciliation.html). */
+app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
+  try {
+    const usageRows = db.getAnalytics({ endpoint: '/teams/filtered-usage-events' });
+    const byPeriodUsage = {};
+    for (const row of usageRows) {
+      const payload = row.payload || {};
+      const events = payload.usageEvents || [];
+      for (const e of events) {
+        const dateKey = toDateKey(e.timestamp);
+        if (!dateKey) continue;
+        const periodKey = getBillingPeriodKey(dateKey);
+        if (!periodKey) continue;
+        if (!byPeriodUsage[periodKey]) byPeriodUsage[periodKey] = { count: 0, cents: 0 };
+        byPeriodUsage[periodKey].count += 1;
+        const tu = e.tokenUsage || {};
+        byPeriodUsage[periodKey].cents += Number(tu.totalCents ?? 0) || 0;
+      }
+    }
+    const invoices = db.getCursorInvoices();
+    const byPeriodInvoice = {};
+    for (const inv of invoices) {
+      const issueDate = (inv.parsed_at || '').slice(0, 10) || null;
+      const periodKey = getBillingPeriodKey(issueDate);
+      if (!periodKey) continue;
+      const items = db.getCursorInvoiceItems(inv.id);
+      if (!byPeriodInvoice[periodKey]) byPeriodInvoice[periodKey] = { count: 0, cents: 0 };
+      for (const it of items) {
+        byPeriodInvoice[periodKey].count += 1;
+        byPeriodInvoice[periodKey].cents += Number(it.amount_cents ?? 0) || 0;
+      }
+    }
+    const allPeriods = new Set([...Object.keys(byPeriodUsage), ...Object.keys(byPeriodInvoice)]);
+    const comparison = [];
+    let totalUsageCents = 0, totalInvoiceCents = 0;
+    for (const key of [...allPeriods].sort()) {
+      const u = byPeriodUsage[key] || { count: 0, cents: 0 };
+      const i = byPeriodInvoice[key] || { count: 0, cents: 0 };
+      const diffCents = u.cents - i.cents;
+      totalUsageCents += u.cents;
+      totalInvoiceCents += i.cents;
+      comparison.push({
+        periodLabel: getBillingPeriodLabel(key),
+        usageEventCount: u.count,
+        usageCostCents: u.cents,
+        invoiceItemCount: i.count,
+        invoiceCostCents: i.cents,
+        diffCents,
+      });
+    }
+    const totalDiffCents = totalUsageCents - totalInvoiceCents;
+    res.json({
+      comparison,
+      totals: { totalUsageCents, totalInvoiceCents, totalDiffCents },
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2808,8 +2390,8 @@ if (process.argv[2] === '--parse-pdf' && process.argv[3]) {
   }
   const buf = fs.readFileSync(pdfPath);
   parseCursorInvoicePdf(buf)
-    .then((result) => {
-      console.log(JSON.stringify(result, null, 2));
+    .then((rows) => {
+      console.log(JSON.stringify(rows, null, 2));
       process.exit(0);
     })
     .catch((e) => {

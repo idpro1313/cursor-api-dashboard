@@ -43,7 +43,6 @@ function getDb() {
       filename TEXT NOT NULL,
       file_path TEXT,
       file_hash TEXT,
-      issue_date TEXT,
       parsed_at TEXT DEFAULT (datetime('now'))
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_invoices_file_hash ON cursor_invoices(file_hash) WHERE file_hash IS NOT NULL;
@@ -63,13 +62,9 @@ function getDb() {
   `);
   try {
     const infoInv = db.prepare("PRAGMA table_info(cursor_invoices)").all();
-    const invNames = (infoInv || []).map((c) => c.name);
-    if (infoInv.length > 0 && invNames.indexOf('file_hash') < 0) {
+    if (infoInv.length > 0 && infoInv.every((c) => c.name !== 'file_hash')) {
       db.exec('ALTER TABLE cursor_invoices ADD COLUMN file_hash TEXT');
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_invoices_file_hash ON cursor_invoices(file_hash) WHERE file_hash IS NOT NULL');
-    }
-    if (infoInv.length > 0 && invNames.indexOf('issue_date') < 0) {
-      db.exec('ALTER TABLE cursor_invoices ADD COLUMN issue_date TEXT');
     }
   } catch (_) {}
   try {
@@ -78,8 +73,6 @@ function getDb() {
     if (!names.includes('quantity')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN quantity REAL');
     if (!names.includes('unit_price_cents')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN unit_price_cents INTEGER');
     if (!names.includes('tax_pct')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN tax_pct REAL');
-    if (!names.includes('charge_type')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN charge_type TEXT');
-    if (!names.includes('model')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN model TEXT');
   } catch (_) {}
   return db;
 }
@@ -221,47 +214,33 @@ function getCursorInvoiceByFileHash(fileHash) {
   return d.prepare('SELECT id, filename, parsed_at FROM cursor_invoices WHERE file_hash = ?').get(fileHash) || null;
 }
 
-function insertCursorInvoice(filename, filePath, fileHash, issueDate) {
+function insertCursorInvoice(filename, filePath, fileHash) {
   const d = getDb();
-  const stmt = d.prepare('INSERT INTO cursor_invoices (filename, file_path, file_hash, issue_date) VALUES (?, ?, ?, ?)');
-  const run = stmt.run(filename, filePath || null, fileHash || null, issueDate || null);
+  const stmt = d.prepare('INSERT INTO cursor_invoices (filename, file_path, file_hash) VALUES (?, ?, ?)');
+  const run = stmt.run(filename, filePath || null, fileHash || null);
   return run.lastInsertRowid;
 }
 
-/** Нормализовать Amount в число (центы): убрать $, сохранить минус. Всегда возвращает integer или null. */
-function normalizeAmountToCents(value) {
-  if (value == null) return null;
-  if (typeof value === 'number' && !Number.isNaN(value)) {
-    return Number.isInteger(value) ? value : Math.round(value);
-  }
-  const s = String(value).replace(/\u0000\s*\$/g, '-$').replace(/\u0000/g, ' ').replace(/[$,\s]/g, '').replace(',', '.');
-  const n = parseFloat(s);
-  return Number.isNaN(n) ? null : Math.round(n * 100);
-}
-
-function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct, chargeType, model) {
+function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct) {
   const d = getDb();
-  const amountNum = normalizeAmountToCents(amountCents);
   d.prepare(`
-    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct, charge_type, model)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     invoiceId,
     rowIndex,
     description || null,
-    amountNum,
+    amountCents != null ? amountCents : null,
     rawColumns ? JSON.stringify(rawColumns) : null,
     quantity != null ? quantity : null,
     unitPriceCents != null ? unitPriceCents : null,
-    taxPct != null ? taxPct : null,
-    chargeType || null,
-    model || null
+    taxPct != null ? taxPct : null
   );
 }
 
 function getCursorInvoiceById(id) {
   const d = getDb();
-  return d.prepare('SELECT id, filename, file_path, issue_date, parsed_at FROM cursor_invoices WHERE id = ?').get(id) || null;
+  return d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices WHERE id = ?').get(id) || null;
 }
 
 /** Удалить счёт и все его позиции. Возвращает true, если счёт был удалён. */
@@ -276,7 +255,7 @@ function deleteCursorInvoice(id) {
 
 function getCursorInvoices() {
   const d = getDb();
-  const invoices = d.prepare('SELECT id, filename, file_path, issue_date, parsed_at FROM cursor_invoices ORDER BY parsed_at DESC').all();
+  const invoices = d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices ORDER BY parsed_at DESC').all();
   const itemCounts = d.prepare(`
     SELECT invoice_id, COUNT(*) AS cnt FROM cursor_invoice_items GROUP BY invoice_id
   `).all();
@@ -295,26 +274,6 @@ function getCursorInvoiceItems(invoiceId) {
     ...r,
     raw_columns: r.raw_columns ? (() => { try { return JSON.parse(r.raw_columns); } catch (_) { return null; } })() : null,
   }));
-}
-
-/** Все позиции по всем счетам: одна таблица с полями счёта (filename, issue_date) и позиции. Порядок: по дате парсинга счёта (новые выше), затем по row_index. */
-function getCursorInvoiceItemsAll() {
-  const d = getDb();
-  const rows = d.prepare(`
-    SELECT i.id AS invoice_id, i.filename AS invoice_filename, i.issue_date AS invoice_issue_date, i.parsed_at,
-           it.id, it.row_index, it.description, it.quantity, it.unit_price_cents, it.tax_pct, it.amount_cents, it.charge_type, it.model
-    FROM cursor_invoice_items it
-    JOIN cursor_invoices i ON i.id = it.invoice_id
-    ORDER BY i.parsed_at DESC, it.invoice_id, it.row_index
-  `).all();
-  return rows;
-}
-
-/** Очистить только таблицы счетов (cursor_invoice_items, cursor_invoices). */
-function clearCursorInvoices() {
-  const d = getDb();
-  d.exec('DELETE FROM cursor_invoice_items');
-  d.exec('DELETE FROM cursor_invoices');
 }
 
 /**
@@ -349,9 +308,7 @@ module.exports = {
   insertCursorInvoiceItem,
   getCursorInvoices,
   getCursorInvoiceItems,
-  getCursorInvoiceItemsAll,
   getCursorInvoiceByFileHash,
   getCursorInvoiceById,
   deleteCursorInvoice,
-  clearCursorInvoices,
 };

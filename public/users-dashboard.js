@@ -71,6 +71,30 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+/** Подпись месяца: "янв 2025" */
+function formatMonthLabel(monthStr) {
+  if (!monthStr || monthStr.length < 7) return monthStr || '—';
+  const [y, m] = monthStr.split('-').map(Number);
+  const d = new Date(y, (m || 1) - 1, 1);
+  return d.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' });
+}
+
+/** Форматирование стоимости из центов (Usage Events). */
+function formatCostCents(cents) {
+  if (cents == null || cents === 0) return '0';
+  const d = (cents / 100).toFixed(2);
+  return d.replace(/\.?0+$/, '') || '0';
+}
+
+/** Сокращение больших чисел: М — миллионы (25,88М), К — тысячи (1,5К). */
+function formatTokensShort(n) {
+  if (n == null || n === 0) return '0';
+  const num = Number(n);
+  if (num >= 1e6) return (num / 1e6).toFixed(2).replace('.', ',') + 'М';
+  if (num >= 1e3) return (num / 1e3).toFixed(2).replace('.', ',') + 'К';
+  return String(Math.round(num));
+}
+
 /** Считаем итоги по пользователю за весь период (в т.ч. стоимость по моделям). */
 function getUserTotals(user) {
   const activity = user.monthlyActivity || user.weeklyActivity || [];
@@ -142,6 +166,13 @@ function getIntensity(value, maxValue) {
   return Math.min(1, value / maxValue);
 }
 
+/** Дата YYYY-MM-DD → DD.MM.YYYY */
+function formatJiraDate(ymd) {
+  if (!ymd || String(ymd).length < 10) return '—';
+  const parts = String(ymd).slice(0, 10).split('-');
+  return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : ymd;
+}
+
 /** Бейдж статуса из Jira: Активный / Архивный (по данным Jira, самый поздний статус). */
 function formatJiraStatusBadge(user) {
   if (user.jiraStatus == null) return '';
@@ -162,6 +193,14 @@ function formatUserStatusAndDates(user) {
   const parts = [badge, datesHtml, projectHtml].filter(Boolean);
   if (!parts.length) return '';
   return `<span class="user-meta-block">${parts.join(' ')}</span>`;
+}
+
+/** Подпись месяца YYYY-MM для заголовка таблицы */
+function formatMonthShort(monthStr) {
+  if (!monthStr || monthStr.length < 7) return monthStr || '—';
+  const [y, m] = monthStr.split('-').map(Number);
+  const d = new Date(y, (m || 1) - 1, 1);
+  return d.toLocaleDateString('ru-RU', { month: 'short', year: '2-digit' });
 }
 
 /** Состояние сортировки таблицы «Активные в Jira, но не используют Cursor» */
@@ -274,7 +313,7 @@ function setupInactiveCursorSort() {
 function renderCostByProject(costByProjectByMonth, projectTotals, months, sortState) {
   let projects = Object.keys(costByProjectByMonth || {});
   if (!projects.length) {
-    return '<p class="muted">Нет данных по проектам. Загрузите <a href="data.html#jira">пользователей Jira</a> с полем «Проект».</p>';
+    return '<p class="muted">Нет данных по проектам. Загрузите <a href="jira-users.html">пользователей Jira</a> с полем «Проект».</p>';
   }
   const state = sortState || costByProjectSort;
   const dir = state.dir === 'desc' ? -1 : 1;
@@ -819,11 +858,13 @@ async function setDefaultDates() {
   const elStart = document.getElementById('startDate');
   if (!elEnd || !elStart) return;
   try {
-    const r = await fetch('/api/users/default-period');
+    const r = await fetch('/api/analytics/coverage');
     const data = await r.json();
-    if (data.startDate && data.endDate) {
-      elStart.value = data.startDate;
-      elEnd.value = data.endDate;
+    const coverage = data.coverage || [];
+    const daily = coverage.find((c) => c.endpoint === DAILY_USAGE_ENDPOINT);
+    if (daily && daily.min_date && daily.max_date) {
+      elStart.value = daily.min_date;
+      elEnd.value = daily.max_date;
       return;
     }
   } catch (_) {}
@@ -873,7 +914,7 @@ async function load() {
     const users = data.users || [];
     const months = data.months || [];
     if (!users.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» в <a href="settings.html">Настройки и загрузки</a>). Опционально можно загрузить <a href="data.html#jira">пользователей Jira</a> для отображения имён вместо email.</p>';
+      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (кнопка «Загрузить и сохранить в БД» на <a href="admin.html">Настройки и загрузка</a>). Опционально можно загрузить <a href="jira-users.html">пользователей Jira</a> для отображения имён вместо email.</p>';
       if (emptyState) emptyState.style.display = 'none';
       if (contentPanel) contentPanel.style.display = 'block';
       contentPanel.querySelector('#contentTitle').textContent = 'Активность по пользователям';
@@ -881,7 +922,7 @@ async function load() {
       return;
     }
     if (!months.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные в разделе <a href="settings.html">Настройки и загрузки</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные</a>.</p>';
+      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные в разделе <a href="admin.html">Настройки и загрузка</a>. Что уже есть в БД — смотрите на <a href="data.html">Данные в БД</a>.</p>';
       emptyState.style.display = 'none';
       contentPanel.style.display = 'block';
       statusEl.textContent = '';
@@ -966,7 +1007,7 @@ function init() {
   if (viewModeEl) viewModeEl.addEventListener('change', refresh);
   if (sortByEl) sortByEl.addEventListener('change', refresh);
   if (showOnlyActiveEl) showOnlyActiveEl.addEventListener('change', refresh);
-  // Копирование таблиц обрабатывается делегатом из common.js
+  document.body.addEventListener('click', copyTableFromButton);
 }
 
 if (document.readyState === 'loading') {
