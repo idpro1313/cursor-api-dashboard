@@ -2156,35 +2156,9 @@ async function parseCursorInvoicePdf(buffer) {
     if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
       convertOptions.useStructTree = true;
     }
-    const cwd = process.cwd();
-    if (!process.env.PWD) process.env.PWD = cwd;
-    const pathModule = require('path');
-    let pkgRoot = cwd;
-    try {
-      pkgRoot = pathModule.dirname(require.resolve('@opendataloader/pdf'));
-    } catch (_) {}
-    const origJoin = pathModule.join;
-    pathModule.join = function safeJoin(...args) {
-      const fixed = args.map((a) => {
-        if (a === undefined || a === null) return pkgRoot;
-        return a;
-      });
-      return origJoin.apply(pathModule, fixed);
-    };
-    try {
-      const { convert } = require('@opendataloader/pdf');
-      try {
-        await convert([tmpPdf], convertOptions);
-      } catch (e) {
-        if (e && typeof e.message === 'string' && /path.*Received undefined/i.test(e.message)) {
-          await convert(tmpPdf, convertOptions);
-        } else {
-          throw e;
-        }
-      }
-    } finally {
-      pathModule.join = origJoin;
-    }
+    // API: convert([inputPath, outputFolder], options). Второй элемент массива — каталог вывода (без него в пакете в path попадает undefined).
+    const { convert } = require('@opendataloader/pdf');
+    await convert([tmpPdf, tmpOut], convertOptions);
     let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
     for (const e of files) {
