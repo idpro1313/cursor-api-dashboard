@@ -344,7 +344,13 @@ const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 120;
 const rateLimitMap = new Map();
 
 function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    const parts = forwarded.split(',');
+    if (parts.length > 0) return parts[0].trim();
+  }
+  if (req.socket && req.socket.remoteAddress) return req.socket.remoteAddress;
+  return 'unknown';
 }
 
 function checkRateLimit(ip) {
@@ -1172,19 +1178,21 @@ app.get('/api/teams/snapshot', async (req, res) => {
       cursorFetch(apiKey, '/teams/members', { method: 'GET' }),
       cursorFetch(apiKey, '/teams/spend', { method: 'POST', body: {} }),
     ]);
-    const list = membersResp?.teamMembers;
+    const list = membersResp && membersResp.teamMembers ? membersResp.teamMembers : null;
     const teamMembers = Array.isArray(list)
-      ? list.map((m) => ({
-          email: (m.email || m.userEmail || m.user_email || '').toString().trim().toLowerCase(),
-          name: (m.name || m.displayName || m.display_name || m.email || '').toString().trim(),
-        })).filter((m) => m.email || m.name)
+      ? list.map((m) => {
+          return {
+            email: (m.email || m.userEmail || m.user_email || '').toString().trim().toLowerCase(),
+            name: (m.name || m.displayName || m.display_name || m.email || '').toString().trim()
+          };
+        }).filter((m) => m.email || m.name)
       : [];
-    const spendList = spendResp?.teamMemberSpend;
+    const spendList = spendResp && spendResp.teamMemberSpend ? spendResp.teamMemberSpend : null;
     const teamMemberSpend = Array.isArray(spendList)
       ? spendList.map((s) => {
           const email = (s.userEmail || s.email || s.user_email || '').toString().trim().toLowerCase();
-          const cents = Number(s.cents ?? s.totalCents ?? s.spendCents ?? s.amount ?? 0) || 0;
-          return { email, cents };
+          const cents = Number(s.cents !== undefined && s.cents !== null ? s.cents : (s.totalCents !== undefined && s.totalCents !== null ? s.totalCents : (s.spendCents !== undefined && s.spendCents !== null ? s.spendCents : (s.amount !== undefined && s.amount !== null ? s.amount : 0)))) || 0;
+          return { email: email, cents: cents };
         }).filter((s) => s.email)
       : [];
     let totalSpendCents = 0;
@@ -1245,11 +1253,11 @@ app.get('/api/users/activity-by-month', (req, res) => {
         }
         rec.activeDays += 1;
         if (dateStr && (!rec.lastDate || dateStr > rec.lastDate)) rec.lastDate = dateStr;
-        rec.requests += Number(r.composer_requests ?? r.composerRequests ?? 0) + Number(r.chat_requests ?? r.chatRequests ?? 0) + Number(r.agent_requests ?? r.agentRequests ?? 0);
-        rec.linesAdded += Number(r.total_lines_added ?? r.totalLinesAdded ?? 0) + Number(r.accepted_lines_added ?? r.acceptedLinesAdded ?? 0);
-        rec.linesDeleted += Number(r.total_lines_deleted ?? r.totalLinesDeleted ?? 0) + Number(r.accepted_lines_deleted ?? r.acceptedLinesDeleted ?? 0);
-        rec.applies += Number(r.total_applies ?? r.totalApplies ?? 0);
-        rec.accepts += Number(r.total_accepts ?? r.totalAccepts ?? 0);
+        rec.requests += Number(r.composer_requests !== undefined && r.composer_requests !== null ? r.composer_requests : (r.composerRequests !== undefined && r.composerRequests !== null ? r.composerRequests : 0)) + Number(r.chat_requests !== undefined && r.chat_requests !== null ? r.chat_requests : (r.chatRequests !== undefined && r.chatRequests !== null ? r.chatRequests : 0)) + Number(r.agent_requests !== undefined && r.agent_requests !== null ? r.agent_requests : (r.agentRequests !== undefined && r.agentRequests !== null ? r.agentRequests : 0));
+        rec.linesAdded += Number(r.total_lines_added !== undefined && r.total_lines_added !== null ? r.total_lines_added : (r.totalLinesAdded !== undefined && r.totalLinesAdded !== null ? r.totalLinesAdded : 0)) + Number(r.accepted_lines_added !== undefined && r.accepted_lines_added !== null ? r.accepted_lines_added : (r.acceptedLinesAdded !== undefined && r.acceptedLinesAdded !== null ? r.acceptedLinesAdded : 0));
+        rec.linesDeleted += Number(r.total_lines_deleted !== undefined && r.total_lines_deleted !== null ? r.total_lines_deleted : (r.totalLinesDeleted !== undefined && r.totalLinesDeleted !== null ? r.totalLinesDeleted : 0)) + Number(r.accepted_lines_deleted !== undefined && r.accepted_lines_deleted !== null ? r.accepted_lines_deleted : (r.acceptedLinesDeleted !== undefined && r.acceptedLinesDeleted !== null ? r.acceptedLinesDeleted : 0));
+        rec.applies += Number(r.total_applies !== undefined && r.total_applies !== null ? r.total_applies : (r.totalApplies !== undefined && r.totalApplies !== null ? r.totalApplies : 0));
+        rec.accepts += Number(r.total_accepts !== undefined && r.total_accepts !== null ? r.total_accepts : (r.totalAccepts !== undefined && r.totalAccepts !== null ? r.totalAccepts : 0));
       }
     }
 
@@ -1279,12 +1287,12 @@ app.get('/api/users/activity-by-month', (req, res) => {
         }
         if (dateStr && (!rec.lastDate || dateStr > rec.lastDate)) rec.lastDate = dateStr;
         const tu = e.tokenUsage || {};
-        const tokenCents = Number(tu.totalCents ?? 0) || 0;
-        const cursorFee = Number(e.cursorTokenFee ?? 0) || 0;
-        rec.usageInputTokens = (rec.usageInputTokens || 0) + Number(tu.inputTokens ?? 0);
-        rec.usageOutputTokens = (rec.usageOutputTokens || 0) + Number(tu.outputTokens ?? 0);
-        rec.usageCacheWriteTokens = (rec.usageCacheWriteTokens || 0) + Number(tu.cacheWriteTokens ?? 0);
-        rec.usageCacheReadTokens = (rec.usageCacheReadTokens || 0) + Number(tu.cacheReadTokens ?? 0);
+        const tokenCents = Number(tu.totalCents !== undefined && tu.totalCents !== null ? tu.totalCents : 0) || 0;
+        const cursorFee = Number(e.cursorTokenFee !== undefined && e.cursorTokenFee !== null ? e.cursorTokenFee : 0) || 0;
+        rec.usageInputTokens = (rec.usageInputTokens || 0) + Number(tu.inputTokens !== undefined && tu.inputTokens !== null ? tu.inputTokens : 0);
+        rec.usageOutputTokens = (rec.usageOutputTokens || 0) + Number(tu.outputTokens !== undefined && tu.outputTokens !== null ? tu.outputTokens : 0);
+        rec.usageCacheWriteTokens = (rec.usageCacheWriteTokens || 0) + Number(tu.cacheWriteTokens !== undefined && tu.cacheWriteTokens !== null ? tu.cacheWriteTokens : 0);
+        rec.usageCacheReadTokens = (rec.usageCacheReadTokens || 0) + Number(tu.cacheReadTokens !== undefined && tu.cacheReadTokens !== null ? tu.cacheReadTokens : 0);
         rec.usageTokenCents = (rec.usageTokenCents || 0) + tokenCents;
         const modelKey = (e.model || e.modelId || e.modelName || e.providerModelId || '').toString().trim() || 'Другое';
         const kind = (e.kind || e.billingKind || '').toString().toLowerCase();
@@ -1307,30 +1315,43 @@ app.get('/api/users/activity-by-month', (req, res) => {
     // По каждому email: первая и последняя дата по всем строкам Jira, последняя запись для статуса/имени
     const emailToJiraInfo = new Map();
     for (let i = 0; i < jiraRows.length; i++) {
-      const { id, data: jira } = jiraRows[i];
+      const row = jiraRows[i];
+      const id = row.id;
+      const jira = row.data;
       const email = getEmailFromJiraRow(jira, allKeys);
       if (!email) continue;
       jiraEmails.add(email);
       const orderKey = getJiraRowOrderKey(jira, id);
       const rowDate = getJiraDateFromRow(jira);
       const existing = emailToJiraInfo.get(email);
-      const firstDate = !rowDate ? (existing?.firstDate ?? null) : (!existing?.firstDate || rowDate < existing.firstDate ? rowDate : existing.firstDate);
-      const lastDate = !rowDate ? (existing?.lastDate ?? null) : (!existing?.lastDate || rowDate > existing.lastDate ? rowDate : existing.lastDate);
+      const existingFirstDate = existing && existing.firstDate !== undefined ? existing.firstDate : null;
+      const existingLastDate = existing && existing.lastDate !== undefined ? existing.lastDate : null;
+      const firstDate = !rowDate ? existingFirstDate : (!existingFirstDate || rowDate < existingFirstDate ? rowDate : existingFirstDate);
+      const lastDate = !rowDate ? existingLastDate : (!existingLastDate || rowDate > existingLastDate ? rowDate : existingLastDate);
       if (!existing || orderKey > existing.orderKey) {
-        emailToJiraInfo.set(email, { jira, id, orderKey, firstDate, lastDate });
+        emailToJiraInfo.set(email, { jira: jira, id: id, orderKey: orderKey, firstDate: firstDate, lastDate: lastDate });
       } else {
-        emailToJiraInfo.set(email, { ...existing, firstDate, lastDate });
+        const updated = Object.assign({}, existing, { firstDate: firstDate, lastDate: lastDate });
+        emailToJiraInfo.set(email, updated);
       }
     }
-    for (const [email, { jira, firstDate, lastDate }] of emailToJiraInfo) {
+    for (const entry of emailToJiraInfo) {
+      const email = entry[0];
+      const info = entry[1];
+      const jira = info.jira;
+      const firstDate = info.firstDate;
+      const lastDate = info.lastDate;
       const displayName = jira['Пользователь, которому выдан доступ'] || jira['Display Name'] || jira['Username'] || jira['Name'] || email || '—';
       const jiraStatus = getJiraStatusFromRow(jira);
       const jiraProject = getJiraProjectFromRow(jira);
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
+        const def = { month: month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
         if (!rec) return def;
-        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) }, includedCostByModel: { ...def.includedCostByModel, ...(rec.includedCostByModel || {}) } };
+        const result = Object.assign({}, def, rec);
+        result.usageCostByModel = Object.assign({}, def.usageCostByModel, rec.usageCostByModel || {});
+        result.includedCostByModel = Object.assign({}, def.includedCostByModel, rec.includedCostByModel || {});
+        return result;
       });
       const jiraConnectedAt = firstDate || null;
       const jiraDisconnectedAt = jiraStatus === 'archived' && lastDate ? lastDate : null;
@@ -1344,9 +1365,12 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const email of cursorOnlyEmails) {
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
+        const def = { month: month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
         if (!rec) return def;
-        return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) }, includedCostByModel: { ...def.includedCostByModel, ...(rec.includedCostByModel || {}) } };
+        const result = Object.assign({}, def, rec);
+        result.usageCostByModel = Object.assign({}, def.usageCostByModel, rec.usageCostByModel || {});
+        result.includedCostByModel = Object.assign({}, def.includedCostByModel, rec.includedCostByModel || {});
+        return result;
       });
       users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
     }
