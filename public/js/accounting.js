@@ -169,33 +169,41 @@
   async function uploadPdf() {
     var input = document.getElementById('pdfFile');
     var resultEl = document.getElementById('uploadResult');
-    if (!input.files || !input.files[0]) {
-      showResult(resultEl, 'Выберите файл PDF.', true);
+    if (!input.files || input.files.length === 0) {
+      showResult(resultEl, 'Выберите один или несколько файлов PDF.', true);
       return;
     }
-    var formData = new FormData();
-    formData.append('pdf', input.files[0]);
+    var files = Array.from(input.files);
     resultEl.style.display = 'block';
-    resultEl.textContent = 'Загрузка...';
-    try {
-      var r = await fetchWithAuth('/api/invoices/upload', { method: 'POST', body: formData });
-      if (!r) return;
-      var data = await r.json();
-      if (!r.ok) {
-        if (r.status === 409 && data.alreadyUploaded) {
-          var name = data.existing_invoice && data.existing_invoice.filename ? data.existing_invoice.filename : '';
-          showResult(resultEl, (data.error || 'Этот счёт уже был загружен.') + (name ? ' Файл: ' + name : ''), true);
+    var ok = [];
+    var errors = [];
+    for (var i = 0; i < files.length; i++) {
+      resultEl.textContent = 'Загрузка ' + (i + 1) + ' из ' + files.length + '…';
+      var formData = new FormData();
+      formData.append('pdf', files[i]);
+      try {
+        var r = await fetchWithAuth('/api/invoices/upload', { method: 'POST', body: formData });
+        if (!r) return;
+        var data = await r.json();
+        if (!r.ok) {
+          if (r.status === 409 && data.alreadyUploaded) {
+            errors.push((data.existing_invoice && data.existing_invoice.filename ? data.existing_invoice.filename : files[i].name) + ': уже загружен');
+          } else {
+            errors.push((files[i].name || '') + ': ' + (data.error || r.statusText));
+          }
         } else {
-          throw new Error(data.error || r.statusText);
+          ok.push({ name: data.filename, count: data.items_count });
         }
-        return;
+      } catch (e) {
+        errors.push((files[i].name || '') + ': ' + (e.message || 'Ошибка'));
       }
-      showResult(resultEl, 'Загружено: ' + data.filename + ', позиций: ' + data.items_count + '.');
-      input.value = '';
-      loadInvoices();
-    } catch (e) {
-      showResult(resultEl, e.message || 'Ошибка', true);
     }
+    var msg = '';
+    if (ok.length) msg = 'Загружено: ' + ok.length + ' счёт(ов)' + (ok.length <= 3 ? ' — ' + ok.map(function (o) { return o.name + ' (' + o.count + ' поз.)'; }).join(', ') : '');
+    if (errors.length) msg += (msg ? '. ' : '') + 'Ошибки: ' + errors.join('; ');
+    showResult(resultEl, msg || 'Нет изменений.', errors.length && !ok.length);
+    input.value = '';
+    if (ok.length) loadInvoices();
   }
 
   async function clearAllInvoices() {
