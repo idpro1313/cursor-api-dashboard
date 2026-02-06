@@ -2157,7 +2157,8 @@ async function parseCursorInvoicePdf(buffer) {
     if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
       convertOptions.useStructTree = true;
     }
-    await convert([tmpPdf], convertOptions);
+    // Вызов с одним путём (строка): в части версий пакета при передаче массива внутрь уходит undefined
+    await convert(tmpPdf, convertOptions);
     let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
     for (const e of files) {
