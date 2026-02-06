@@ -67,6 +67,10 @@ function invoiceParseLog(entry) {
     if (entry.error_message) {
       lines.push('error_message: ' + String(entry.error_message).slice(0, 2000));
     }
+    if (entry.error_stack) {
+      lines.push('error_stack:');
+      lines.push(String(entry.error_stack).slice(0, 3000));
+    }
     if (entry.parser_output !== undefined && entry.parser_output !== null) {
       const raw = String(entry.parser_output);
       const maxLen = 50000;
@@ -2156,9 +2160,23 @@ async function parseCursorInvoicePdf(buffer) {
     if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
       convertOptions.useStructTree = true;
     }
-    // API: convert([inputPath, outputFolder], options). Второй элемент массива — каталог вывода (без него в пакете в path попадает undefined).
-    const { convert } = require('@opendataloader/pdf');
-    await convert([tmpPdf, tmpOut], convertOptions);
+    // В части окружений пакет передаёт undefined в path (например __dirname при ESM); подменяем на корень пакета.
+    const pathMod = require('path');
+    let fallbackPath = tmpOut;
+    try {
+      fallbackPath = pathMod.dirname(require.resolve('@opendataloader/pdf'));
+    } catch (_) {}
+    const origJoin = pathMod.join;
+    const origResolve = pathMod.resolve;
+    pathMod.join = (...a) => origJoin(...a.map((x) => (x === undefined || x === null ? fallbackPath : x)));
+    pathMod.resolve = (...a) => origResolve(...a.map((x) => (x === undefined || x === null ? fallbackPath : x)));
+    try {
+      const { convert } = require('@opendataloader/pdf');
+      await convert([tmpPdf, tmpOut], convertOptions);
+    } finally {
+      pathMod.join = origJoin;
+      pathMod.resolve = origResolve;
+    }
     let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
     for (const e of files) {
@@ -2190,11 +2208,13 @@ async function parseCursorInvoicePdf(buffer) {
   } catch (err) {
     const msg = err && (typeof err.message === 'string' ? err.message : (err.stack || String(err)));
     const errStr = (msg && String(msg).trim()) ? String(msg).trim() : (err != null ? String(err) : 'Unknown error');
+    const errStack = err && err.stack;
     console.error('[OpenDataLoader]', errStr);
+    if (errStack) console.error('[OpenDataLoader] stack:', errStack);
     if (errStr && /java|JAVA|not found|ENOENT|spawn/i.test(errStr)) {
       console.error('[OpenDataLoader] Убедитесь, что Java 11+ установлена и в PATH (или задайте JAVA_HOME).');
     }
-    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR', errorMessage: errStr };
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR', errorMessage: errStr, errorStack: errStack };
   }
 }
 
@@ -2235,6 +2255,7 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
       rows_count: rows.length,
       error: parseResult.error,
       error_message: parseResult.errorMessage,
+      error_stack: parseResult.errorStack,
     });
     if (parseResult.error) {
       const msg = parseResult.error === 'OPENDATALOADER_DISABLED' ? 'Парсер отключён (USE_OPENDATALOADER=0).'
