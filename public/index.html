@@ -18,7 +18,7 @@
     <p class="muted" style="margin-top: 0;">Активность по пользователям и месяцам. Данные из БД: Daily Usage и при наличии — Usage Events (события и стоимость). При загрузке CSV из Jira отображаются имена и статус.</p>
 
   <div class="panel">
-    <h2>Период и отображение</h2>
+    <h2>Период</h2>
     <p class="meta">По умолчанию подставляется период, по которому есть данные Daily Usage в БД. Активность считается по месяцам.</p>
     <div class="row">
       <div class="field">
@@ -29,23 +29,9 @@
         <label>Конец периода</label>
         <input type="date" id="endDate">
       </div>
-      <div class="field">
-        <label>Вид</label>
-        <select id="viewMode">
-          <option value="cards">Карточки пользователей</option>
-          <option value="heatmap">Тепловая карта</option>
-          <option value="table">Таблица по месяцам</option>
-        </select>
-      </div>
       <div class="field" style="align-self: flex-end;">
         <button class="btn" id="btnLoad">Загрузить</button>
       </div>
-    </div>
-    <div class="row">
-      <label class="filter-check">
-        <input type="checkbox" id="showOnlyActive" checked>
-        Показывать только тех, у кого есть активность за период
-      </label>
     </div>
     <div id="loadStatus" class="meta" style="margin-top: 8px;"></div>
   </div>
@@ -72,6 +58,14 @@
     <h2 id="contentTitle">Активность по пользователям</h2>
     <div class="row content-panel-toolbar">
       <div class="field">
+        <label for="viewMode">Вид</label>
+        <select id="viewMode">
+          <option value="cards">Карточки пользователей</option>
+          <option value="heatmap">Тепловая карта</option>
+          <option value="table">Таблица по месяцам</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="sortBy">Сортировка</label>
         <select id="sortBy">
           <option value="requests">По запросам (убыв.)</option>
@@ -82,6 +76,10 @@
           <option value="name">По имени</option>
         </select>
       </div>
+      <label class="filter-check" style="align-self: center;">
+        <input type="checkbox" id="showOnlyActive" checked>
+        Только с активностью
+      </label>
     </div>
     <div id="tableContainer"></div>
     <div id="heatmapContainer" class="dashboard-heatmap-wrap" style="display: none;"></div>

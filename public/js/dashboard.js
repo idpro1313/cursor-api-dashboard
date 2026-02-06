@@ -759,7 +759,7 @@ function updateContentBlockOnly() {
   if (tableSummary) tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
 }
 
-/** По умолчанию подставить период по данным в БД (Daily Usage); если пусто — последние 90 дней. */
+/** По умолчанию подставить период по данным в БД: min из всех эндпоинтов … max из всех; если пусто — последние 90 дней. */
 async function setDefaultDates() {
   const elEnd = document.getElementById('endDate');
   const elStart = document.getElementById('startDate');
@@ -768,11 +768,14 @@ async function setDefaultDates() {
     const r = await fetch('/api/analytics/coverage');
     const data = await r.json();
     const coverage = data.coverage || [];
-    const daily = coverage.find((c) => c.endpoint === DAILY_USAGE_ENDPOINT);
-    if (daily && daily.min_date && daily.max_date) {
-      elStart.value = daily.min_date;
-      elEnd.value = daily.max_date;
-      return;
+    if (coverage.length) {
+      const mins = coverage.map((c) => c.min_date).filter(Boolean).sort();
+      const maxs = coverage.map((c) => c.max_date).filter(Boolean).sort();
+      if (mins.length && maxs.length) {
+        elStart.value = mins[0];
+        elEnd.value = maxs[maxs.length - 1];
+        return;
+      }
     }
   } catch (_) {}
   const end = new Date();
@@ -911,9 +914,9 @@ function init() {
   const viewModeEl = document.getElementById('viewMode');
   const sortByEl = document.getElementById('sortBy');
   const showOnlyActiveEl = document.getElementById('showOnlyActive');
-  if (viewModeEl) viewModeEl.addEventListener('change', refresh);
-  if (sortByEl) sortByEl.addEventListener('change', refresh);
-  if (showOnlyActiveEl) showOnlyActiveEl.addEventListener('change', refresh);
+  if (viewModeEl) viewModeEl.addEventListener('change', updateContentBlockOnly);
+  if (sortByEl) sortByEl.addEventListener('change', updateContentBlockOnly);
+  if (showOnlyActiveEl) showOnlyActiveEl.addEventListener('change', updateContentBlockOnly);
   document.body.addEventListener('click', copyTableFromButton);
 }
 

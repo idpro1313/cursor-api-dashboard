@@ -22,7 +22,7 @@ async function loadCoverage() {
     }
     el.innerHTML = `
       <table class="data-table coverage-table">
-        <thead><tr><th>Эндпоинт</th><th>С</th><th>По</th><th>Дней</th></tr></thead>
+        <thead><tr><th>Эндпоинт</th><th>С</th><th>По</th><th>Дней</th><th>Выгрузка</th></tr></thead>
         <tbody>
           ${cov.map(c => `
             <tr>
@@ -30,6 +30,7 @@ async function loadCoverage() {
               <td>${escapeHtml(c.min_date)}</td>
               <td>${escapeHtml(c.max_date)}</td>
               <td>${c.days}</td>
+              <td><button type="button" class="btn btn-secondary btn-small btn-download-coverage" data-endpoint="${escapeHtml(c.endpoint)}" data-min="${escapeHtml(c.min_date)}" data-max="${escapeHtml(c.max_date)}">Скачать JSON</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -63,9 +64,17 @@ function getAllKeys(arr) {
   return Array.from(set);
 }
 
-function renderTableFromArray(arr, maxRows = 500) {
+function sortKeysWithFirst(keys, firstKeys) {
+  const set = new Set(keys);
+  const first = (firstKeys || []).filter((k) => set.has(k));
+  const rest = keys.filter((k) => !(firstKeys || []).includes(k)).sort();
+  return first.concat(rest);
+}
+
+function renderTableFromArray(arr, maxRows = 500, options = {}) {
   if (!Array.isArray(arr) || arr.length === 0) return '<p class="muted">Нет записей</p>';
-  const keys = getAllKeys(arr.slice(0, 100));
+  let keys = getAllKeys(arr.slice(0, Math.max(100, Math.min(arr.length, 500))));
+  if (options.keyOrder) keys = sortKeysWithFirst(keys, options.keyOrder);
   const slice = arr.length > maxRows ? arr.slice(0, maxRows) : arr;
   const thead = keys.map((k) => `<th>${escapeHtml(k)}</th>`).join('');
   const rows = slice.map((obj) => {
@@ -113,6 +122,63 @@ function flattenUsageEvents(arr) {
   });
 }
 
+/** Развернуть строки API (endpoint, date, payload) в плоский список записей для выгрузки в JSON. */
+function flattenRowsToRecords(rows) {
+  const records = [];
+  for (const row of rows) {
+    const extracted = extractArray(row.payload);
+    if (!extracted) continue;
+    const { key, arr } = extracted;
+    const list = key === 'usageEvents' ? flattenUsageEvents(arr) : arr;
+    const label = getEndpointLabel(row.endpoint);
+    for (const item of list) {
+      if (item != null && typeof item === 'object') {
+        records.push({ date: row.date, endpoint: label, ...item });
+      } else {
+        records.push({ date: row.date, endpoint: label, value: item });
+      }
+    }
+  }
+  return records;
+}
+
+async function downloadEndpointData(endpoint, minDate, maxDate) {
+  const params = new URLSearchParams({ endpoint, startDate: minDate, endDate: maxDate });
+  const r = await fetchWithAuth('/api/analytics?' + params);
+  if (!r) return;
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
+  const rows = data.data || [];
+  const records = flattenRowsToRecords(rows);
+  const slug = (endpoint || 'data').replace(/\//g, '_').replace(/_/g, '-');
+  const filename = slug + '_' + minDate + '_' + maxDate + '.json';
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function onCoverageContainerClick(ev) {
+  const btn = ev.target.closest('.btn-download-coverage');
+  if (!btn) return;
+  const endpoint = btn.getAttribute('data-endpoint');
+  const min = btn.getAttribute('data-min');
+  const max = btn.getAttribute('data-max');
+  if (!endpoint || !min || !max) return;
+  btn.disabled = true;
+  btn.textContent = '…';
+  downloadEndpointData(endpoint, min, max)
+    .catch(function (e) {
+      alert('Ошибка выгрузки: ' + (e && e.message ? e.message : String(e)));
+    })
+    .finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'Скачать JSON';
+    });
+}
+
 function renderPayload(row) {
   const { endpoint, date, payload } = row;
   const extracted = extractArray(payload);
@@ -130,31 +196,12 @@ function renderResults(rows) {
     container.innerHTML = '<p class="muted">Нет данных по выбранным фильтрам.</p>';
     return;
   }
-  const byDate = {};
-  rows.forEach((r) => {
-    if (!byDate[r.date]) byDate[r.date] = [];
-    byDate[r.date].push(r);
-  });
-  const sortedDates = Object.keys(byDate).sort();
-  let html = '';
-  sortedDates.forEach((date) => {
-    const dayRows = byDate[date];
-    dayRows.forEach((row) => {
-      const label = getEndpointLabel(row.endpoint);
-      html += `
-        <div class="data-card">
-          <div class="data-card-header">
-            <span class="data-card-date">${escapeHtml(date)}</span>
-            <span class="data-card-endpoint">${escapeHtml(label)}</span>
-          </div>
-          <div class="data-card-body">
-            ${renderPayload(row)}
-          </div>
-        </div>
-      `;
-    });
-  });
-  container.innerHTML = html;
+  const flatList = flattenRowsToRecords(rows);
+  if (flatList.length === 0) {
+    container.innerHTML = '<p class="muted">В выбранных данных нет массивов записей (events/data/usageEvents/teamMembers/teamMemberSpend).</p>';
+    return;
+  }
+  container.innerHTML = renderTableFromArray(flatList, 2000, { keyOrder: ['date', 'endpoint'] });
 }
 
 async function loadData() {
@@ -171,9 +218,10 @@ async function loadData() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const rows = data.data || [];
+    const flatList = flattenRowsToRecords(rows);
     document.getElementById('resultsPanel').style.display = 'block';
     document.getElementById('resultsSummary').textContent =
-      'Найдено записей: ' + rows.length + (endpoint ? ' (эндпоинт: ' + getEndpointLabel(endpoint) + ')' : '');
+      'Найдено записей: ' + flatList.length + (endpoint ? ' (эндпоинт: ' + getEndpointLabel(endpoint) + ')' : '');
     renderResults(rows);
   } catch (e) {
     document.getElementById('resultsPanel').style.display = 'block';
@@ -187,6 +235,8 @@ function init() {
   if (refreshBtn) refreshBtn.addEventListener('click', loadCoverage);
   var loadBtn = document.getElementById('btnLoad');
   if (loadBtn) loadBtn.addEventListener('click', loadData);
+  var coverageEl = document.getElementById('coverageContainer');
+  if (coverageEl) coverageEl.addEventListener('click', onCoverageContainerClick);
   loadCoverage();
 }
 
