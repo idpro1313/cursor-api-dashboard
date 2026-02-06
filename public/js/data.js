@@ -171,17 +171,6 @@ function onCoverageContainerClick(ev) {
     });
 }
 
-function renderPayload(row) {
-  const { endpoint, date, payload } = row;
-  const extracted = extractArray(payload);
-  if (extracted) {
-    const { key, arr } = extracted;
-    const tableArr = key === 'usageEvents' ? flattenUsageEvents(arr) : arr;
-    return renderTableFromArray(tableArr);
-  }
-  return '<pre class="payload-json">' + escapeHtml(JSON.stringify(payload, null, 2)) + '</pre>';
-}
-
 function renderResults(rows) {
   const container = document.getElementById('resultsContainer');
   if (!rows || rows.length === 0) {

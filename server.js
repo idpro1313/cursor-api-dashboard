@@ -1370,9 +1370,6 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const u of users) {
       u.teamSpendCents = 0;
     }
-    const totalTeamSpendCents = 0;
-    const teamMembersCount = 0;
-    const teamMembers = [];
 
     // Активные в Jira, но не используют / редко используют Cursor (после назначения teamSpendCents)
     const activeJiraButInactiveCursor = users.filter((u) => {
@@ -1421,9 +1418,6 @@ app.get('/api/users/activity-by-month', (req, res) => {
     res.json({
       users,
       months,
-      totalTeamSpendCents,
-      teamMembersCount,
-      teamMembers,
       activeJiraButInactiveCursor,
       costByProjectByMonth,
       projectTotals,

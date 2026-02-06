@@ -203,14 +203,12 @@ async function runSync() {
   if (syncLog) syncLog.innerHTML = '';
   if (syncLogWrap) syncLogWrap.style.display = 'block';
 
-  function appendLog(className, text, sub) {
+  function appendLog(className, text) {
     if (!syncLog) return;
     const entry = document.createElement('div');
     entry.className = 'sync-log-entry ' + className;
     const ts = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    entry.innerHTML = sub
-      ? `<span class="ts">${ts}</span><span>${escapeHtml(text)}</span>`
-      : `<span class="ts">${ts}</span><span>${escapeHtml(text)}</span>`;
+    entry.innerHTML = `<span class="ts">${ts}</span><span>${escapeHtml(text)}</span>`;
     syncLog.appendChild(entry);
     syncLogWrap.scrollTop = syncLogWrap.scrollHeight;
   }
@@ -268,7 +266,7 @@ async function runSync() {
           } else if (event.type === 'progress') {
             if (event.phase === 'requesting') {
               if (event.subPhase === 'page') {
-                appendLog('page', `Страница ${event.page}`, true);
+                appendLog('page', `Страница ${event.page}`);
               } else {
                 const label = event.chunkLabel
                   ? `${event.endpointLabel} · ${event.chunkLabel}`
@@ -283,7 +281,7 @@ async function runSync() {
               const line = event.chunkLabel
                 ? `${event.endpointLabel} · ${event.chunkLabel} — сохранено записей: ${event.savedInStep}${daysInfo}, всего: ${event.totalSaved}`
                 : `${event.endpointLabel} — сохранено: ${event.savedInStep} записей, всего: ${event.totalSaved}`;
-              appendLog('saved', line, true);
+              appendLog('saved', line);
               if (progressDetail) {
                 progressDetail.textContent = event.chunkLabel
                   ? `${event.endpointLabel} · ${event.chunkLabel} · +${event.savedInStep} записей (всего ${event.totalSaved})`

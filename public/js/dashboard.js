@@ -6,7 +6,7 @@
 function getUserTotals(user) {
   const activity = user.monthlyActivity || user.weeklyActivity || [];
   let requests = 0, activeDays = 0, linesAdded = 0, linesDeleted = 0, applies = 0, accepts = 0;
-  let usageEventsCount = 0, usageCostCents = 0, usageRequestsCosts = 0;
+  let usageEventsCount = 0, usageCostCents = 0;
   let usageInputTokens = 0, usageOutputTokens = 0, usageCacheWriteTokens = 0, usageCacheReadTokens = 0, usageTokenCents = 0;
   const usageCostByModel = {};
   let includedEventsCount = 0, includedCostCents = 0;
@@ -20,7 +20,6 @@ function getUserTotals(user) {
     accepts += a.accepts || 0;
     usageEventsCount += a.usageEventsCount || 0;
     usageCostCents += a.usageCostCents || 0;
-    usageRequestsCosts += a.usageRequestsCosts || 0;
     usageInputTokens += a.usageInputTokens || 0;
     usageOutputTokens += a.usageOutputTokens || 0;
     usageCacheWriteTokens += a.usageCacheWriteTokens || 0;
@@ -37,7 +36,7 @@ function getUserTotals(user) {
       includedCostByModel[model] = (includedCostByModel[model] || 0) + cents;
     }
   }
-  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageRequestsCosts, usageInputTokens, usageOutputTokens, usageCacheWriteTokens, usageCacheReadTokens, usageTokenCents, usageCostByModel, includedEventsCount, includedCostCents, includedCostByModel };
+  return { requests, activeDays, linesAdded, linesDeleted, linesTotal: linesAdded + linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageInputTokens, usageOutputTokens, usageCacheWriteTokens, usageCacheReadTokens, usageTokenCents, usageCostByModel, includedEventsCount, includedCostCents, includedCostByModel };
 }
 
 /** Направление сортировки по имени (таблица/тепловая карта). */

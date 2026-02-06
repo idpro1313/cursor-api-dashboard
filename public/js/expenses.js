@@ -196,37 +196,6 @@ function renderTable(rows) {
   `;
 }
 
-function setupCopyButton() {
-  document.getElementById('teamSnapshotTableWrap')?.closest('.table-block-with-copy')?.querySelector('.btn-copy-table')?.addEventListener('click', (ev) => {
-    const btn = ev.currentTarget;
-    const wrap = document.getElementById('teamSnapshotTableWrap');
-    if (!wrap) return;
-    const table = wrap.querySelector('table');
-    if (!table) return;
-    const tsv = tableToTsv(table);
-    const onSuccess = () => showCopyFeedback(btn, 'Скопировано');
-    const onError = () => showCopyFeedback(btn, 'Ошибка');
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      navigator.clipboard.writeText(tsv).then(onSuccess).catch(onError);
-      return;
-    }
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = tsv;
-      textarea.style.position = 'fixed';
-      textarea.style.left = '-9999px';
-      textarea.setAttribute('readonly', '');
-      document.body.appendChild(textarea);
-      textarea.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      if (ok) onSuccess(); else onError();
-    } catch (e) {
-      onError();
-    }
-  });
-}
-
 function handleTableClick(ev) {
   const th = ev.target.closest('th.sortable[data-sort]');
   if (!th) return;
@@ -240,7 +209,6 @@ function handleTableClick(ev) {
   }
   const container = document.getElementById('teamTableContainer');
   if (container) container.innerHTML = renderTable(tableRows);
-  setupCopyButton();
 }
 
 function setupSort() {
@@ -280,7 +248,6 @@ async function load() {
     if (resultPanel) resultPanel.style.display = 'block';
     if (statusEl) statusEl.textContent = '';
     setupSort();
-    setupCopyButton();
   } catch (e) {
     if (statusEl) { statusEl.textContent = e.message || 'Ошибка загрузки'; statusEl.className = 'meta error'; }
   }
