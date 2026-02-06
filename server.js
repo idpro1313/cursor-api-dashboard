@@ -27,7 +27,8 @@ function getInvoiceLogPath(filename) {
 let currentSyncLogFile = null;
 let syncLogDirEnsured = false;
 
-function syncLog(action, fields = {}) {
+function syncLog(action, fields) {
+  fields = fields || {};
   const ts = new Date().toISOString();
   const parts = ['[SYNC]', ts, 'action=' + action];
   Object.entries(fields).forEach(([k, v]) => {
@@ -442,8 +443,12 @@ function getMissingChunksWithMeta(startDate, endCapped, existingSet) {
  * Запрос к Cursor Admin API с Basic Auth (для синхронизации).
  * Соблюдает лимиты (20/60 запр/мин), при 429 — exponential backoff (cursor.com/docs/api).
  */
-async function cursorFetch(apiKey, apiPath, options = {}, logContext = {}) {
-  const { method = 'GET', query = {}, body } = options;
+async function cursorFetch(apiKey, apiPath, options, logContext) {
+  options = options || {};
+  logContext = logContext || {};
+  const method = options.method || 'GET';
+  const query = options.query || {};
+  const body = options.body;
   const url = new URL(apiPath, CURSOR_API);
   Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   const auth = Buffer.from(apiKey + ':', 'utf8').toString('base64');
@@ -1235,7 +1240,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageCostByModel: {} };
+          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         rec.activeDays += 1;
@@ -1269,11 +1274,10 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
+          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         if (dateStr && (!rec.lastDate || dateStr > rec.lastDate)) rec.lastDate = dateStr;
-        rec.usageRequestsCosts += Number(e.requestsCosts ?? 0);
         const tu = e.tokenUsage || {};
         const tokenCents = Number(tu.totalCents ?? 0) || 0;
         const cursorFee = Number(e.cursorTokenFee ?? 0) || 0;
@@ -1324,7 +1328,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
       const jiraProject = getJiraProjectFromRow(jira);
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
+        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
         if (!rec) return def;
         return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) }, includedCostByModel: { ...def.includedCostByModel, ...(rec.includedCostByModel || {}) } };
       });
@@ -1340,7 +1344,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
     for (const email of cursorOnlyEmails) {
       const monthlyActivity = months.map((month) => {
         const rec = emailByMonth.get(email + '\n' + month);
-        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageRequestsCosts: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
+        const def = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
         if (!rec) return def;
         return { ...def, ...rec, usageCostByModel: { ...def.usageCostByModel, ...(rec.usageCostByModel || {}) }, includedCostByModel: { ...def.includedCostByModel, ...(rec.includedCostByModel || {}) } };
       });
