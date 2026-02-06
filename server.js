@@ -2277,7 +2277,6 @@ app.delete('/api/invoices/:id', requireSettingsAuth, (req, res) => {
 app.post('/api/invoices/clear', requireSettingsAuth, (req, res) => {
   try {
     const invoices = db.getCursorInvoices();
-    const logDir = path.join(dataDir, 'invoice-logs');
     invoices.forEach((inv) => {
       const logPath = getInvoiceLogPath(inv.filename);
       try {
