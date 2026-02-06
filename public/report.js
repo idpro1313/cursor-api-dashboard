@@ -28,7 +28,7 @@
     return y + '-' + String(m).padStart(2, '0');
   }
 
-  /** Ключ YYYY-MM → подпись периода "5 янв – 5 фев 2026". */
+  /** Ключ YYYY-MM → подпись периода "6 янв – 5 фев 2026" (цикл с 6-го по 5-е включительно). */
   function getBillingPeriodLabel(key) {
     if (!key || key.length < 7) return key || '—';
     var parts = key.split('-').map(Number);
@@ -38,7 +38,7 @@
     var mon = function (m) {
       return new Date(2020, m - 1, 1).toLocaleDateString('ru-RU', { month: 'short' });
     };
-    return '5 ' + mon(startMonth) + ' – 5 ' + mon(endMonth) + ' ' + endYear;
+    return '6 ' + mon(startMonth) + ' – 5 ' + mon(endMonth) + ' ' + endYear;
   }
 
   function aggregate(items) {

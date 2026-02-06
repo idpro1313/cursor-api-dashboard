@@ -2703,7 +2703,7 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
       const [y, m] = key.split('-').map(Number);
       const startM = m === 1 ? 12 : m - 1;
       const startY = m === 1 ? y - 1 : y;
-      const periodLabel = '5 ' + monthNames[startM - 1] + ' – 5 ' + monthNames[m - 1] + ' ' + y;
+      const periodLabel = '6 ' + monthNames[startM - 1] + ' – 5 ' + monthNames[m - 1] + ' ' + y;
       const usage = usageByPeriod[key] || { eventCount: 0, costCents: 0 };
       const inv = invoiceByPeriod[key] || { costCents: 0, itemCount: 0 };
       const diffCents = inv.costCents - usage.costCents;
