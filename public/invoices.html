@@ -56,11 +56,23 @@
       </div>
       <div class="panel">
         <h2>Загруженные счета</h2>
-        <div id="invoicesSummary" class="meta" style="margin-bottom: 10px;"></div>
-        <div id="invoicesList"></div>
-        <div id="invoiceDetail" style="display: none; margin-top: 16px;">
-          <h3 id="invoiceDetailTitle"></h3>
-          <div id="invoiceItemsTable" class="table-wrap"></div>
+        <div class="invoices-layout">
+          <div class="invoices-sidebar">
+            <div id="invoicesSummary" class="meta" style="margin-bottom: 10px;"></div>
+            <div id="invoicesList" class="invoices-cards"></div>
+            <div class="invoices-actions" style="margin-top: 12px;">
+              <button type="button" class="btn btn-danger" id="btnClearAllInvoices" style="display: none;">Очистить все счета из БД</button>
+            </div>
+          </div>
+          <div class="invoices-detail">
+            <div id="invoiceDetail" class="invoice-detail-panel">
+              <p id="invoiceDetailPlaceholder" class="muted">Выберите счёт в списке слева, чтобы посмотреть состав.</p>
+              <div id="invoiceDetailContent" style="display: none;">
+                <h3 id="invoiceDetailTitle" style="margin-top: 0;"></h3>
+                <div id="invoiceItemsTable" class="table-wrap"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

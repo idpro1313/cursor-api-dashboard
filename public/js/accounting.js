@@ -69,6 +69,7 @@
   async function loadInvoices() {
     var listEl = document.getElementById('invoicesList');
     var summaryEl = document.getElementById('invoicesSummary');
+    var btnClearAll = document.getElementById('btnClearAllInvoices');
     if (!listEl) return;
     try {
       var r = await fetchWithAuth('/api/invoices');
@@ -77,55 +78,74 @@
       if (!r.ok) throw new Error(data.error || r.statusText);
       var invoices = data.invoices || [];
       summaryEl.textContent = 'Счетов: ' + invoices.length;
+      if (btnClearAll) btnClearAll.style.display = invoices.length > 0 ? 'inline-block' : 'none';
       if (invoices.length === 0) {
         listEl.innerHTML = '<p class="muted">Нет загруженных счетов.</p>';
         return;
       }
-      listEl.innerHTML = '<ul class="invoices-list">' + invoices.map(function (inv) {
-        return '<li><button type="button" class="btn-link invoice-link" data-id="' + inv.id + '">' + escapeHtml(inv.filename) + ' — ' + inv.items_count + ' поз.</button> <span class="muted">' + escapeHtml(inv.parsed_at || '') + '</span> <button type="button" class="btn btn-small btn-danger invoice-delete" data-id="' + inv.id + '" title="Удалить счёт">Удалить</button></li>';
-      }).join('') + '</ul>';
-      listEl.querySelectorAll('.invoice-link').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          showInvoiceItems(parseInt(btn.getAttribute('data-id'), 10), btn.textContent.split(' — ')[0]);
+      listEl.innerHTML = invoices.map(function (inv) {
+        return '<div class="invoice-card" data-id="' + inv.id + '" role="button" tabindex="0">' +
+          '<span class="invoice-card-title">' + escapeHtml(inv.filename) + '</span>' +
+          '<span class="invoice-card-meta">' + inv.items_count + ' поз. · ' + escapeHtml(inv.parsed_at || '') + '</span>' +
+          '<div class="invoice-card-actions"><button type="button" class="btn btn-small btn-danger invoice-delete" data-id="' + inv.id + '" title="Удалить счёт">Удалить</button></div></div>';
+      }).join('');
+      listEl.querySelectorAll('.invoice-card').forEach(function (card) {
+        var id = parseInt(card.getAttribute('data-id'), 10);
+        var title = (card.querySelector('.invoice-card-title') || {}).textContent || '';
+        card.addEventListener('click', function (e) {
+          if (e.target.classList.contains('invoice-delete')) return;
+          listEl.querySelectorAll('.invoice-card').forEach(function (c) { c.classList.remove('selected'); });
+          card.classList.add('selected');
+          showInvoiceItems(id, title);
         });
-      });
-      listEl.querySelectorAll('.invoice-delete').forEach(function (btn) {
-        btn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          deleteInvoice(parseInt(btn.getAttribute('data-id'), 10), btn.closest('li'));
+        card.querySelectorAll('.invoice-delete').forEach(function (btn) {
+          btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            deleteInvoice(id, card);
+          });
         });
       });
     } catch (e) {
       listEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
       summaryEl.textContent = '';
+      if (btnClearAll) btnClearAll.style.display = 'none';
     }
   }
 
-  async function deleteInvoice(id, liEl) {
+  async function deleteInvoice(id, cardEl) {
     if (!confirm('Удалить этот счёт из списка? Позиции будут удалены безвозвратно.')) return;
     try {
       var r = await fetchWithAuth('/api/invoices/' + id, { method: 'DELETE' });
       if (!r) return;
       var data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
-      document.getElementById('invoiceDetail').style.display = 'none';
+      resetInvoiceDetailPanel();
       loadInvoices();
     } catch (e) {
       alert(e.message || 'Ошибка удаления');
     }
   }
 
+  function resetInvoiceDetailPanel() {
+    var placeholder = document.getElementById('invoiceDetailPlaceholder');
+    var content = document.getElementById('invoiceDetailContent');
+    if (placeholder) placeholder.style.display = 'block';
+    if (content) content.style.display = 'none';
+  }
+
   async function showInvoiceItems(id, title) {
-    var detailEl = document.getElementById('invoiceDetail');
+    var placeholder = document.getElementById('invoiceDetailPlaceholder');
+    var content = document.getElementById('invoiceDetailContent');
     var titleEl = document.getElementById('invoiceDetailTitle');
     var tableEl = document.getElementById('invoiceItemsTable');
+    if (placeholder) placeholder.style.display = 'none';
+    if (content) content.style.display = 'block';
     try {
       var r = await fetchWithAuth('/api/invoices/' + id + '/items');
       if (!r) return;
       var data = await r.json();
       if (!r.ok) {
         tableEl.innerHTML = '<p class="error">' + escapeHtml(data.error || r.statusText) + '</p>';
-        detailEl.style.display = 'block';
         if (titleEl) titleEl.textContent = title || 'Позиции счёта';
         return;
       }
@@ -141,10 +161,8 @@
         }).join('');
         tableEl.innerHTML = '<table class="data-table"><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Tax</th><th class="num">Amount</th></tr></thead><tbody>' + rows + '</tbody></table>';
       }
-      detailEl.style.display = 'block';
     } catch (e) {
       tableEl.innerHTML = '<p class="error">' + escapeHtml(e.message) + '</p>';
-      detailEl.style.display = 'block';
     }
   }
 
@@ -177,6 +195,21 @@
       loadInvoices();
     } catch (e) {
       showResult(resultEl, e.message || 'Ошибка', true);
+    }
+  }
+
+  async function clearAllInvoices() {
+    if (!confirm('Удалить все счета из БД? Действие нельзя отменить.')) return;
+    try {
+      var r = await fetchWithAuth('/api/invoices/clear', { method: 'POST' });
+      if (!r) return;
+      var data = await r.json();
+      if (!r.ok) throw new Error(data.error || r.statusText);
+      resetInvoiceDetailPanel();
+      loadInvoices();
+      alert(data.message || 'Все счета удалены.');
+    } catch (e) {
+      alert(e.message || 'Ошибка');
     }
   }
 
@@ -381,6 +414,8 @@
 
     var btnUpload = document.getElementById('btnUploadPdf');
     if (btnUpload) btnUpload.addEventListener('click', uploadPdf);
+    var btnClearAll = document.getElementById('btnClearAllInvoices');
+    if (btnClearAll) btnClearAll.addEventListener('click', clearAllInvoices);
     loadInvoices();
   }
 

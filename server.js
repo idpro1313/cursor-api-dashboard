@@ -2274,6 +2274,23 @@ app.delete('/api/invoices/:id', requireSettingsAuth, (req, res) => {
   }
 });
 
+app.post('/api/invoices/clear', requireSettingsAuth, (req, res) => {
+  try {
+    const invoices = db.getCursorInvoices();
+    const logDir = path.join(dataDir, 'invoice-logs');
+    invoices.forEach((inv) => {
+      const logPath = getInvoiceLogPath(inv.filename);
+      try {
+        if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
+      } catch (_) {}
+    });
+    db.clearCursorInvoicesOnly();
+    res.json({ ok: true, message: 'Все счета удалены из БД.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Период биллинга (цикл 6–5): дата YYYY-MM-DD → ключ YYYY-MM (месяц окончания периода). */
 function getBillingPeriodKey(dateStr) {
   const s = (dateStr || '').slice(0, 10);
