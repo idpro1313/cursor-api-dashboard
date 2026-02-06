@@ -259,22 +259,29 @@
   function renderByType(byType) {
     var typeOrder = ['monthly_subscription', 'fast_premium_per_seat', 'fast_premium_usage', 'proration_charge', 'proration_refund', 'token_fee', 'token_usage', 'other'];
     var totalCentsAll = 0;
-    Object.keys(byType).forEach(function (t) { totalCentsAll += byType[t].totalCents; });
+    var totalAbs = 0;
+    Object.keys(byType).forEach(function (t) {
+      totalCentsAll += byType[t].totalCents;
+      totalAbs += Math.abs(byType[t].totalCents);
+    });
     var rows = [];
+    var pctDenom = totalAbs > 0 ? totalAbs : totalCentsAll;
+    if (pctDenom === 0) pctDenom = 1;
     typeOrder.forEach(function (type) {
       var data = byType[type];
       if (!data) return;
-      var pct = totalCentsAll !== 0 ? ((data.totalCents / totalCentsAll) * 100).toFixed(1) : '0';
+      var pct = ((data.totalCents / pctDenom) * 100).toFixed(1);
       rows.push('<tr><td>' + escapeHtml(REPORT_CHARGE_TYPE_LABELS[type] || type) + '</td><td class="num">' + data.count + '</td><td class="num">' + (data.totalCents / 100).toFixed(2) + '</td><td class="num">' + pct + '%</td></tr>');
     });
     Object.keys(byType).forEach(function (type) {
       if (typeOrder.indexOf(type) >= 0) return;
       var data = byType[type];
-      var pct = totalCentsAll !== 0 ? ((data.totalCents / totalCentsAll) * 100).toFixed(1) : '0';
+      var pct = ((data.totalCents / pctDenom) * 100).toFixed(1);
       rows.push('<tr><td>' + escapeHtml(type) + '</td><td class="num">' + data.count + '</td><td class="num">' + (data.totalCents / 100).toFixed(2) + '</td><td class="num">' + pct + '%</td></tr>');
     });
-    rows.push('<tr class="total-row"><td>Итого</td><td class="num">—</td><td class="num">' + (totalCentsAll / 100).toFixed(2) + '</td><td class="num">100%</td></tr>');
-    return '<table class="report-table data-table"><thead><tr><th>Тип начисления</th><th class="num">Позиций</th><th class="num">Сумма ($)</th><th class="num">% от общей</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+    var totalPct = totalAbs > 0 ? ((totalCentsAll / totalAbs) * 100).toFixed(1) : '100';
+    rows.push('<tr class="total-row"><td>Итого</td><td class="num">—</td><td class="num">' + (totalCentsAll / 100).toFixed(2) + '</td><td class="num">' + totalPct + '%</td></tr>');
+    return '<table class="report-table data-table"><thead><tr><th>Тип начисления</th><th class="num">Позиций</th><th class="num">Сумма ($)</th><th class="num">% от оборота</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
   }
 
   function renderMatrix(byPeriod, byType) {
