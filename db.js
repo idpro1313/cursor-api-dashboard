@@ -73,6 +73,14 @@ function getDb() {
     if (!names.includes('quantity')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN quantity REAL');
     if (!names.includes('unit_price_cents')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN unit_price_cents INTEGER');
     if (!names.includes('tax_pct')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN tax_pct REAL');
+    if (!names.includes('charge_type')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN charge_type TEXT');
+    if (!names.includes('model')) db.exec('ALTER TABLE cursor_invoice_items ADD COLUMN model TEXT');
+  } catch (_) {}
+  try {
+    const infoInv2 = db.prepare("PRAGMA table_info(cursor_invoices)").all();
+    if (infoInv2.length > 0 && infoInv2.every((c) => c.name !== 'issue_date')) {
+      db.exec('ALTER TABLE cursor_invoices ADD COLUMN issue_date TEXT');
+    }
   } catch (_) {}
   return db;
 }
@@ -211,21 +219,21 @@ function clearJiraOnly() {
 function getCursorInvoiceByFileHash(fileHash) {
   if (!fileHash) return null;
   const d = getDb();
-  return d.prepare('SELECT id, filename, parsed_at FROM cursor_invoices WHERE file_hash = ?').get(fileHash) || null;
+  return d.prepare('SELECT id, filename, parsed_at, issue_date FROM cursor_invoices WHERE file_hash = ?').get(fileHash) || null;
 }
 
-function insertCursorInvoice(filename, filePath, fileHash) {
+function insertCursorInvoice(filename, filePath, fileHash, issueDate) {
   const d = getDb();
-  const stmt = d.prepare('INSERT INTO cursor_invoices (filename, file_path, file_hash) VALUES (?, ?, ?)');
-  const run = stmt.run(filename, filePath || null, fileHash || null);
+  const stmt = d.prepare('INSERT INTO cursor_invoices (filename, file_path, file_hash, issue_date) VALUES (?, ?, ?, ?)');
+  const run = stmt.run(filename, filePath || null, fileHash || null, issueDate || null);
   return run.lastInsertRowid;
 }
 
-function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct) {
+function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, rawColumns, quantity, unitPriceCents, taxPct, chargeType, model) {
   const d = getDb();
   d.prepare(`
-    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO cursor_invoice_items (invoice_id, row_index, description, amount_cents, raw_columns, quantity, unit_price_cents, tax_pct, charge_type, model)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     invoiceId,
     rowIndex,
@@ -234,13 +242,15 @@ function insertCursorInvoiceItem(invoiceId, rowIndex, description, amountCents, 
     rawColumns ? JSON.stringify(rawColumns) : null,
     quantity != null ? quantity : null,
     unitPriceCents != null ? unitPriceCents : null,
-    taxPct != null ? taxPct : null
+    taxPct != null ? taxPct : null,
+    chargeType || null,
+    model || null
   );
 }
 
 function getCursorInvoiceById(id) {
   const d = getDb();
-  return d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices WHERE id = ?').get(id) || null;
+  return d.prepare('SELECT id, filename, file_path, parsed_at, issue_date FROM cursor_invoices WHERE id = ?').get(id) || null;
 }
 
 /** Удалить счёт и все его позиции. Возвращает true, если счёт был удалён. */
@@ -255,7 +265,7 @@ function deleteCursorInvoice(id) {
 
 function getCursorInvoices() {
   const d = getDb();
-  const invoices = d.prepare('SELECT id, filename, file_path, parsed_at FROM cursor_invoices ORDER BY parsed_at DESC').all();
+  const invoices = d.prepare('SELECT id, filename, file_path, parsed_at, issue_date FROM cursor_invoices ORDER BY parsed_at DESC').all();
   const itemCounts = d.prepare(`
     SELECT invoice_id, COUNT(*) AS cnt FROM cursor_invoice_items GROUP BY invoice_id
   `).all();
@@ -267,7 +277,7 @@ function getCursorInvoices() {
 function getCursorInvoiceItems(invoiceId) {
   const d = getDb();
   const rows = d.prepare(`
-    SELECT id, invoice_id, row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns
+    SELECT id, invoice_id, row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns, charge_type, model
     FROM cursor_invoice_items WHERE invoice_id = ? ORDER BY row_index
   `).all(invoiceId);
   return rows.map((r) => ({
