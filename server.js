@@ -1327,7 +1327,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month: month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageCostByModel: {} };
+          rec = { month: month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         rec.activeDays += 1;
