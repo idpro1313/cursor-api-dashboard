@@ -64,6 +64,9 @@ function invoiceParseLog(entry) {
       '---',
       `[${ts}] filename=${filename} parser=${entry.parser || '?'} rows_count=${entry.rows_count ?? '?'}${entry.error ? ' error=' + entry.error : ''}`,
     ];
+    if (entry.error_message) {
+      lines.push('error_message: ' + String(entry.error_message).slice(0, 2000));
+    }
     if (entry.parser_output !== undefined && entry.parser_output !== null) {
       const raw = String(entry.parser_output);
       const maxLen = 50000;
@@ -71,8 +74,10 @@ function invoiceParseLog(entry) {
       lines.push(`parser_output_length=${raw.length}`);
       lines.push('parser_output:');
       lines.push(truncated);
-    } else if (entry.parser === 'opendataloader') {
+    } else if (entry.parser === 'opendataloader' && !entry.error_message) {
       lines.push('parser_output: (пусто или ошибка)');
+    } else if (entry.parser === 'opendataloader' && entry.error_message) {
+      lines.push('parser_output: (не получен из-за ошибки)');
     }
     lines.push('');
     fs.writeFileSync(logFile, lines.join('\n'), 'utf8');
@@ -2151,7 +2156,7 @@ async function parseCursorInvoicePdf(buffer) {
     if (msg && /java|JAVA|not found|ENOENT|spawn/i.test(msg)) {
       console.error('[OpenDataLoader] Убедитесь, что Java 11+ установлена и в PATH (или задайте JAVA_HOME).');
     }
-    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR' };
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR', errorMessage: msg || String(err) };
   }
 }
 
@@ -2191,10 +2196,12 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
       parser_output: parseResult.pypdfText,
       rows_count: rows.length,
       error: parseResult.error,
+      error_message: parseResult.errorMessage,
     });
     if (parseResult.error) {
       const msg = parseResult.error === 'OPENDATALOADER_DISABLED' ? 'Парсер отключён (USE_OPENDATALOADER=0).'
-        : parseResult.error === 'OPENDATALOADER_ERROR' ? 'Ошибка OpenDataLoader (требуется Java 11+).'
+        : parseResult.error === 'OPENDATALOADER_ERROR'
+          ? (parseResult.errorMessage ? 'Ошибка OpenDataLoader: ' + String(parseResult.errorMessage).slice(0, 200) : 'Ошибка OpenDataLoader (требуется Java 11+ в PATH).')
         : 'Таблица строк не распознана.';
       return res.status(400).json({ error: msg, code: parseResult.error });
     }
