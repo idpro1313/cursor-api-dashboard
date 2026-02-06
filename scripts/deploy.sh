@@ -60,6 +60,9 @@ $DCC up -d
 echo "--- Удаление старого образа контейнера ---"
 docker image prune -f
 
+echo "--- Установка прав на скрипты ---"
+chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
+
 echo "--- Готово ---"
 $DCC ps
 
@@ -74,6 +77,9 @@ echo "  $DCC logs -f app"
 echo ""
 echo "Для просмотра логов приложения из файла:"
 echo "  tail -f $DATA_DIR/logs/app.log"
+echo ""
+echo "Для анализа ошибок:"
+echo "  cd $PROJECT_DIR && ./scripts/analyze-logs.sh"
 echo ""
 echo "Для фильтрации логов по типу:"
 echo "  grep 'ACTIVITY-BY-MONTH' $DATA_DIR/logs/app.log"

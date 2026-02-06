@@ -17,6 +17,53 @@ const SYNC_LOG_FILE = process.env.SYNC_LOG_FILE || path.join(DATA_DIR, 'sync.log
 const INVOICE_LOGS_DIR = process.env.INVOICE_LOGS_DIR || path.join(DATA_DIR, 'invoice-logs');
 let invoiceLogsDirEnsured = false;
 
+/** Настройка автоматического логирования приложения в файл */
+const LOG_DIR = path.join(DATA_DIR, 'logs');
+const LOG_FILE = path.join(LOG_DIR, 'app.log');
+
+// Создание директории логов
+try {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+} catch (err) {
+  // Игнорируем, если директория уже существует
+}
+
+// Функция записи в лог (файл + консоль)
+function writeLog(message) {
+  const logLine = message + '\n';
+  
+  // Вывод в консоль (stdout)
+  process.stdout.write(logLine);
+  
+  // Запись в файл (асинхронно, неблокирующая)
+  fs.appendFile(LOG_FILE, logLine, function(err) {
+    if (err && err.code !== 'ENOENT') {
+      // Выводим ошибку записи только в консоль
+      process.stderr.write('LOG_WRITE_ERROR: ' + err.message + '\n');
+    }
+  });
+}
+
+// Перехват console.log и console.error для дублирования в файл
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = function() {
+  const message = Array.prototype.slice.call(arguments).join(' ');
+  writeLog(message);
+};
+
+console.error = function() {
+  const message = Array.prototype.slice.call(arguments).join(' ');
+  writeLog('[ERROR] ' + message);
+};
+
+// Логирование запуска приложения
+console.log('[APP] Starting Cursor API Dashboard');
+console.log('[APP] Node version: ' + process.version);
+console.log('[APP] Data directory: ' + DATA_DIR);
+console.log('[APP] Log file: ' + LOG_FILE);
+
 /** Путь к лог-файлу загрузки счёта: имя лога = имя файла счёта + .log (символы \/:*?"<>| заменяются на _). */
 function getInvoiceLogPath(filename) {
   if (!filename || typeof filename !== 'string') return path.join(INVOICE_LOGS_DIR, 'unknown.log');
@@ -2826,7 +2873,10 @@ if (process.argv[2] === '--parse-pdf' && process.argv[3]) {
   return;
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, function() {
   getAuthCredentials(); // создать data/auth.json при первом запуске при необходимости
-  console.log('Cursor API Dashboard: http://localhost:' + PORT);
+  console.log('[APP] Server started successfully');
+  console.log('[APP] Listening on: http://localhost:' + PORT);
+  console.log('[APP] Logs writing to: ' + LOG_FILE);
+  console.log('[APP] Press Ctrl+C to stop');
 });
