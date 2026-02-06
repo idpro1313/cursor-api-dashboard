@@ -1558,6 +1558,17 @@ function getTextFromOdlElement(el) {
   return '';
 }
 
+/** Собрать из документа ODL один текст (все content по порядку), для fallback-парсинга списков/параграфов. */
+function flattenOdlDocToText(el) {
+  if (!el) return '';
+  const parts = [];
+  if (typeof el.content === 'string' && el.content.trim()) parts.push(el.content.trim());
+  if (Array.isArray(el.kids)) {
+    for (const k of el.kids) parts.push(flattenOdlDocToText(k));
+  }
+  return parts.filter(Boolean).join('\n');
+}
+
 /** Найти таблицу счёта в документе OpenDataLoader: первая таблица с заголовком Description и Qty/Amount. Ищем в doc.kids и рекурсивно в kids вложенных элементов. */
 function findInvoiceTableInOdlDoc(doc) {
   function walk(el) {
@@ -1861,6 +1872,7 @@ function findAllQtyUnitAmountInLine(line) {
 function normalizePypdfInvoiceText(text) {
   if (typeof text !== 'string') return '';
   return text
+    .replace(/\u0000/g, '')
     .replace(/(\$\d+),\s*\r?\n\s*(\d+\.\d{2})\b/g, '$1,$2')
     .replace(/(\$\d+),\s*\r?\n\s*(\d+)\b/g, '$1,$2');
 }
@@ -2181,12 +2193,17 @@ async function parseCursorInvoicePdf(buffer) {
     } catch (_) {}
     if (doc && Array.isArray(doc.kids)) {
       const table = findInvoiceTableInOdlDoc(doc);
-      if (table) {
-        const rows = extractInvoiceRowsFromOdlTable(table);
-        if (rows.length > 0) {
-          const pypdfText = JSON.stringify(doc).slice(0, 50000);
-          return { rows, parser: 'opendataloader', pypdfText };
+      let rows = [];
+      if (table) rows = extractInvoiceRowsFromOdlTable(table);
+      if (rows.length === 0) {
+        const flatText = flattenOdlDocToText(doc);
+        if (flatText && /description.*qty|subtotal/i.test(flatText)) {
+          rows = extractInvoiceTableFromText(flatText);
         }
+      }
+      if (rows.length > 0) {
+        const pypdfText = JSON.stringify(doc).slice(0, 50000);
+        return { rows, parser: 'opendataloader', pypdfText };
       }
       const pypdfText = JSON.stringify(doc).slice(0, 50000);
       return { rows: [], parser: 'opendataloader', pypdfText, error: 'OPENDATALOADER_EMPTY' };
