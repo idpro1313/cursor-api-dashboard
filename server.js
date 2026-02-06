@@ -2160,23 +2160,10 @@ async function parseCursorInvoicePdf(buffer) {
     if (process.env.OPENDATALOADER_USE_STRUCT_TREE === '1' || process.env.OPENDATALOADER_USE_STRUCT_TREE === 'true') {
       convertOptions.useStructTree = true;
     }
-    // В части окружений пакет передаёт undefined в path (например __dirname при ESM); подменяем на корень пакета.
-    const pathMod = require('path');
-    let fallbackPath = tmpOut;
-    try {
-      fallbackPath = pathMod.dirname(require.resolve('@opendataloader/pdf'));
-    } catch (_) {}
-    const origJoin = pathMod.join;
-    const origResolve = pathMod.resolve;
-    pathMod.join = (...a) => origJoin(...a.map((x) => (x === undefined || x === null ? fallbackPath : x)));
-    pathMod.resolve = (...a) => origResolve(...a.map((x) => (x === undefined || x === null ? fallbackPath : x)));
-    try {
-      const { convert } = require('@opendataloader/pdf');
-      await convert([tmpPdf, tmpOut], convertOptions);
-    } finally {
-      pathMod.join = origJoin;
-      pathMod.resolve = origResolve;
-    }
+    // Пакет в CJS вызывает fileURLToPath(import.meta.url) при загрузке → undefined в Node require().
+    // Загружаем как ESM через import(), тогда используется ESM-сборка и import.meta.url задан.
+    const odl = await import('@opendataloader/pdf');
+    await odl.convert([tmpPdf, tmpOut], convertOptions);
     let doc = null;
     const files = fs.readdirSync(tmpOut, { withFileTypes: true });
     for (const e of files) {
