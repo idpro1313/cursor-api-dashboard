@@ -1225,8 +1225,8 @@ app.get('/api/users/activity-by-month', (req, res) => {
     // Daily Usage Data: активные дни, запросы, строки, applies/accepts
     const dailyRows = db.getAnalytics({
       endpoint: '/teams/daily-usage-data',
-      startDate,
-      endDate,
+      startDate: startDate,
+      endDate: endDate
     });
     for (const row of dailyRows) {
       const payload = row.payload || {};
@@ -1248,7 +1248,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageCostByModel: {} };
+          rec = { month: month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         rec.activeDays += 1;
@@ -1264,8 +1264,8 @@ app.get('/api/users/activity-by-month', (req, res) => {
     // Usage Events Data (Get Usage Events Data): события, стоимость, requestsCosts
     const usageEventsRows = db.getAnalytics({
       endpoint: '/teams/filtered-usage-events',
-      startDate,
-      endDate,
+      startDate: startDate,
+      endDate: endDate
     });
     for (const row of usageEventsRows) {
       const payload = row.payload || {};
@@ -1282,7 +1282,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         const key = email + '\n' + month;
         let rec = emailByMonth.get(key);
         if (!rec) {
-          rec = { month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
+          rec = { month: month, lastDate: null, activeDays: 0, requests: 0, linesAdded: 0, linesDeleted: 0, applies: 0, accepts: 0, usageEventsCount: 0, usageCostCents: 0, usageInputTokens: 0, usageOutputTokens: 0, usageCacheWriteTokens: 0, usageCacheReadTokens: 0, usageTokenCents: 0, usageCostByModel: {}, includedEventsCount: 0, includedCostCents: 0, includedCostByModel: {} };
           emailByMonth.set(key, rec);
         }
         if (dateStr && (!rec.lastDate || dateStr > rec.lastDate)) rec.lastDate = dateStr;
@@ -1355,7 +1355,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
       });
       const jiraConnectedAt = firstDate || null;
       const jiraDisconnectedAt = jiraStatus === 'archived' && lastDate ? lastDate : null;
-      users.push({ jira, email, displayName: String(displayName), jiraStatus, jiraProject, jiraConnectedAt, jiraDisconnectedAt, monthlyActivity });
+      users.push({ jira: jira, email: email, displayName: String(displayName), jiraStatus: jiraStatus, jiraProject: jiraProject, jiraConnectedAt: jiraConnectedAt, jiraDisconnectedAt: jiraDisconnectedAt, monthlyActivity: monthlyActivity });
     }
     const cursorOnlyEmails = new Set();
     for (const key of emailByMonth.keys()) {
@@ -1372,7 +1372,7 @@ app.get('/api/users/activity-by-month', (req, res) => {
         result.includedCostByModel = Object.assign({}, def.includedCostByModel, rec.includedCostByModel || {});
         return result;
       });
-      users.push({ jira: {}, email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity });
+      users.push({ jira: {}, email: email, displayName: email, jiraStatus: null, jiraProject: null, jiraConnectedAt: null, jiraDisconnectedAt: null, monthlyActivity: monthlyActivity });
     }
 
     // lastActivityMonth, lastActivityDate и totalRequestsInPeriod по каждому пользователю

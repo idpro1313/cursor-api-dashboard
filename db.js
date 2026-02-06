@@ -117,9 +117,12 @@ function upsertAnalytics(endpoint, date, payload) {
   stmt.run(endpoint, date, typeof payload === 'string' ? payload : JSON.stringify(payload));
 }
 
-function getAnalytics(options = {}) {
+function getAnalytics(options) {
+  options = options || {};
   const d = getDb();
-  const { endpoint, startDate, endDate } = options;
+  const endpoint = options.endpoint;
+  const startDate = options.startDate;
+  const endDate = options.endDate;
   let sql = 'SELECT endpoint, date, payload, updated_at FROM analytics WHERE 1=1';
   const params = [];
   if (endpoint) {
@@ -136,19 +139,21 @@ function getAnalytics(options = {}) {
   }
   sql += ' ORDER BY endpoint, date';
   const stmt = d.prepare(sql);
-  const rows = stmt.all(...params);
-  return rows.map(r => ({
-    endpoint: r.endpoint,
-    date: r.date,
-    payload: (() => {
+  const rows = stmt.all.apply(stmt, params);
+  return rows.map(function(r) {
+    return {
+      endpoint: r.endpoint,
+      date: r.date,
+      payload: (function() {
       try {
         return JSON.parse(r.payload);
       } catch (_) {
         return r.payload;
       }
-    })(),
-    updated_at: r.updated_at,
-  }));
+      })(),
+      updated_at: r.updated_at
+    };
+  });
 }
 
 /** Возвращает массив дат (YYYY-MM-DD), по которым уже есть данные для эндпоинта в указанном диапазоне. */
@@ -177,14 +182,14 @@ function getJiraUsers() {
   const d = getDb();
   const stmt = d.prepare('SELECT id, data, updated_at FROM jira_users ORDER BY id');
   const rows = stmt.all();
-  return rows.map((r) => {
-    let data;
+  return rows.map(function(r) {
+    var data;
     try {
       data = JSON.parse(r.data);
     } catch (_) {
       data = r.data;
     }
-    return { id: r.id, data, updated_at: r.updated_at };
+    return { id: r.id, data: data, updated_at: r.updated_at };
   });
 }
 
@@ -193,9 +198,9 @@ function replaceJiraUsers(rows) {
   d.exec('DELETE FROM jira_users');
   if (!rows || rows.length === 0) return 0;
   const stmt = d.prepare('INSERT INTO jira_users (data) VALUES (?)');
-  const run = d.transaction((list) => {
-    for (const row of list) {
-      stmt.run(JSON.stringify(row));
+  const run = d.transaction(function(list) {
+    for (var i = 0; i < list.length; i++) {
+      stmt.run(JSON.stringify(list[i]));
     }
   });
   run(rows);
@@ -274,8 +279,17 @@ function getCursorInvoices() {
     SELECT invoice_id, COUNT(*) AS cnt FROM cursor_invoice_items GROUP BY invoice_id
   `).all();
   const countMap = {};
-  itemCounts.forEach((r) => { countMap[r.invoice_id] = r.cnt; });
-  return invoices.map((inv) => ({ ...inv, items_count: countMap[inv.id] || 0 }));
+  itemCounts.forEach(function(r) { countMap[r.invoice_id] = r.cnt; });
+  return invoices.map(function(inv) {
+    return {
+      id: inv.id,
+      filename: inv.filename,
+      file_path: inv.file_path,
+      parsed_at: inv.parsed_at,
+      issue_date: inv.issue_date,
+      items_count: countMap[inv.id] || 0
+    };
+  });
 }
 
 function getCursorInvoiceItems(invoiceId) {
@@ -284,10 +298,29 @@ function getCursorInvoiceItems(invoiceId) {
     SELECT id, invoice_id, row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns, charge_type, model
     FROM cursor_invoice_items WHERE invoice_id = ? ORDER BY row_index
   `).all(invoiceId);
-  return rows.map((r) => ({
-    ...r,
-    raw_columns: r.raw_columns ? (() => { try { return JSON.parse(r.raw_columns); } catch (_) { return null; } })() : null,
-  }));
+  return rows.map(function(r) {
+    var rawColumnsData = null;
+    if (r.raw_columns) {
+      try {
+        rawColumnsData = JSON.parse(r.raw_columns);
+      } catch (_) {
+        rawColumnsData = null;
+      }
+    }
+    return {
+      id: r.id,
+      invoice_id: r.invoice_id,
+      row_index: r.row_index,
+      description: r.description,
+      quantity: r.quantity,
+      unit_price_cents: r.unit_price_cents,
+      tax_pct: r.tax_pct,
+      amount_cents: r.amount_cents,
+      charge_type: r.charge_type,
+      model: r.model,
+      raw_columns: rawColumnsData
+    };
+  });
 }
 
 /**
@@ -303,7 +336,8 @@ function clearCursorInvoicesOnly() {
  * Полная очистка БД: таблицы analytics, jira_users, cursor_invoices/invoice_items.
  * Если clearSettings === true, также очищает settings (в т.ч. API key).
  */
-function clearAllData(clearSettings = false) {
+function clearAllData(clearSettings) {
+  clearSettings = clearSettings !== undefined ? clearSettings : false;
   const d = getDb();
   d.exec('DELETE FROM cursor_invoice_items');
   d.exec('DELETE FROM cursor_invoices');
