@@ -8,19 +8,7 @@
 </head>
 <body>
   <header class="site-header">
-    <div class="site-wrap">
-      <h1>Участники команды и расходы</h1>
-      <nav class="nav-links">
-        <a href="index.html">Дашборд</a>
-        <a href="team-snapshot.html" class="current">Участники и расходы</a>
-        <a href="login.html">Настройки</a>
-        <a href="admin.html">Загрузка в БД</a>
-        <a href="data.html">Данные в БД</a>
-        <a href="jira-users.html">Jira</a>
-        <a href="invoices.html">Счета</a>
-        <a href="audit.html">Аудит</a>
-      </nav>
-    </div>
+    <div id="nav-root"></div>
   </header>
   <main class="site-wrap">
     <p class="muted" style="margin-top: 0;">Данные запрашиваются из Cursor API (Team Members и Spending Data) при загрузке страницы. Могут занять несколько секунд.</p>
@@ -41,6 +29,10 @@
     <div id="teamTableContainer"></div>
   </div>
 
+  </main>
+  <footer class="site-footer" id="footer-root"></footer>
+  <script src="common.js"></script>
+  <script>checkAuthAndRenderNav('nav-root', 'footer-root', 'team-snapshot');</script>
   <script src="team-snapshot.js"></script>
 </body>
 </html>

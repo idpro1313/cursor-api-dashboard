@@ -3,26 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Статистика использования Cursor — дашборд</title>
+  <title>Учёт Cursor — контроль и учёт расходов</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="site-header">
-    <div class="site-wrap">
-      <h1>Статистика Cursor</h1>
-      <nav class="nav-links">
-        <a href="index.html" class="current">Дашборд</a>
-        <a href="team-snapshot.html">Участники и расходы</a>
-        <a href="login.html">Настройки</a>
-        <a href="admin.html">Загрузка в БД</a>
-        <a href="data.html">Данные в БД</a>
-        <a href="jira-users.html">Jira</a>
-        <a href="invoices.html">Счета</a>
-        <a href="audit.html">Аудит</a>
-      </nav>
-    </div>
+    <div id="nav-root"></div>
   </header>
   <main class="site-wrap">
+    <div class="hero-block">
+      <h1>Учёт Cursor</h1>
+      <p class="hero-slogan">Контроль и учёт расходов на Cursor. Активность по пользователям и месяцам, счета и сверка с биллингом.</p>
+    </div>
     <p class="muted" style="margin-top: 0;">Активность по пользователям и месяцам. Данные из БД: Daily Usage и при наличии — Usage Events (события и стоимость). При загрузке CSV из Jira отображаются имена и статус.</p>
 
   <div class="panel">
@@ -98,6 +90,11 @@
   </div>
 
   </main>
+  <footer class="site-footer" id="footer-root"></footer>
+  <script src="common.js"></script>
+  <script>
+    checkAuthAndRenderNav('nav-root', 'footer-root', 'index');
+  </script>
   <script src="users-dashboard.js"></script>
 </body>
 </html>

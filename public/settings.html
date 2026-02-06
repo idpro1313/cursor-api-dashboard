@@ -3,84 +3,213 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Настройки — Cursor</title>
+  <title>Настройки — Учёт Cursor</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; margin-top: 24px; }
-    .settings-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; transition: box-shadow 0.2s, border-color 0.2s; }
-    .settings-card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
-    .settings-card h2 { margin: 0 0 8px; font-size: 1.1rem; }
-    .settings-card p { margin: 0; font-size: 0.9rem; color: var(--muted); }
-    .settings-card a { display: inline-block; margin-top: 12px; }
-    .settings-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
-    .settings-header .btn-secondary { font-size: 0.9rem; }
+    .page-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+    .page-tabs a { padding: 10px 16px; color: var(--muted); text-decoration: none; border-radius: 8px 8px 0 0; font-weight: 500; transition: color 0.2s, background 0.2s; }
+    .page-tabs a:hover { color: var(--accent); background: var(--accent-light); }
+    .page-tabs a.active { color: var(--accent); background: var(--surface); border: 1px solid var(--border); border-bottom-color: transparent; margin-bottom: -1px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
   </style>
 </head>
 <body>
   <header class="site-header">
-    <div class="site-wrap">
-      <h1>Настройки</h1>
-      <div class="settings-header">
-        <nav class="nav-links">
-          <a href="index.html">Дашборд</a>
-          <a href="team-snapshot.html">Участники и расходы</a>
-          <a href="settings.html" class="current">Настройки</a>
-          <a href="admin.html">Загрузка в БД</a>
-          <a href="data.html">Данные в БД</a>
-          <a href="jira-users.html">Jira</a>
-          <a href="invoices.html">Счета</a>
-          <a href="audit.html">Аудит</a>
-        </nav>
-        <button type="button" class="btn btn-secondary" id="btnLogout">Выйти</button>
-      </div>
-    </div>
+    <div id="nav-root"></div>
   </header>
   <main class="site-wrap">
-    <h2 style="margin-top: 0;">Разделы настроек</h2>
-    <p class="muted">Выберите раздел: загрузка данных, просмотр БД, Jira, счета или аудит.</p>
-    <div class="settings-grid">
-      <a href="admin.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Загрузка в БД</h2>
-        <p>API key, загрузка данных из Cursor API в БД, покрытие.</p>
-        <span class="btn">Открыть →</span>
-      </a>
-      <a href="data.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Данные в БД</h2>
-        <p>Просмотр сохранённых данных по эндпоинтам и датам.</p>
-        <span class="btn">Открыть →</span>
-      </a>
-      <a href="jira-users.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Пользователи Jira</h2>
-        <p>Загрузка CSV и просмотр списка пользователей из Jira.</p>
-        <span class="btn">Открыть →</span>
-      </a>
-      <a href="invoices.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Счета</h2>
-        <p>Загрузка PDF-счетов Cursor и просмотр позиций.</p>
-        <span class="btn">Открыть →</span>
-      </a>
-      <a href="audit.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Аудит</h2>
-        <p>События Audit Logs с фильтрами по дате и типу.</p>
-        <span class="btn">Открыть →</span>
-      </a>
-      <a href="report.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Отчёт по счетам</h2>
-        <p>Сводка по загруженным счетам: периоды биллинга и типы начислений.</p>
-        <span class="btn">Открыть →</span>
-      </a>
-      <a href="reconciliation.html" class="settings-card" style="text-decoration: none; color: inherit;">
-        <h2>Сверка</h2>
-        <p>Сопоставление Usage Events и данных из счетов по периодам биллинга.</p>
-        <span class="btn">Открыть →</span>
-      </a>
+    <h2 style="margin-top: 0;">Настройки</h2>
+    <nav class="page-tabs" id="settings-tabs">
+      <a href="#admin" data-tab="admin" class="active">Загрузка в БД</a>
+      <a href="#data" data-tab="data">Данные в БД</a>
+      <a href="#jira" data-tab="jira">Jira</a>
+      <a href="#audit" data-tab="audit">Аудит</a>
+    </nav>
+
+    <div id="pane-admin" class="tab-pane active">
+      <p class="muted">API key, загрузка данных из Cursor API в БД, просмотр покрытия.</p>
+      <div class="panel">
+        <h2>Настройки</h2>
+        <p id="apiKeyHint" class="meta" style="display: none; margin-bottom: 10px;">Для выгрузки данных введите API key и нажмите «Сохранить ключ в БД».</p>
+        <div id="apiKeyRow" class="row">
+          <div class="field">
+            <label>API Key (Cursor Team)</label>
+            <input type="password" id="apiKey" placeholder="Вставьте API key" autocomplete="off">
+          </div>
+          <div class="field" style="align-self: flex-end;">
+            <button type="button" class="btn btn-secondary" id="btnSaveApiKey">Сохранить ключ в БД</button>
+          </div>
+        </div>
+        <div id="apiKeySavedNote" class="meta" style="display: none; margin-bottom: 12px;">
+          Ключ сохранён в БД. <button type="button" class="btn-link" id="btnChangeApiKey">Изменить ключ</button>
+        </div>
+        <div id="apiKeyError" class="meta error" style="display: none; margin-top: 8px;"></div>
+      </div>
+      <div class="panel">
+        <h2>Сохранение в локальную БД</h2>
+        <p class="meta">Загружает данные по эндпоинтам Admin API с указанной даты по вчера. Начальная дата по умолчанию — 01.09.2025.</p>
+        <div class="row">
+          <div class="field">
+            <label>Начальная дата</label>
+            <input type="date" id="syncStartDate">
+          </div>
+          <div class="field" style="align-self: flex-end;">
+            <button class="btn" id="btnSync">Загрузить и сохранить в БД</button>
+          </div>
+        </div>
+        <div class="sync-progress-block" id="syncProgressRow" style="display: none;">
+          <div class="progress-row" style="align-items: center; gap: 12px;">
+            <div class="spinner" id="syncSpinner"></div>
+            <span id="syncProgressText">Подготовка...</span>
+          </div>
+          <div class="progress-bar-wrap" aria-hidden="true">
+            <div class="progress-bar-fill" id="syncProgressBar" style="width: 0%;"></div>
+          </div>
+          <div class="sync-plan" id="syncPlan" style="display: none; margin-top: 10px;"></div>
+          <div class="sync-log-wrap" id="syncLogWrap">
+            <div class="sync-log" id="syncLog" role="log" aria-live="polite"></div>
+          </div>
+          <div class="meta" id="syncProgressDetail" style="margin-top: 6px;"></div>
+        </div>
+        <div id="syncResult" class="sync-result" style="display: none;"></div>
+        <p style="margin-top: 12px;"><a href="#data" class="btn btn-secondary">Просмотр данных в БД →</a></p>
+        <div class="section coverage-section" style="margin-top: 16px;">
+          <h3 style="font-size: 1rem; margin: 0 0 8px; color: var(--muted);">Покрытие БД</h3>
+          <div id="coverageList" class="meta">Загрузка...</div>
+          <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+            <button class="btn btn-secondary" id="btnRefreshCoverage">Обновить</button>
+            <button class="btn btn-danger" id="btnClearApiData" type="button">Очистить только данные API</button>
+            <button class="btn btn-danger" id="btnClearDb" type="button">Полная очистка БД</button>
+            <label class="clear-db-option" style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted);">
+              <input type="checkbox" id="clearDbIncludeSettings"> удалить и настройки (API key)
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="pane-data" class="tab-pane">
+      <p class="muted">Просмотр загруженной аналитики по эндпоинтам и датам.</p>
+      <div class="panel">
+        <h2>Покрытие БД</h2>
+        <p class="meta">Какие эндпоинты и за какие даты есть данные.</p>
+        <div id="coverageContainer">
+          <span class="muted">Загрузка...</span>
+        </div>
+        <button class="btn btn-secondary" id="btnRefreshCoverageData" style="margin-top: 10px;">Обновить</button>
+      </div>
+      <div class="panel">
+        <h2>Фильтры</h2>
+        <div class="row">
+          <div class="field">
+            <label>Эндпоинт</label>
+            <select id="filterEndpoint">
+              <option value="">— Все —</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>С даты</label>
+            <input type="date" id="filterStartDate">
+          </div>
+          <div class="field">
+            <label>По дату</label>
+            <input type="date" id="filterEndDate">
+          </div>
+          <div class="field" style="align-self: flex-end;">
+            <button class="btn" id="btnLoad">Показать данные</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel" id="resultsPanel" style="display: none;">
+        <h2>Данные</h2>
+        <div id="resultsSummary" class="meta" style="margin-bottom: 12px;"></div>
+        <div id="resultsContainer"></div>
+      </div>
+    </div>
+
+    <div id="pane-jira" class="tab-pane">
+      <p class="muted">Данные по пользователям из Jira. Загрузка CSV — при загрузке нового списка предыдущие данные заменяются.</p>
+      <div class="panel">
+        <h2>Загрузить CSV</h2>
+        <p class="meta">Формат — экспорт из Jira. При загрузке все текущие записи удаляются и заменяются данными из файла.</p>
+        <div class="row">
+          <div class="field">
+            <label>Файл CSV (export.csv)</label>
+            <input type="file" id="csvFile" accept=".csv,text/csv">
+          </div>
+          <div class="field" style="align-self: flex-end;">
+            <button class="btn" id="btnUpload">Загрузить CSV</button>
+          </div>
+        </div>
+        <div id="uploadResult" class="sync-result" style="display: none; margin-top: 12px;"></div>
+      </div>
+      <div class="panel">
+        <h2>Текущий список</h2>
+        <div id="usersSummary" class="meta" style="margin-bottom: 10px;"></div>
+        <div id="usersContainer">
+          <span class="muted">Загрузка...</span>
+        </div>
+        <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
+          <button class="btn btn-secondary" id="btnRefresh">Обновить</button>
+          <button class="btn btn-danger" id="btnClearJira" type="button">Очистить данные Jira</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="pane-audit" class="tab-pane">
+      <p class="muted">События из загруженных Audit Logs в БД. Фильтры по периоду и типу события.</p>
+      <div class="panel">
+        <h2>Фильтры</h2>
+        <div class="row">
+          <div class="field">
+            <label>С даты</label>
+            <input type="date" id="auditStartDate">
+          </div>
+          <div class="field">
+            <label>По дату</label>
+            <input type="date" id="auditEndDate">
+          </div>
+          <div class="field">
+            <label>Тип события</label>
+            <select id="auditEventType">
+              <option value="">Все типы</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Лимит</label>
+            <select id="auditLimit">
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+          <div class="field" style="align-self: flex-end;">
+            <button class="btn" id="auditBtnLoad">Показать</button>
+          </div>
+        </div>
+        <div id="auditStatus" class="meta" style="margin-top: 8px;"></div>
+      </div>
+      <div class="panel" id="auditResultsPanel" style="display: none;">
+        <h2>События</h2>
+        <div id="auditResultsSummary" class="meta" style="margin-bottom: 10px;"></div>
+        <div id="auditResultsContainer"></div>
+      </div>
+      <div class="panel" id="auditEmptyState">
+        <p class="muted">Укажите период и тип события, нажмите «Показать». Данные берутся из БД — загрузите Audit Logs во вкладке <a href="#admin">Загрузка в БД</a>.</p>
+      </div>
     </div>
   </main>
+  <footer class="site-footer" id="footer-root"></footer>
+  <script src="common.js"></script>
+  <script>checkAuthAndRenderNav('nav-root', 'footer-root', 'settings');</script>
+  <script src="settings-tabs.js"></script>
+  <script src="app.js"></script>
+  <script src="data.js"></script>
+  <script src="jira-users.js"></script>
+  <script src="audit.js"></script>
   <script>
-    document.getElementById('btnLogout').addEventListener('click', async () => {
-      await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
-      window.location.href = 'login.html';
-    });
     fetch('/api/auth/check', { credentials: 'same-origin' })
       .then((r) => r.json())
       .then((data) => { if (!data.authenticated) window.location.href = 'login.html'; })

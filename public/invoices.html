@@ -3,55 +3,115 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Счета Cursor (PDF) — Cursor Admin API</title>
+  <title>Счета и учёт — Учёт Cursor</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .page-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+    .page-tabs a { padding: 10px 16px; color: var(--muted); text-decoration: none; border-radius: 8px 8px 0 0; font-weight: 500; transition: color 0.2s, background 0.2s; }
+    .page-tabs a:hover { color: var(--accent); background: var(--accent-light); }
+    .page-tabs a.active { color: var(--accent); background: var(--surface); border: 1px solid var(--border); border-bottom-color: transparent; margin-bottom: -1px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    .report-section { margin-bottom: 32px; }
+    .report-section h2 { margin-top: 0; margin-bottom: 12px; }
+    .report-table, .recon-table { width: 100%; border-collapse: collapse; }
+    .report-table th, .report-table td, .recon-table th, .recon-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .report-table th, .recon-table th { font-weight: 600; background: var(--bg); }
+    .report-table .num, .recon-table .num { text-align: right; }
+    .report-table .total-row, .recon-table .total-row { font-weight: 600; background: var(--accent-light); }
+    .recon-table .diff-ok { color: var(--green); }
+    .recon-table .diff-warn { color: var(--muted); }
+    .recon-table .diff-bad { color: var(--red); }
+    .report-loading, .report-error, .recon-loading, .recon-error { padding: 20px; }
+    .report-error, .recon-error { color: var(--red); }
+  </style>
 </head>
 <body>
   <header class="site-header">
-    <div class="site-wrap">
-      <h1>Статистика Cursor</h1>
-      <nav class="nav-links">
-        <a href="index.html">Дашборд</a>
-        <a href="team-snapshot.html">Участники и расходы</a>
-        <a href="settings.html">Настройки</a>
-        <a href="admin.html">Загрузка в БД</a>
-        <a href="data.html">Данные в БД</a>
-        <a href="jira-users.html">Jira</a>
-        <a href="invoices.html" class="current">Счета</a>
-        <a href="audit.html">Аудит</a>
-      </nav>
-    </div>
+    <div id="nav-root"></div>
   </header>
   <main class="site-wrap">
-  <h2 style="margin-top: 0;">Счета Cursor (PDF)</h2>
-  <p class="muted">Загрузка и отображение счетов. PDF загружаются через эту страницу; из таблицы между «Description» и «Subtotal» извлекаются позиции и сохраняются в БД.</p>
+    <h2 style="margin-top: 0;">Счета и учёт</h2>
+    <nav class="page-tabs" id="accounting-tabs">
+      <a href="#invoices" data-tab="invoices" class="active">Счета</a>
+      <a href="#report" data-tab="report">Отчёт</a>
+      <a href="#reconciliation" data-tab="reconciliation">Сверка</a>
+    </nav>
 
-  <div class="panel">
-    <h2>Загрузка счёта</h2>
-    <p class="meta">Выберите файл PDF счёта Cursor и нажмите «Загрузить». Позиции из тела счёта будут распознаны и сохранены.</p>
-    <div class="row">
-      <div class="field">
-        <label>Файл PDF</label>
-        <input type="file" id="pdfFile" accept=".pdf,application/pdf">
+    <div id="pane-invoices" class="tab-pane active">
+      <p class="muted">Загрузка PDF-счетов Cursor и просмотр позиций. Из таблицы между «Description» и «Subtotal» извлекаются позиции и сохраняются в БД.</p>
+      <div class="panel">
+        <h2>Загрузка счёта</h2>
+        <p class="meta">Выберите файл PDF счёта Cursor и нажмите «Загрузить».</p>
+        <div class="row">
+          <div class="field">
+            <label>Файл PDF</label>
+            <input type="file" id="pdfFile" accept=".pdf,application/pdf">
+          </div>
+          <div class="field" style="align-self: flex-end;">
+            <button class="btn" id="btnUploadPdf">Загрузить PDF</button>
+          </div>
+        </div>
+        <div id="uploadResult" class="sync-result" style="display: none; margin-top: 12px;"></div>
       </div>
-      <div class="field" style="align-self: flex-end;">
-        <button class="btn" id="btnUploadPdf">Загрузить PDF</button>
+      <div class="panel">
+        <h2>Загруженные счета</h2>
+        <div id="invoicesSummary" class="meta" style="margin-bottom: 10px;"></div>
+        <div id="invoicesList"></div>
+        <div id="invoiceDetail" style="display: none; margin-top: 16px;">
+          <h3 id="invoiceDetailTitle"></h3>
+          <div id="invoiceItemsTable" class="table-wrap"></div>
+        </div>
       </div>
     </div>
-    <div id="uploadResult" class="sync-result" style="display: none; margin-top: 12px;"></div>
-  </div>
 
-  <div class="panel">
-    <h2>Загруженные счета</h2>
-    <div id="invoicesSummary" class="meta" style="margin-bottom: 10px;"></div>
-    <div id="invoicesList"></div>
-    <div id="invoiceDetail" style="display: none; margin-top: 16px;">
-      <h3 id="invoiceDetailTitle"></h3>
-      <div id="invoiceItemsTable" class="table-wrap"></div>
+    <div id="pane-report" class="tab-pane">
+      <p class="muted">Сводка по загруженным счетам: по периодам биллинга (цикл 6–5) и по типам начислений.</p>
+      <div id="reportLoading" class="report-loading">Загрузка данных…</div>
+      <div id="reportError" class="report-error" style="display: none;"></div>
+      <div id="reportContent" style="display: none;">
+        <div class="report-section panel">
+          <h2>По периодам биллинга</h2>
+          <p class="meta">Цикл: с 6-го по 5-е число следующего месяца. Суммы в долларах.</p>
+          <div id="byPeriodTable" class="table-wrap"></div>
+        </div>
+        <div class="report-section panel">
+          <h2>По типам начислений</h2>
+          <p class="meta">Сумма и количество позиций по каждому типу.</p>
+          <div id="byTypeTable" class="table-wrap"></div>
+        </div>
+        <div class="report-section panel">
+          <h2>Матрица: период × тип</h2>
+          <p class="meta">Суммы по периодам и типам (в долларах).</p>
+          <div id="matrixTable" class="table-wrap"></div>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <script src="invoices.js"></script>
-</main>
+    <div id="pane-reconciliation" class="tab-pane">
+      <p class="muted">Сопоставление Usage Events (БД) с начислениями по счетам (token_usage + token_fee) по периодам биллинга (цикл 6–5).</p>
+      <div id="reconLoading" class="recon-loading">Загрузка…</div>
+      <div id="reconError" class="recon-error" style="display: none;"></div>
+      <div id="reconContent" style="display: none;">
+        <div class="panel">
+          <h2>Сводная таблица по периодам</h2>
+          <p class="meta">Usage Events: только события с kind = «Usage-based». Счета: позиции token_usage и token_fee.</p>
+          <div id="reconTable" class="table-wrap"></div>
+        </div>
+        <div class="panel">
+          <h2>Легенда</h2>
+          <ul class="meta" style="margin: 0;">
+            <li><strong>Usage Events</strong> — только on-demand (Usage-based).</li>
+            <li><strong>Счета</strong> — позиции из PDF с типами «Использование токенов» и «Комиссия за токены».</li>
+            <li><strong>Разница</strong> — счёт минус Usage. Строка «Итого» — общий баланс по периодам.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer class="site-footer" id="footer-root"></footer>
+  <script src="common.js"></script>
+  <script>checkAuthAndRenderNav('nav-root', 'footer-root', 'invoices');</script>
+  <script src="accounting.js"></script>
 </body>
 </html>

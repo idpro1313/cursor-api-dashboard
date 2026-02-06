@@ -1,31 +1,13 @@
 /**
- * Страница просмотра данных из локальной БД
+ * Страница просмотра данных из локальной БД.
+ * Использует common.js: escapeHtml, getEndpointLabel, fetchWithAuth.
  */
-const ENDPOINT_LABELS = {
-  '/teams/members': 'Team Members',
-  '/teams/audit-logs': 'Audit Logs',
-  '/teams/daily-usage-data': 'Daily Usage Data',
-  '/teams/spend': 'Spending Data',
-  '/teams/filtered-usage-events': 'Usage Events',
-};
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(s);
-  return div.innerHTML;
-}
-
-function getEndpointLabel(path) {
-  return ENDPOINT_LABELS[path] || path;
-}
-
 async function loadCoverage() {
   const el = document.getElementById('coverageContainer');
   if (!el) return;
   try {
-    const r = await fetch('/api/analytics/coverage', { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/analytics/coverage');
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const cov = data.coverage || [];
@@ -35,7 +17,7 @@ async function loadCoverage() {
       for (let i = opts.length - 1; i >= 1; i--) opts[i].remove();
     }
     if (cov.length === 0) {
-      el.innerHTML = '<span class="muted">БД пуста. Загрузите данные в разделе <a href="admin.html">Настройки и загрузка</a>.</span>';
+      el.innerHTML = '<span class="muted">БД пуста. Загрузите данные во вкладке <a href="#admin">Загрузка в БД</a>.</span>';
       return;
     }
     el.innerHTML = `
@@ -184,8 +166,8 @@ async function loadData() {
   if (startDate) params.set('startDate', startDate);
   if (endDate) params.set('endDate', endDate);
   try {
-    const r = await fetch('/api/analytics?' + params, { credentials: 'same-origin' });
-    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const r = await fetchWithAuth('/api/analytics?' + params);
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Ошибка загрузки');
     const rows = data.data || [];
@@ -201,8 +183,10 @@ async function loadData() {
 }
 
 function init() {
-  document.getElementById('btnRefreshCoverage').addEventListener('click', loadCoverage);
-  document.getElementById('btnLoad').addEventListener('click', loadData);
+  var refreshBtn = document.getElementById('btnRefreshCoverageData') || document.getElementById('btnRefreshCoverage');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadCoverage);
+  var loadBtn = document.getElementById('btnLoad');
+  if (loadBtn) loadBtn.addEventListener('click', loadData);
   loadCoverage();
 }
 

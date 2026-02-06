@@ -186,6 +186,92 @@
   window.formatAuditDate = formatAuditDate;
   window.formatJiraDate = formatJiraDate;
 
+  /** Текущая страница: из window.PAGE_ID или из pathname (например index.html → index). */
+  function getPageId() {
+    if (typeof window.PAGE_ID === 'string' && window.PAGE_ID) return window.PAGE_ID;
+    var path = (window.location.pathname || '').replace(/^\//, '').replace(/\.html$/, '');
+    return path || 'index';
+  }
+
+  /** Конфигурация навигации: главная цель — контроль и учёт расходов на Cursor. */
+  var NAV_CONFIG = {
+    title: 'Учёт Cursor',
+    slogan: 'Контроль и учёт расходов на Cursor',
+    items: [
+      { id: 'index', label: 'Главная', href: 'index.html' },
+      { id: 'team-snapshot', label: 'Расходы', href: 'team-snapshot.html' },
+      { id: 'invoices', label: 'Счета и учёт', href: 'invoices.html' },
+      { id: 'settings', label: 'Настройки', href: 'settings.html' },
+    ],
+    loginHref: 'login.html',
+  };
+
+  /** Построить шапку с навигацией и кнопкой Войти/Выйти. */
+  function renderNav(containerId, pageId) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    pageId = pageId || getPageId();
+    var auth = window.__navAuth;
+    var html = '<div class="site-wrap"><div class="header-inner"><a href="index.html" class="site-logo">' + escapeHtml(NAV_CONFIG.title) + '</a>';
+    html += '<nav class="nav-links">';
+    NAV_CONFIG.items.forEach(function (item) {
+      var isCurrent = item.id === pageId;
+      html += '<a href="' + escapeHtml(item.href) + '" class="' + (isCurrent ? 'current' : '') + '">' + escapeHtml(item.label) + '</a>';
+    });
+    if (auth) {
+      html += '<a href="#" class="btn btn-secondary btn-small" id="nav-btn-logout">Выйти</a>';
+    } else {
+      html += '<a href="' + escapeHtml(NAV_CONFIG.loginHref) + '" class="btn btn-small">Войти</a>';
+    }
+    html += '</nav></div></div>';
+    container.innerHTML = html;
+    var logoutBtn = document.getElementById('nav-btn-logout');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }).then(function () {
+          window.location.href = 'index.html';
+        });
+      });
+    }
+  }
+
+  /** Построить футер. */
+  function renderFooter(footerId) {
+    var footer = document.getElementById(footerId);
+    if (!footer) return;
+    var year = new Date().getFullYear();
+    footer.innerHTML =
+      '<div class="site-wrap site-footer-inner">' +
+      '<span class="site-footer-logo">' + escapeHtml(NAV_CONFIG.title) + '</span>' +
+      '<span class="site-footer-slogan">' + escapeHtml(NAV_CONFIG.slogan) + '</span>' +
+      '<p class="site-footer-copy">&copy; ' + year + '</p>' +
+      '</div>';
+  }
+
+  /** Проверить авторизацию и обновить window.__navAuth; вызвать renderNav после. */
+  function checkAuthAndRenderNav(containerId, footerId, pageId) {
+    pageId = pageId || getPageId();
+    fetch('/api/auth/check', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        window.__navAuth = data && data.authenticated === true;
+        renderNav(containerId, pageId);
+        if (footerId) renderFooter(footerId);
+      })
+      .catch(function () {
+        window.__navAuth = false;
+        renderNav(containerId, pageId);
+        if (footerId) renderFooter(footerId);
+      });
+  }
+
+  window.getPageId = getPageId;
+  window.NAV_CONFIG = NAV_CONFIG;
+  window.renderNav = renderNav;
+  window.renderFooter = renderFooter;
+  window.checkAuthAndRenderNav = checkAuthAndRenderNav;
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initCopy);
   } else {
