@@ -198,10 +198,10 @@
     title: 'Учёт Cursor',
     slogan: 'Контроль и учёт расходов на Cursor',
     items: [
-      { id: 'index', label: 'Главная', href: 'index.html' },
+      { id: 'index', label: 'Дашборд', href: 'index.html' },
       { id: 'team-snapshot', label: 'Расходы', href: 'team-snapshot.html' },
       { id: 'invoices', label: 'Счета и учёт', href: 'invoices.html' },
-      { id: 'settings', label: 'Настройки', href: 'settings.html' },
+      { id: 'settings', label: 'Управление данными', href: 'settings.html' },
     ],
     loginHref: 'login.html',
   };

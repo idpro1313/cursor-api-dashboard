@@ -90,7 +90,8 @@ function init() {
         return;
       }
       resultEl.className = 'sync-result ok';
-      resultEl.textContent = data.message || `Загружено ${data.count} записей.`;
+      const contextActions = `<div style="margin-top: 12px;"><a href="index.html" class="btn btn-secondary">→ Посмотреть активность пользователей</a></div>`;
+      resultEl.innerHTML = `${escapeHtml(data.message || 'Загружено ' + data.count + ' записей.')}${contextActions}`;
       input.value = '';
       loadUsers();
     } catch (e) {

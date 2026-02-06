@@ -829,6 +829,37 @@ async function setDefaultDates() {
   if (!elEnd.value) elEnd.value = end.toISOString().slice(0, 10);
 }
 
+function showDataFreshness(dataEndDate) {
+  const freshnessEl = document.getElementById('dataFreshness');
+  const freshnessText = document.getElementById('dataFreshnessText');
+  if (!freshnessEl || !freshnessText) return;
+  if (!dataEndDate) {
+    freshnessEl.style.display = 'none';
+    return;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endDate = new Date(dataEndDate);
+  endDate.setHours(0, 0, 0, 0);
+  const diffDays = Math.floor((today - endDate) / (1000 * 60 * 60 * 24));
+  let message = '';
+  if (diffDays === 0) {
+    message = '✓ Данные актуальны (обновлено сегодня)';
+    freshnessEl.style.background = 'var(--accent-light)';
+  } else if (diffDays === 1) {
+    message = 'Данные актуальны на вчера (' + formatDateLocal(dataEndDate) + ')';
+    freshnessEl.style.background = 'var(--accent-light)';
+  } else if (diffDays <= 7) {
+    message = 'Данные за ' + formatDateLocal(dataEndDate) + ' (' + diffDays + ' дн. назад)';
+    freshnessEl.style.background = '#fff3cd';
+  } else {
+    message = '⚠ Данные устарели: ' + formatDateLocal(dataEndDate) + ' (' + diffDays + ' дн. назад)';
+    freshnessEl.style.background = '#f8d7da';
+  }
+  freshnessText.textContent = message;
+  freshnessEl.style.display = 'block';
+}
+
 async function load() {
   const startDate = (document.getElementById('startDate') || {}).value;
   const endDate = (document.getElementById('endDate') || {}).value;
@@ -929,6 +960,7 @@ async function load() {
 
     if (tableSummary) tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
     if (statusEl) statusEl.textContent = '';
+    showDataFreshness(endDate);
   } catch (e) {
     if (statusEl) { statusEl.textContent = e.message || 'Ошибка загрузки'; statusEl.className = 'meta error'; }
     if (summaryPanel) summaryPanel.style.display = 'none';

@@ -63,7 +63,15 @@
   function showResult(el, message, isError) {
     el.style.display = 'block';
     el.className = isError ? 'sync-result error' : 'sync-result ok';
-    el.textContent = message;
+    if (isError) {
+      el.textContent = message;
+    } else {
+      var contextActions = '<div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">' +
+        '<a href="#reconciliation" class="btn btn-secondary">→ Перейти к сверке</a>' +
+        '<a href="#report" class="btn btn-secondary">→ Посмотреть отчёт</a>' +
+        '</div>';
+      el.innerHTML = escapeHtml(message) + contextActions;
+    }
   }
 
   async function loadInvoices() {

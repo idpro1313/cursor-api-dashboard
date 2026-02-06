@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Настройки — Учёт Cursor</title>
+  <title>Управление данными — Учёт Cursor</title>
   <link rel="stylesheet" href="styles.css">
   <style>
     .page-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
@@ -19,7 +19,7 @@
     <div id="nav-root"></div>
   </header>
   <main class="site-wrap">
-    <h2 style="margin-top: 0;">Настройки</h2>
+    <h2 style="margin-top: 0;">Управление данными</h2>
     <nav class="page-tabs" id="settings-tabs">
       <a href="#admin" data-tab="admin" class="active">Загрузка в БД</a>
       <a href="#data" data-tab="data">Данные в БД</a>
@@ -125,6 +125,9 @@
         <h2>Данные</h2>
         <div id="resultsSummary" class="meta" style="margin-bottom: 12px;"></div>
         <div id="resultsContainer"></div>
+        <div style="margin-top: 16px; padding: 12px; background: var(--accent-light); border-radius: 8px;">
+          <a href="index.html" class="btn btn-secondary">→ Посмотреть аналитику на дашборде</a>
+        </div>
       </div>
     </div>
 

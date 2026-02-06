@@ -153,10 +153,17 @@ function showSyncResult(resultEl, data, isError) {
     resultEl.textContent = data.error || 'Ошибка';
     return;
   }
+  const contextActions = `
+    <div style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+      <a href="index.html" class="btn btn-secondary">→ Посмотреть на дашборде</a>
+      <a href="#data" class="btn btn-secondary">→ Просмотр сырых данных БД</a>
+    </div>
+  `;
   resultEl.innerHTML = `
     ${escapeHtml(data.message)}<br>
     ${data.skipped && data.skipped.length ? '<br>Пропущено (функция не включена): ' + data.skipped.map(s => escapeHtml(s.endpoint)).join(', ') : ''}
     ${data.errors && data.errors.length ? '<br>Ошибки по эндпоинтам: ' + data.errors.map(e => escapeHtml(e.endpoint + ': ' + e.error)).join('; ') : ''}
+    ${contextActions}
   `;
 }
 

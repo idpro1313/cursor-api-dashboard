@@ -34,12 +34,27 @@
       </div>
     </div>
     <div id="loadStatus" class="meta" style="margin-top: 8px;"></div>
+    <div id="dataFreshness" class="meta" style="margin-top: 12px; padding: 12px; background: var(--accent-light); border-radius: 8px; display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <span id="dataFreshnessText"></span>
+        <a href="settings.html#admin" class="btn btn-secondary btn-sm">↻ Обновить данные</a>
+      </div>
+    </div>
   </div>
 
   <div class="panel" id="summaryPanel" style="display: none;">
     <h2>Сводка за период</h2>
-    <p class="meta">Только данные из БД (Daily Usage, Usage Events). Участники команды и расходы текущего месяца — в отдельном дашборде <a href="team-snapshot.html">Участники и расходы</a>.</p>
+    <p class="meta">Данные из БД: Daily Usage и Usage Events (события и стоимость по пользователям и месяцам).</p>
     <div class="stats-grid" id="summaryStats"></div>
+    <div style="margin-top: 16px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <strong style="color: var(--text);">Расходы текущего месяца</strong>
+          <p class="meta" style="margin: 4px 0 0;">Участники команды, расходы и данные Jira</p>
+        </div>
+        <a href="team-snapshot.html" class="btn btn-secondary">→ Посмотреть расходы</a>
+      </div>
+    </div>
   </div>
 
   <div class="panel" id="inactiveCursorPanel" style="display: none;">
