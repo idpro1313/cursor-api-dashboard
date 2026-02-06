@@ -1,6 +1,6 @@
 # Аудит проекта: структура, код, настройки
 
-*Часть пунктов из этого отчёта уже исправлена (API report/reconciliation добавлены, settings-uploads.js удалён, parser_output переименован, report/reconciliation в навигации и защищённых страницах). Документ сохранён для истории и оставшихся рекомендаций.*
+*Часть пунктов из этого отчёта уже исправлена (API report/reconciliation добавлены, settings-uploads.js удалён, parser_output переименован, report/reconciliation в навигации и защищённых страницах). Документ сохранён для истории и оставшихся рекомендаций. Актуальная структура проекта и API — в [DOCUMENTATION.md](DOCUMENTATION.md) (навигация, счета с issue_date и типами начислений, сверка по token_usage/token_fee).*
 
 ## 1. Структура проекта
 

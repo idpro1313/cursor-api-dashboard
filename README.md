@@ -4,12 +4,10 @@
 
 ## Возможности
 
-- **Главная страница (дашборд)** — без входа: активность по пользователям и месяцам (запросы, строки кода, события и стоимость Usage Events, токены, расходы текущего месяца (Spend API)), сводка по моделям, блок «Активные в Jira, но не используют Cursor», затраты по проекту помесячно. Источники: Daily Usage Data, Usage Events, Jira (CSV), Team Members, Spending Data.
-- **Настройки (по логину и паролю):**
-  - **Настройки и загрузка** — API key, одна кнопка загрузки данных из Cursor API в SQLite с указанной даты по вчера, покрытие БД, очистка (только API / только Jira / полная).
-  - **Данные в БД** — просмотр сохранённых данных по эндпоинтам и датам.
-  - **Пользователи Jira** — загрузка CSV из Jira, очистка данных Jira.
-  - **Аудит** — события Audit Logs с фильтрами.
+- **Главная (дашборд)** — без входа: активность по пользователям и месяцам (запросы, строки кода, события и стоимость Usage Events, токены, расходы текущего месяца (Spend API)), сводка по моделям, блок «Активные в Jira, но не используют Cursor», затраты по проекту помесячно. Источники: Daily Usage Data, Usage Events, Jira (CSV), Team Members, Spending Data.
+- **Расходы** — участники команды и расходы текущего месяца (Spend API).
+- **Счета и учёт** (после входа): табы **Счета | Отчёт | Сверка** — загрузка PDF-счетов Cursor, парсинг позиций (в т.ч. типы начислений: token_usage, token_fee, подписка, proration и др.), отчёт по периодам биллинга и по типам начислений, сверка Usage Events и позиций счетов (token_usage + token_fee) по периодам 6–5. Период счёта определяется по дате из PDF (Date of issue), а не по дате загрузки.
+- **Настройки** (после входа): табы **Загрузка в БД | Данные в БД | Jira | Аудит** — API key, загрузка данных из Cursor API в SQLite, покрытие БД, очистка, просмотр данных, загрузка CSV из Jira, события Audit Logs.
 
 Логин и пароль хранятся в файле **`data/auth.json`**. При первом запуске создаётся файл с учётными данными по умолчанию: **admin** / **admin** (рекомендуется сменить).
 
@@ -29,8 +27,8 @@ npm start
 
 Откройте в браузере: **http://localhost:3333**
 
-- Главная — дашборд (доступ без входа).
-- Ссылка **«Настройки»** → страница входа → после входа доступны разделы загрузки, данных в БД, Jira, Счета, Аудит.
+- Главная — дашборд (доступ без входа). В шапке: **Главная | Расходы | Счета и учёт | Настройки**.
+- **Счета и учёт** и **Настройки** требуют входа (логин/пароль из `data/auth.json`). После входа: Счета и учёт (табы Счета, Отчёт, Сверка), Настройки (табы Загрузка в БД, Данные в БД, Jira, Аудит).
 - Для загрузки PDF-счетов при локальном запуске нужна **Java 11+** в PATH (например [Adoptium](https://adoptium.net/) или OpenJDK); иначе будет ошибка «Ошибка OpenDataLoader (требуется Java 11+)».
 
 ### Docker
@@ -57,20 +55,21 @@ docker compose up --build
 
 ### Парсинг PDF-счетов (OpenDataLoader)
 
-Используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf): вызов `convert()` по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в формате JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Из JSON извлекается таблица с заголовками Description / Qty / Unit price / Tax / Amount. **Требуется Java 11+** в PATH (локально); в Docker-образ включена Java 17, парсинг включён по умолчанию.
+Используется [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf): загрузка пакета через ESM `import()` (избегает ошибки CJS с `import.meta.url`), вызов `convert([tmpPdf, tmpOut], options)` по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Из JSON извлекается таблица с заголовками Description / Qty / Unit price / Tax / Amount; при отсутствии таблицы применяется fallback по параграфам и спискам (`extractInvoiceRowsFromOdlParagraphs`). Из PDF извлекается дата счёта (Date of issue) и сохраняется в БД для привязки к периоду биллинга при сверке. Для каждой позиции определяется тип начисления (token_usage, token_fee, monthly_subscription, proration_charge и др.) и при необходимости модель. **Требуется Java 11+** в PATH (локально); в Docker-образ включена Java 17, парсинг включён по умолчанию.
 
 ## Структура данных
 
-- **data/analytics.db** — SQLite: таблицы `analytics` (данные по эндпоинтам и датам), `jira_users` (CSV Jira), `settings` (API key), `cursor_invoices` и `cursor_invoice_items` (загруженные PDF-счета и позиции).
+- **data/analytics.db** — SQLite: таблицы `analytics` (данные по эндпоинтам и датам), `jira_users` (CSV Jira), `settings` (API key), `cursor_invoices` (в т.ч. `issue_date` — дата счёта из PDF) и `cursor_invoice_items` (позиции с полями `charge_type`, `model` — тип начисления и модель).
 - **data/auth.json** — логин и пароль для входа в настройки (`{"login": "admin", "password": "admin"}`).
 - **data/session_secret** — секрет сессии (создаётся автоматически).
 - **data/sync.log** — лог синхронизации API (при загрузке данных в БД).
 - **data/invoice-logs/** — лог загрузки по каждому счёту отдельно (имя файла = имя счёта + `.log`); при удалении счёта соответствующий лог удаляется.
 
 Документация в каталоге **docs/**:
-- [DOCUMENTATION.md](docs/DOCUMENTATION.md) — полное описание
+- [DOCUMENTATION.md](docs/DOCUMENTATION.md) — полное описание API, БД, парсинга PDF, навигации
 - [PURPOSE-AND-VISION.md](docs/PURPOSE-AND-VISION.md) — цель и предназначение продукта
-- [AUDIT-REPORT.md](docs/AUDIT-REPORT.md) — отчёт аудита проекта
+- [REBRAND-RECONSTRUCTION-PLAN.md](docs/REBRAND-RECONSTRUCTION-PLAN.md) — план ребрендинга (навигация реализована)
+- [AUDIT-REPORT.md](docs/AUDIT-REPORT.md) — отчёт аудита проекта (исторический)
 
 ## Лимиты Cursor Admin API
 

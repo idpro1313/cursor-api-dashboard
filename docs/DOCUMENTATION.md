@@ -11,8 +11,8 @@
 - **Просмотр данных в БД** — фильтрация по эндпоинту и диапазону дат, просмотр покрытия.
 - **Пользователи Jira** — загрузка CSV (экспорт из Jira) для сопоставления с активностью Cursor по email.
 - **Дашборд по пользователям** — статистика использования Cursor по месяцам: запросы, дни активности, строки кода, применения/принятия; виды: карточки, тепловая карта, таблица.
-- **Счета Cursor (PDF)** — загрузка PDF-счетов, парсинг таблицы позиций через [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (требуется Java 11+). Извлекаются строки с полями Description, Qty, Unit price, Tax, Amount. Логирование каждого разбора в отдельный файл в `data/invoice-logs/`.
-- **Доступ к настройкам по логину и паролю** — страницы «Счета и учёт» и «Настройки» (табы: Загрузка в БД, Данные в БД, Jira, Аудит) доступны после входа. Учётные данные хранятся в `data/auth.json`.
+- **Счета Cursor (PDF)** — загрузка PDF-счетов, парсинг через [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (требуется Java 11+): извлечение таблицы с Description/Qty/Unit price/Tax/Amount или fallback по параграфам и спискам; из PDF извлекается дата счёта (Date of issue) и тип начисления для каждой позиции (token_usage, token_fee, подписка, proration и др.). Логирование каждого разбора в отдельный файл в `data/invoice-logs/`.
+- **Доступ по логину и паролю** — разделы «Счета и учёт» и «Настройки» доступны после входа. Навигация: **Главная | Расходы | Счета и учёт | Настройки**. Учётные данные хранятся в `data/auth.json`.
 
 ---
 
@@ -45,9 +45,10 @@ cursor-api-dashboard/
 ├── .gitignore
 ├── README.md           # Краткая инструкция по запуску (для GitHub)
 ├── docs/               # Документация
-│   ├── DOCUMENTATION.md    # Этот файл
-│   ├── PURPOSE-AND-VISION.md
-│   └── AUDIT-REPORT.md
+│   ├── DOCUMENTATION.md    # Этот файл (API, БД, парсинг PDF, навигация)
+│   ├── PURPOSE-AND-VISION.md   # Цель и предназначение продукта
+│   ├── REBRAND-RECONSTRUCTION-PLAN.md   # План ребрендинга (навигация реализована)
+│   └── AUDIT-REPORT.md    # Отчёт аудита (исторический)
 ├── public/             # Статика
 │   ├── index.html      # Главная: дашборд по пользователям (без входа)
 │   ├── login.html      # Вход в настройки (логин/пароль)
@@ -124,10 +125,11 @@ chmod +x scripts/deploy.sh
 - **Затраты по проекту (помесячно):** таблица по проектам Jira с помесячной стоимостью Usage Events и итогом Spend API.
 - Ссылка **«Настройки»** ведёт на страницу входа (`login.html`).
 
-### 5.2 Вход и страница настроек (`login.html`, `settings.html`)
+### 5.2 Вход и навигация (`login.html`, `settings.html`, `common.js`)
 
 - **Вход:** логин и пароль из файла `data/auth.json`. При первом запуске создаётся файл с учётными данными по умолчанию (admin/admin). Сессия хранится в cookie (24 ч).
-- **После входа** открывается `settings.html` — список разделов: Настройки и загрузка, Данные в БД, Пользователи Jira, Счета, Аудит, Отчёт по счетам, Сверка. Каждый пункт — ссылка на соответствующую страницу.
+- **Навигация (шапка):** Главная (`index.html`), Расходы (`team-snapshot.html`), Счета и учёт (`invoices.html`), Настройки (`settings.html`). Счета и учёт и Настройки требуют входа.
+- **После входа** доступны: **Счета и учёт** — одна страница `invoices.html` с табами **Счета | Отчёт | Сверка**; **Настройки** — одна страница `settings.html` с табами **Загрузка в БД | Данные в БД | Jira | Аудит**.
 
 ### 5.3 Настройки → Загрузка в БД (только после входа)
 
@@ -149,16 +151,16 @@ chmod +x scripts/deploy.sh
 
 - События Audit Logs из БД. Фильтры: период, тип события, лимит записей. Кнопка «Показать» — загрузка и отображение таблицы событий.
 
-### 5.7 Счета Cursor (`invoices.html`), только после входа
+### 5.7 Счета и учёт: Счета (`invoices.html`, таб «Счета»), только после входа
 
-- Загрузка PDF-счета: выбор файла, отправка на сервер. Парсинг выполняется **только** через OpenDataLoader; при отключённом парсере (`USE_OPENDATALOADER=0`), ошибке выполнения (нет Java или сбой OpenDataLoader) или пустом результате сервер возвращает ошибку клиенту (резервных парсеров нет).
+- Загрузка PDF-счета: выбор одного или нескольких файлов, отправка на сервер. Парсинг через OpenDataLoader (пакет загружается как ESM `import()`, вызов `convert([tmpPdf, tmpOut], options)`); при отсутствии таблицы в JSON применяется извлечение из параграфов/списков (`extractInvoiceRowsFromOdlParagraphs`). Из PDF извлекается дата счёта (Date of issue) и сохраняется в БД (`issue_date`); для каждой позиции определяется тип начисления (`charge_type`: token_usage, token_fee, monthly_subscription, proration_charge и др.) и при необходимости модель (`model`). При отключённом парсере (`USE_OPENDATALOADER=0`), ошибке (нет Java, сбой OpenDataLoader) или пустом результате сервер возвращает ошибку клиенту.
 - Дубликаты: счёт с тем же SHA-256 хешем файла не принимается (409), отображается ссылка на уже загруженный счёт.
-- Список загруженных счетов с количеством позиций; просмотр позиций счёта (description, quantity, unit price, tax, amount); удаление счёта (при удалении удаляется и соответствующий лог в `data/invoice-logs/`).
+- Список загруженных счетов с количеством позиций; просмотр позиций счёта (description, quantity, unit price, tax, amount, charge_type, model); удаление счёта (при удалении удаляется и соответствующий лог в `data/invoice-logs/`). Кнопка «Очистить все счета из БД» — полная очистка таблиц счетов.
 
 ### 5.8 Счета и учёт: Отчёт и Сверка (табы на `invoices.html`)
 
-- **Отчёт по счетам:** сводка по загруженным счетам — по периодам биллинга (цикл 6–5) и по типам начислений. API: `GET /api/invoices/all-items`.
-- **Сверка:** сопоставление Usage Events и позиций счетов по периодам биллинга; разница в $. API: `GET /api/reconciliation`. Доступ только после входа.
+- **Отчёт по счетам:** сводка по загруженным счетам — по периодам биллинга (цикл 6–5) и по типам начислений (monthly_subscription, token_usage, token_fee, proration и др.). API: `GET /api/invoices/all-items` (в каждой позиции: `issue_date`, `charge_type`, `model`).
+- **Сверка:** сопоставление Usage Events (только kind = Usage-based) и **позиций счетов с типами token_usage и token_fee** по периодам биллинга (цикл 6–5). Период для счёта определяется по **дате счёта из PDF** (`issue_date`), а не по дате загрузки. Разница в $. API: `GET /api/reconciliation`. Доступ только после входа.
 
 ### 5.9 Редирект
 
@@ -224,15 +226,16 @@ chmod +x scripts/deploy.sh
 |-------|------|----------|
 | POST | `/api/invoices/upload` | Тело: `multipart/form-data`, поле `pdf` — файл PDF. Парсинг через OpenDataLoader; при успехе — сохранение в БД, ответ `{ ok, invoice_id, filename, items_count }`. При дубликате по хешу файла — 409 и `existing_invoice`. При ошибке парсинга (OPENDATALOADER_DISABLED, OPENDATALOADER_ERROR, OPENDATALOADER_EMPTY) — 400 с сообщением. |
 | GET | `/api/invoices` | Список счетов: `{ invoices: [ { id, filename, parsed_at, items_count }, ... ] }`. |
-| GET | `/api/invoices/all-items` | Все позиции всех счетов для отчёта: `{ items: [ { issue_date, amount_cents, charge_type, ... }, ... ] }`. |
-| GET | `/api/invoices/:id/items` | Позиции счёта: `{ items: [ { row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns }, ... ] }`. 404 если счёт не найден. |
+| GET | `/api/invoices/all-items` | Все позиции всех счетов для отчёта: `{ items: [ { issue_date, amount_cents, charge_type, model, description, ... }, ... ] }`. `charge_type`: token_usage, token_fee, monthly_subscription, proration_charge и др. |
+| GET | `/api/invoices/:id/items` | Позиции счёта: `{ items: [ { row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns, charge_type, model }, ... ] }`. 404 если счёт не найден. |
 | DELETE | `/api/invoices/:id` | Удаление счёта и всех его позиций; удаляется также лог в `INVOICE_LOGS_DIR` (имя файла счёта + `.log`). Ответ `{ ok: true }` или 404. |
+| POST | `/api/invoices/clear` | Полная очистка таблиц счетов (cursor_invoices, cursor_invoice_items) и логов в INVOICE_LOGS_DIR. Только после входа. Ответ `{ ok: true }`. |
 
 ### 6.5 Сверка (только после входа)
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| GET | `/api/reconciliation` | Сопоставление Usage Events и позиций счетов по периодам биллинга. Ответ: `{ comparison: [ { periodLabel, usageEventCount, usageCostCents, invoiceItemCount, invoiceCostCents, diffCents } ], totals }`. |
+| GET | `/api/reconciliation` | Сопоставление Usage Events (kind = Usage-based) и позиций счетов **с типами token_usage и token_fee** по периодам биллинга (цикл 6–5). Период счёта — по полю `issue_date` (дата из PDF). Ответ: `{ comparison: [ { periodLabel, usageEventCount, usageCostCents, invoiceItemCount, invoiceCostCents, diffCents } ], totals }`. |
 
 ### 6.6 Аналитика и пользователи
 
@@ -283,6 +286,7 @@ chmod +x scripts/deploy.sh
 | file_path | TEXT | Не используется (оставлено для совместимости). |
 | file_hash | TEXT | SHA-256 хеш файла; уникальный индекс для проверки дубликатов. |
 | parsed_at | TEXT | Время загрузки/парсинга. |
+| issue_date | TEXT | Дата счёта из PDF (Date of issue), формат YYYY-MM-DD; используется для привязки к периоду биллинга при сверке. |
 
 **`cursor_invoice_items`**
 
@@ -297,13 +301,15 @@ chmod +x scripts/deploy.sh
 | tax_pct | REAL | Налог, %. |
 | amount_cents | INTEGER | Сумма в центах. |
 | raw_columns | TEXT | JSON массива сырых значений колонок. |
+| charge_type | TEXT | Тип начисления: token_usage, token_fee, monthly_subscription, proration_charge, proration_refund, fast_premium_*, other. |
+| model | TEXT | Модель (для token_usage/token_fee), например из «non-max-...». |
 
 Уникальность: `(invoice_id, row_index)`.
 
 ### 7.4 Вспомогательные функции (db.js)
 
 - `getExistingDates(endpoint, startDate, endDate)` — массив дат (YYYY-MM-DD), по которым уже есть данные для эндпоинта в указанном диапазоне. Используется при синхронизации для построения недостающих диапазонов: запрашиваются только чанки по «дырам» (без повторной загрузки одних и тех же дней).
-- Для счетов: `getCursorInvoices`, `getCursorInvoiceById`, `getCursorInvoiceItems`, `getCursorInvoiceByFileHash`, `insertCursorInvoice`, `insertCursorInvoiceItem`, `deleteCursorInvoice`. При полной очистке БД (`clearAllData`) удаляются также `cursor_invoices` и `cursor_invoice_items`.
+- Для счетов: `getCursorInvoices`, `getCursorInvoiceById`, `getCursorInvoiceItems`, `getCursorInvoiceByFileHash`, `insertCursorInvoice` (с параметром issueDate), `insertCursorInvoiceItem` (с параметрами chargeType, model), `deleteCursorInvoice`, `clearCursorInvoicesOnly`. При полной очистке БД (`clearAllData`) удаляются также `cursor_invoices` и `cursor_invoice_items`.
 
 ---
 
@@ -364,11 +370,11 @@ chmod +x scripts/deploy.sh
 
 ## 9.2 Парсинг PDF-счетов (OpenDataLoader) и логирование
 
-**Парсер:** используется только [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (пакет `@opendataloader/pdf`). Вызов по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Резервных парсеров нет: при `USE_OPENDATALOADER=0`, ошибке выполнения (например отсутствие Java) или пустом результате загрузка счёта возвращает ошибку клиенту.
+**Парсер:** используется только [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf) (пакет `@opendataloader/pdf`). Пакет загружается через динамический **ESM `import()`**, чтобы избежать ошибки в CJS-сборке (fileURLToPath(import.meta.url) → undefined). Вызов: `convert([tmpPdf, tmpOut], { outputDir: tmpOut, format: 'json', quiet: true })` по [Quick Start Node.js](https://opendataloader.org/docs/quick-start-nodejs), вывод в JSON по [JSON Schema](https://opendataloader.org/docs/json-schema). Резервных парсеров нет: при `USE_OPENDATALOADER=0`, ошибке (нет Java, сбой OpenDataLoader) или пустом результате загрузка возвращает ошибку клиенту.
 
-**Извлечение таблицы:** в JSON ищется таблица с заголовками Description, Qty, Unit price (опционально), Tax (опционально), Amount. Функция `extractInvoiceRowsFromOdlTable()` определяет индексы колонок по заголовкам и для каждой строки данных извлекает: description, quantity, unit_price_cents, tax_pct, amount_cents. Поддерживаются форматы с колонкой Tax и без неё. Числа и валютные суммы парсятся с учётом символа `$` и запятых; применяется нормализация текста (в т.ч. склейка сумм, разорванных переносами строк, и нестандартных пробелов).
+**Извлечение данных:** из JSON ищется таблица с заголовками Description, Qty, Unit price (опционально), Tax (опционально), Amount (`findInvoiceTableInOdlDoc` → `extractInvoiceRowsFromOdlTable`). Если таблица не найдена (счета в формате списков/параграфов), применяется **fallback** `extractInvoiceRowsFromOdlParagraphs`: плоский список строк из doc.kids (в т.ч. развёрнутые list items), поиск заголовка «Description / Qty / Amount», разбор строк по шаблонам (qty $unit $amount, qty $amount, суммы в конце строки и т.д.). Из текста PDF извлекается **дата счёта** (Date of issue) → `extractInvoiceIssueDateFromOdlDoc`, сохраняется в `cursor_invoices.issue_date`. Для каждой позиции вызывается **classifyInvoiceItem(description, issueDate)** → сохраняются `charge_type` (token_usage, token_fee, monthly_subscription, proration_charge, proration_refund, fast_premium_*, other) и при необходимости `model` (для токенов — из «non-max-...»). Числа и суммы парсятся с учётом `$`, запятых и `\u0000` (нормализация отрицательных сумм в PDF).
 
-**Логирование:** для каждого загружаемого счёта создаётся/перезаписывается файл в `INVOICE_LOGS_DIR` с именем `имя_файла.pdf.log` (недопустимые символы в имени заменяются на `_`). В лог пишутся: timestamp, filename, parser (`opendataloader`), rows_count, код ошибки (если есть), длина и содержимое извлечённого JSON (поле `parser_output`, обрезано до 50K символов). При удалении счёта через API соответствующий лог-файл удаляется.
+**Логирование:** для каждого загружаемого счёта создаётся/перезаписывается файл в `INVOICE_LOGS_DIR` с именем `имя_файла.pdf.log` (недопустимые символы заменяются на `_`). В лог пишутся: timestamp, filename, parser (`opendataloader`), rows_count, код ошибки (если есть), error_message и при ошибке error_stack, длина и содержимое извлечённого JSON (parser_output, обрезано до 50K символов). При удалении счёта через API соответствующий лог-файл удаляется.
 
 ---
 
