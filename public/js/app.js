@@ -4,33 +4,7 @@
  * Использует common.js: getEndpointLabel, escapeHtml, fetchWithAuth.
  */
 
-let lastErrors = [];
 let apiKeyConfigured = false;
-
-function addError(label, message) {
-  lastErrors.push({ label, message });
-  renderErrors();
-}
-
-function clearErrors() {
-  lastErrors = [];
-  renderErrors();
-}
-
-function renderErrors() {
-  const el = document.getElementById('errorsBlock');
-  if (!el) return;
-  if (lastErrors.length === 0) {
-    el.innerHTML = '';
-    el.style.display = 'none';
-    return;
-  }
-  el.style.display = 'block';
-  el.innerHTML = `
-    <h3>Последние ошибки</h3>
-    <ul>${lastErrors.map(e => `<li><strong>${escapeHtml(e.label)}</strong>: ${escapeHtml(e.message)}</li>`).join('')}</ul>
-  `;
-}
 
 function showApiKeyForm(message) {
   const row = document.getElementById('apiKeyRow');
@@ -81,7 +55,7 @@ async function init() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || r.statusText);
       alert(data.message || 'Данные API очищены.');
-      loadCoverage();
+      loadAdminCoverage();
     } catch (e) {
       alert(e.message || 'Ошибка очистки');
     }
@@ -104,7 +78,7 @@ async function init() {
       if (!r.ok) throw new Error(data.error || r.statusText);
       alert(data.message || 'БД очищена.');
       if (includeSettings) applyApiKeyConfig(false);
-      loadCoverage();
+      loadAdminCoverage();
     } catch (e) {
       alert(e.message || 'Ошибка очистки БД');
     }
@@ -131,15 +105,15 @@ async function init() {
 
   const syncStart = document.getElementById('syncStartDate');
   if (syncStart && !syncStart.value) {
-    syncStart.value = '2025-09-01';
+    syncStart.value = '2025-06-01';
   }
   document.getElementById('btnSync').addEventListener('click', runSync);
-  document.getElementById('btnRefreshCoverage').addEventListener('click', loadCoverage);
+  document.getElementById('btnRefreshCoverage').addEventListener('click', loadAdminCoverage);
   document.getElementById('btnChangeApiKey')?.addEventListener('click', () => showApiKeyForm());
-  loadCoverage();
+  loadAdminCoverage();
 }
 
-async function loadCoverage() {
+async function loadAdminCoverage() {
   const el = document.getElementById('coverageList');
   if (!el) return;
   try {
@@ -315,7 +289,7 @@ async function runSync() {
             if (progressBar) progressBar.style.width = '100%';
             appendLog('saved', `Готово. ${event.message || ''}`);
             showSyncResult(resultEl, event, false);
-            loadCoverage();
+            loadAdminCoverage();
             progressRow.style.display = 'none';
             return;
           } else if (event.type === 'error') {

@@ -15,6 +15,7 @@ function getDb() {
   if (db) return db;
   fs.mkdirSync(DATA_DIR, { recursive: true });
   db = new Database(DB_PATH);
+  db.pragma('foreign_keys = ON');
   db.exec(`
     CREATE TABLE IF NOT EXISTS analytics (
       endpoint TEXT NOT NULL,
@@ -43,6 +44,7 @@ function getDb() {
       filename TEXT NOT NULL,
       file_path TEXT,
       file_hash TEXT,
+      issue_date TEXT,
       parsed_at TEXT DEFAULT (datetime('now'))
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_invoices_file_hash ON cursor_invoices(file_hash) WHERE file_hash IS NOT NULL;
@@ -55,6 +57,8 @@ function getDb() {
       unit_price_cents INTEGER,
       tax_pct REAL,
       amount_cents INTEGER,
+      charge_type TEXT,
+      model TEXT,
       raw_columns TEXT,
       UNIQUE(invoice_id, row_index)
     );

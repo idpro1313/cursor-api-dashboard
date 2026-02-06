@@ -610,11 +610,11 @@ async function doProxy(apiKey, apiPath, method, query, body, res) {
   );
 }
 
-app.get('/api/proxy', async (req, res) => {
+app.get('/api/proxy', requireSettingsAuth, async (req, res) => {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
   const apiKey = getApiKey(req);
-  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или сохраните ключ в настройках.' });
   const apiPath = req.query.path;
   if (!apiPath || !isPathAllowed(apiPath)) {
     return res.status(400).json({ error: 'Query param path required, допустимы /teams/... и /settings/...' });
@@ -628,7 +628,7 @@ app.get('/api/proxy', async (req, res) => {
   return doProxy(apiKey, apiPath, 'GET', query, null, res).catch((e) => res.status(500).json({ error: e.message }));
 });
 
-app.post('/api/proxy', async (req, res) => {
+app.post('/api/proxy', requireSettingsAuth, async (req, res) => {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Слишком много запросов. Подождите минуту.' });
   const apiKey = getApiKey(req);
@@ -934,7 +934,7 @@ async function runSyncToDB(apiKey, startDate, endDate, onProgress) {
 
 app.post('/api/sync', requireSettingsAuth, async (req, res) => {
   const apiKey = getApiKey(req);
-  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или создайте файл data/api-key.txt.' });
+  if (!apiKey) return res.status(401).json({ error: 'API key required. Укажите X-API-Key, CURSOR_API_KEY или сохраните ключ в настройках.' });
   const { startDate, endDate } = req.body || {};
   const validation = validateDateRangeForSync(startDate, endDate);
   if (!validation.ok) return res.status(400).json({ error: validation.error });
@@ -1567,7 +1567,7 @@ function extractInvoiceIssueDateFromOdlDoc(doc) {
   for (const k of doc.kids) {
     fullText += ' ' + getTextFromOdlElement(k);
   }
-  const m = fullText.match(/Date of issue\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})/i);
+  const m = fullText.match(/Date of issue[:\s]+([A-Za-z]+\s+\d{1,2},\s*\d{4})/i);
   if (!m || !m[1]) return null;
   const dateStr = m[1].trim();
   const parts = dateStr.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/i);
@@ -1687,7 +1687,8 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
     if (m && m[0].length === line.length) {
       const qty = parseNum(m[1]);
       const amountCents = parseCurrencyToCents(m[m.length - 1]);
-      const desc = pendingDescs.length > 0 ? pendingDescs.shift() : null;
+      const desc = pendingDescs.length > 0 ? pendingDescs.join(' ').trim() : null;
+      pendingDescs.length = 0;
       pushRow(desc, qty, unitCents, taxPct, amountCents);
       continue;
     }
@@ -1695,46 +1696,55 @@ function extractInvoiceRowsFromOdlParagraphs(doc) {
     if (m && m[0].length === line.length) {
       const qty = parseNum(m[1]);
       const amountCents = parseCurrencyToCents(m[2]);
-      const desc = pendingDescs.length > 0 ? pendingDescs.shift() : null;
+      const desc = pendingDescs.length > 0 ? pendingDescs.join(' ').trim() : null;
+      pendingDescs.length = 0;
       const unitCentsTwo = qty && qty > 0 && amountCents != null ? Math.round(amountCents / qty) : null;
       pushRow(desc, qty, unitCentsTwo, null, amountCents);
       continue;
     }
     let endM = line.match(amountAtEndRe);
     if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
+      const inlineDesc = line.slice(0, line.length - endM[0].length).trim();
+      const fullDesc = (pendingDescs.length > 0 ? pendingDescs.join(' ').trim() + (inlineDesc ? ' ' + inlineDesc : '') : inlineDesc) || null;
+      pendingDescs.length = 0;
       const qty = parseNum(endM[1]);
       const unitCentsEnd = parseCurrencyToCents(endM[2]);
       const amountCents = parseCurrencyToCents(endM[3]);
-      pushRow(descPart, qty, unitCentsEnd, null, amountCents);
+      pushRow(fullDesc, qty, unitCentsEnd, null, amountCents);
       continue;
     }
     endM = line.match(amountTaxAtEndRe);
     if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
+      const inlineDesc = line.slice(0, line.length - endM[0].length).trim();
+      const fullDesc = (pendingDescs.length > 0 ? pendingDescs.join(' ').trim() + (inlineDesc ? ' ' + inlineDesc : '') : inlineDesc) || null;
+      pendingDescs.length = 0;
       const qty = parseNum(endM[1]);
       const taxPctEnd = parseNum(endM[2]);
       const amountCents = parseCurrencyToCents(endM[3]);
-      pushRow(descPart, qty, null, taxPctEnd, amountCents);
+      pushRow(fullDesc, qty, null, taxPctEnd, amountCents);
       continue;
     }
     endM = line.match(amountUnitTaxAtEndRe);
     if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
+      const inlineDesc = line.slice(0, line.length - endM[0].length).trim();
+      const fullDesc = (pendingDescs.length > 0 ? pendingDescs.join(' ').trim() + (inlineDesc ? ' ' + inlineDesc : '') : inlineDesc) || null;
+      pendingDescs.length = 0;
       const qty = parseNum(endM[1]);
       const unitCentsEnd = parseCurrencyToCents(endM[2]);
       const taxPctEnd = parseNum(endM[3]);
       const amountCents = parseCurrencyToCents(endM[4]);
-      pushRow(descPart, qty, unitCentsEnd, taxPctEnd, amountCents);
+      pushRow(fullDesc, qty, unitCentsEnd, taxPctEnd, amountCents);
       continue;
     }
     endM = line.match(amountAtEndTwoRe);
     if (endM) {
-      const descPart = line.slice(0, line.length - endM[0].length).trim();
-      if (descPart) {
+      const inlineDesc = line.slice(0, line.length - endM[0].length).trim();
+      const fullDesc = (pendingDescs.length > 0 ? pendingDescs.join(' ').trim() + (inlineDesc ? ' ' + inlineDesc : '') : inlineDesc) || null;
+      if (fullDesc) {
+        pendingDescs.length = 0;
         const qty = parseNum(endM[1]);
         const amountCents = parseCurrencyToCents(endM[2]);
-        pushRow(descPart, qty, null, null, amountCents);
+        pushRow(fullDesc, qty, null, null, amountCents);
         continue;
       }
     }
@@ -1786,13 +1796,13 @@ function extractInvoiceRowsFromOdlTable(table) {
   for (let i = 0; i < headerTexts.length; i++) {
     const h = headerTexts[i];
     if (h.includes('description')) idxDesc = i;
-    if (h === 'qty' || h.includes('qty')) idxQty = i;
+    if (h.includes('qty')) idxQty = i;
     if (h.includes('unit') || (h.includes('price') && !h.includes('unit'))) idxUnit = i;
     if (h === 'tax' || h.includes('tax')) idxTax = i;
     if (h.includes('amount')) idxAmount = i;
   }
-  const columnIndices = { description: idxDesc, qty: idxQty, unit_price: idxUnit, tax: idxTax, amount: idxAmount };
   if (idxAmount < 0) idxAmount = colCount - 1;
+  const columnIndices = { description: idxDesc, qty: idxQty, unit_price: idxUnit, tax: idxTax, amount: idxAmount };
   if (idxDesc < 0 || idxQty < 0 || idxAmount < 0) return { rows: [], columnIndices };
 
   const out = [];
@@ -1831,7 +1841,7 @@ function extractInvoiceRowsFromOdlTable(table) {
 function parseCurrencyToCents(str) {
   if (str == null || str === '') return null;
   let s = String(str).replace(/\u0000\s*\$/g, '-$').replace(/\u0000/g, ' ');
-  s = s.replace(/[$,\s]/g, '').replace(',', '.');
+  s = s.replace(/[$\s]/g, '').replace(/,/g, '');
   const n = parseFloat(s);
   return Number.isNaN(n) ? null : Math.round(n * 100);
 }
@@ -1839,7 +1849,7 @@ function parseCurrencyToCents(str) {
 /** Парсинг числа (qty или unit price). Поддержка формата с $ (например $20.00 из pypdf). */
 function parseNum(str) {
   if (str == null || str === '') return null;
-  const s = String(str).replace(/[$,\s]/g, '').replace(',', '.');
+  const s = String(str).replace(/[$\s]/g, '').replace(/,/g, '');
   const n = parseFloat(s);
   return Number.isNaN(n) ? null : n;
 }
@@ -1860,10 +1870,13 @@ function isInvoicePageMarker(line) {
 /** Строка похожа на диапазон дат (Jan 5 – Feb 5, 2026) — не считать её строкой с Qty/Amount. */
 function looksLikeDateLine(line) {
   if (!line || typeof line !== 'string') return false;
-  const lower = line.trim().toLowerCase();
-  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-  if (months.some((m) => lower.includes(m))) return true;
-  if (lower.includes('2026') || lower.includes('2025')) return true;
+  const trimmed = line.trim();
+  // Шаблон: "Mon DD – Mon DD, YYYY" или "Mon DD, YYYY – Mon DD, YYYY" (с разными тире)
+  if (/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:,\s*\d{4})?\s*[\u2013\u2014\-]\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s*\d{4}\b/i.test(trimmed)) return true;
+  // Дата вида "January 6, 2026"
+  if (/\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s*\d{4}\b/i.test(trimmed)) return true;
+  // Дата вида "Date of issue"
+  if (/date\s+of\s+issue/i.test(trimmed)) return true;
   return false;
 }
 
@@ -2047,10 +2060,11 @@ function findAllQtyUnitAmountInLine(line) {
   });
 }
 
-/** Нормализация текста от pypdf: склеивает суммы, разорванные переносом строки (например "$1,\n120.00" → "$1,120.00"). */
+/** Нормализация текста от pypdf: преобразует \u0000$ в -$ (отрицательные суммы), склеивает суммы, разорванные переносом строки (например "$1,\n120.00" → "$1,120.00"). */
 function normalizePypdfInvoiceText(text) {
   if (typeof text !== 'string') return '';
   return text
+    .replace(/\u0000\s*\$/g, '-$')
     .replace(/\u0000/g, '')
     .replace(/(\$\d+),\s*\r?\n\s*(\d+\.\d{2})\b/g, '$1,$2')
     .replace(/(\$\d+),\s*\r?\n\s*(\d+)\b/g, '$1,$2');
@@ -2406,11 +2420,8 @@ async function parseCursorInvoicePdf(buffer) {
 /** Классификация позиции счёта: тип начисления и (для токенов) модель. issueDate — дата счёта YYYY-MM-DD (6-е число = ежемесячное списание). */
 function classifyInvoiceItem(description, issueDate) {
   const desc = description && typeof description === 'string' ? description.trim() : '';
-  const day = issueDate && /^\d{4}-\d{2}-\d{2}$/.test(issueDate) ? parseInt(issueDate.slice(8, 10), 10) : null;
-  const is6th = day === 6;
-
-  if (/^Cursor (Teams|Business) [A-Za-z]{3} \d+(, \d{4})? – [A-Za-z]{3} \d+, \d{4}$/.test(desc)) {
-    return { charge_type: is6th ? 'monthly_subscription' : 'other', model: null };
+  if (/^Cursor (Teams|Business) [A-Za-z]{3} \d+(, \d{4})?\s*[\u2013\u2014\-]\s*[A-Za-z]{3} \d+, \d{4}$/.test(desc)) {
+    return { charge_type: 'monthly_subscription', model: null };
   }
   if (/^Fast Premium Requests Per Seat /.test(desc)) {
     return { charge_type: 'fast_premium_per_seat', model: null };
@@ -2425,11 +2436,11 @@ function classifyInvoiceItem(description, issueDate) {
     return { charge_type: 'proration_refund', model: null };
   }
   if (/^Cursor token fee for /.test(desc)) {
-    const m = desc.match(/non-max-([a-z0-9]+(?:-[a-z0-9.]+)*)/i);
+    const m = desc.match(/(?:non-max-|token-based-call-)([a-z0-9]+(?:-[a-z0-9.]+)*)/i) || desc.match(/for\s+([a-z0-9]+(?:-[a-z0-9.]+)*)\s*:/i);
     return { charge_type: 'token_fee', model: m ? m[1] : null };
   }
   if (/^\d+ token-based usage calls to /.test(desc)) {
-    const m = desc.match(/to non-max-([a-z0-9]+(?:-[a-z0-9.]+)*)/i);
+    const m = desc.match(/to (?:non-max-)?([a-z0-9]+(?:-[a-z0-9.]+)*?)(?:,|\s|$)/i);
     return { charge_type: 'token_usage', model: m ? m[1] : null };
   }
   return { charge_type: 'other', model: null };
@@ -2619,7 +2630,7 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
         if (!periodKey) continue;
         const kind = (e.kind || e.billingKind || '').toString().toLowerCase();
         const isUsageBased = kind === 'usage-based' || kind === 'usage_based';
-        if (kind && !isUsageBased) continue;
+        if (!isUsageBased) continue;
         if (!byPeriodUsage[periodKey]) byPeriodUsage[periodKey] = { count: 0, cents: 0 };
         byPeriodUsage[periodKey].count += 1;
         const tu = e.tokenUsage || {};
@@ -2647,7 +2658,7 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
     for (const key of [...allPeriods].sort()) {
       const u = byPeriodUsage[key] || { count: 0, cents: 0 };
       const i = byPeriodInvoice[key] || { count: 0, cents: 0 };
-      const diffCents = u.cents - i.cents;
+      const diffCents = i.cents - u.cents;
       totalUsageCents += u.cents;
       totalInvoiceCents += i.cents;
       comparison.push({
@@ -2659,7 +2670,7 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
         diffCents,
       });
     }
-    const totalDiffCents = totalUsageCents - totalInvoiceCents;
+    const totalDiffCents = totalInvoiceCents - totalUsageCents;
     res.json({
       comparison,
       totals: { totalUsageCents, totalInvoiceCents, totalDiffCents },

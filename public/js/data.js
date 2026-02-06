@@ -56,14 +56,6 @@ async function loadCoverage() {
   }
 }
 
-function getAllKeys(arr) {
-  const set = new Set();
-  arr.forEach((obj) => {
-    if (obj && typeof obj === 'object') Object.keys(obj).forEach((k) => set.add(k));
-  });
-  return Array.from(set);
-}
-
 function sortKeysWithFirst(keys, firstKeys) {
   const set = new Set(keys);
   const first = (firstKeys || []).filter((k) => set.has(k));
@@ -98,7 +90,7 @@ function renderTableFromArray(arr, maxRows = 500, options = {}) {
 
 function extractArray(payload) {
   if (!payload || typeof payload !== 'object') return null;
-  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload)) return { key: null, arr: payload };
   for (const key of ['events', 'data', 'usageEvents', 'teamMembers', 'teamMemberSpend']) {
     if (Array.isArray(payload[key])) return { key, arr: payload[key] };
   }

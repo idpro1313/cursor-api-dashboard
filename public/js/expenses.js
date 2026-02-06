@@ -196,28 +196,6 @@ function renderTable(rows) {
   `;
 }
 
-function tableToTsv(table) {
-  const rows = [];
-  table.querySelectorAll('tr').forEach((tr) => {
-    const cells = [];
-    tr.querySelectorAll('th, td').forEach((cell) => {
-      const text = (cell.textContent || '').trim().replace(/\s+/g, ' ').replace(/\t/g, ' ').replace(/\n/g, ' ');
-      cells.push(text);
-    });
-    if (cells.length) rows.push(cells.join('\t'));
-  });
-  return rows.join('\n');
-}
-
-function showCopyFeedback(btn, message) {
-  const feedback = btn.parentElement && btn.parentElement.querySelector('.copy-feedback');
-  if (feedback) {
-    feedback.textContent = message;
-    feedback.classList.add('visible');
-    setTimeout(() => { feedback.textContent = ''; feedback.classList.remove('visible'); }, 2000);
-  }
-}
-
 function setupCopyButton() {
   document.getElementById('teamSnapshotTableWrap')?.closest('.table-block-with-copy')?.querySelector('.btn-copy-table')?.addEventListener('click', (ev) => {
     const btn = ev.currentTarget;
@@ -278,39 +256,39 @@ async function load() {
   const summaryStats = document.getElementById('summaryStats');
   const tableContainer = document.getElementById('teamTableContainer');
 
-  statusEl.textContent = 'Запрос к Cursor API и загрузка Jira...';
-  statusEl.className = 'meta';
-  resultPanel.style.display = 'none';
+  if (statusEl) { statusEl.textContent = 'Запрос к Cursor API и загрузка Jira...'; statusEl.className = 'meta'; }
+  if (resultPanel) resultPanel.style.display = 'none';
 
   try {
     const [snapshotRes, jiraRes] = await Promise.all([
-      fetch('/api/teams/snapshot'),
-      fetch('/api/jira-users'),
+      fetchWithAuth('/api/teams/snapshot'),
+      fetchWithAuth('/api/jira-users'),
     ]);
+    if (!snapshotRes) return;
     const snapshotData = await snapshotRes.json();
     if (!snapshotRes.ok) throw new Error(snapshotData.error || snapshotRes.statusText);
 
     let jiraUsers = [];
-    if (jiraRes.ok) {
+    if (jiraRes && jiraRes.ok) {
       const jiraData = await jiraRes.json();
       jiraUsers = jiraData.users || [];
     }
 
     const rows = mergeTableRows(snapshotData, jiraUsers);
-    summaryStats.innerHTML = renderSummary(snapshotData);
-    tableContainer.innerHTML = renderTable(rows);
-    resultPanel.style.display = 'block';
-    statusEl.textContent = '';
-    setupSort(); // делегирование на teamTableContainer
+    if (summaryStats) summaryStats.innerHTML = renderSummary(snapshotData);
+    if (tableContainer) tableContainer.innerHTML = renderTable(rows);
+    if (resultPanel) resultPanel.style.display = 'block';
+    if (statusEl) statusEl.textContent = '';
+    setupSort();
     setupCopyButton();
   } catch (e) {
-    statusEl.textContent = e.message || 'Ошибка загрузки';
-    statusEl.className = 'meta error';
+    if (statusEl) { statusEl.textContent = e.message || 'Ошибка загрузки'; statusEl.className = 'meta error'; }
   }
 }
 
 function init() {
-  document.getElementById('btnLoad').addEventListener('click', load);
+  var btnLoad = document.getElementById('btnLoad');
+  if (btnLoad) btnLoad.addEventListener('click', load);
 }
 
 if (document.readyState === 'loading') {

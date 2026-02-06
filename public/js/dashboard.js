@@ -73,13 +73,6 @@ function getIntensity(value, maxValue) {
   return Math.min(1, value / maxValue);
 }
 
-/** Дата YYYY-MM-DD → DD.MM.YYYY */
-function formatJiraDate(ymd) {
-  if (!ymd || String(ymd).length < 10) return '—';
-  const parts = String(ymd).slice(0, 10).split('-');
-  return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : ymd;
-}
-
 /** Бейдж статуса из Jira: Активный / Архивный (по данным Jira, самый поздний статус). */
 function formatJiraStatusBadge(user) {
   if (user.jiraStatus == null) return '';
@@ -100,14 +93,6 @@ function formatUserStatusAndDates(user) {
   const parts = [badge, datesHtml, projectHtml].filter(Boolean);
   if (!parts.length) return '';
   return `<span class="user-meta-block">${parts.join(' ')}</span>`;
-}
-
-/** Подпись месяца YYYY-MM для заголовка таблицы */
-function formatMonthShort(monthStr) {
-  if (!monthStr || monthStr.length < 7) return monthStr || '—';
-  const [y, m] = monthStr.split('-').map(Number);
-  const d = new Date(y, (m || 1) - 1, 1);
-  return d.toLocaleDateString('ru-RU', { month: 'short', year: '2-digit' });
 }
 
 /** Состояние сортировки таблицы «Активные в Jira, но не используют Cursor» */
@@ -709,8 +694,6 @@ function renderTable(preparedUsers, months, viewMetric) {
   `;
 }
 
-const DAILY_USAGE_ENDPOINT = '/teams/daily-usage-data';
-
 /** Кэш последних загруженных данных: при смене сортировки/вида обновляем только блок пользователей. */
 let lastDashboardData = null;
 
@@ -765,7 +748,8 @@ async function setDefaultDates() {
   const elStart = document.getElementById('startDate');
   if (!elEnd || !elStart) return;
   try {
-    const r = await fetch('/api/analytics/coverage');
+    const r = await fetchWithAuth('/api/analytics/coverage');
+    if (!r) return;
     const data = await r.json();
     const coverage = data.coverage || [];
     if (coverage.length) {
@@ -797,7 +781,6 @@ async function load() {
   const statusEl = document.getElementById('loadStatus');
   const summaryPanel = document.getElementById('summaryPanel');
   const contentPanel = document.getElementById('contentPanel');
-  const emptyState = document.getElementById('emptyState');
   const tableContainer = document.getElementById('tableContainer');
   const heatmapContainer = document.getElementById('heatmapContainer');
   const cardsContainer = document.getElementById('cardsContainer');
@@ -813,34 +796,35 @@ async function load() {
   if (statusEl) statusEl.className = 'meta';
   if (summaryPanel) summaryPanel.style.display = 'none';
   if (contentPanel) contentPanel.style.display = 'none';
-  document.getElementById('inactiveCursorPanel') && (document.getElementById('inactiveCursorPanel').style.display = 'none');
-  document.getElementById('costByProjectPanel') && (document.getElementById('costByProjectPanel').style.display = 'none');
-  if (emptyState) emptyState.style.display = 'block';
+  var inactPanelH = document.getElementById('inactiveCursorPanel');
+  var costPanelH = document.getElementById('costByProjectPanel');
+  if (inactPanelH) inactPanelH.style.display = 'none';
+  if (costPanelH) costPanelH.style.display = 'none';
   try {
-    const r = await fetch('/api/users/activity-by-month?' + new URLSearchParams({ startDate, endDate }));
+    const r = await fetchWithAuth('/api/users/activity-by-month?' + new URLSearchParams({ startDate, endDate }));
+    if (!r) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);
+
+    lastDashboardData = data;
 
     const users = data.users || [];
     const months = data.months || [];
     if (!users.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (Настройки → Загрузка в БД). Опционально загрузите <a href="settings.html#jira">пользователей Jira</a> для отображения имён вместо email.</p>';
-      if (emptyState) emptyState.style.display = 'none';
+      if (tableContainer) tableContainer.innerHTML = '<p class="muted">Нет данных по пользователям за выбранный период. Убедитесь, что в БД загружены <strong>Daily Usage Data</strong> (Настройки → Загрузка в БД). Опционально загрузите <a href="settings.html#jira">пользователей Jira</a> для отображения имён вместо email.</p>';
       if (contentPanel) contentPanel.style.display = 'block';
-      contentPanel.querySelector('#contentTitle').textContent = 'Активность по пользователям';
-      statusEl.textContent = '';
+      if (statusEl) statusEl.textContent = '';
       return;
     }
     if (!months.length) {
-      tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные в <a href="settings.html#admin">Настройки → Загрузка в БД</a>. Что уже есть в БД — <a href="settings.html#data">Настройки → Данные в БД</a>.</p>';
-      emptyState.style.display = 'none';
-      contentPanel.style.display = 'block';
-      statusEl.textContent = '';
+      if (tableContainer) tableContainer.innerHTML = '<p class="muted">Нет записей Daily Usage за выбранный период. Проверьте диапазон дат или загрузите данные в <a href="settings.html#admin">Настройки → Загрузка в БД</a>. Что уже есть в БД — <a href="settings.html#data">Настройки → Данные в БД</a>.</p>';
+      if (contentPanel) contentPanel.style.display = 'block';
+      if (statusEl) statusEl.textContent = '';
       return;
     }
 
     const preparedUsers = prepareUsers(data, sortBy, showOnlyActive);
-    summaryStats.innerHTML = renderSummary(data, preparedUsers);
+    if (summaryStats) summaryStats.innerHTML = renderSummary(data, preparedUsers);
     if (summaryPanel) summaryPanel.style.display = 'block';
     if (contentPanel) contentPanel.style.display = 'block';
     if (emptyState) emptyState.style.display = 'none';
@@ -884,16 +868,16 @@ async function load() {
       setupMainTableSort();
     }
 
-    tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
-    statusEl.textContent = '';
+    if (tableSummary) tableSummary.textContent = `Пользователей: ${preparedUsers.length}, месяцев: ${months.length}.`;
+    if (statusEl) statusEl.textContent = '';
   } catch (e) {
-    statusEl.textContent = e.message || 'Ошибка загрузки';
-    if (statusEl) statusEl.className = 'meta error';
+    if (statusEl) { statusEl.textContent = e.message || 'Ошибка загрузки'; statusEl.className = 'meta error'; }
     if (summaryPanel) summaryPanel.style.display = 'none';
     if (contentPanel) contentPanel.style.display = 'none';
-    document.getElementById('inactiveCursorPanel') && (document.getElementById('inactiveCursorPanel').style.display = 'none');
-    document.getElementById('costByProjectPanel') && (document.getElementById('costByProjectPanel').style.display = 'none');
-    if (emptyState) emptyState.style.display = 'block';
+    var inactP = document.getElementById('inactiveCursorPanel');
+    var costP = document.getElementById('costByProjectPanel');
+    if (inactP) inactP.style.display = 'none';
+    if (costP) costP.style.display = 'none';
     if (tableSummary) tableSummary.textContent = '';
   }
 }
@@ -906,18 +890,12 @@ function init() {
   });
   const btnLoad = document.getElementById('btnLoad');
   if (btnLoad) btnLoad.addEventListener('click', load);
-  const refresh = () => {
-    const startEl = document.getElementById('startDate');
-    const endEl = document.getElementById('endDate');
-    if (startEl && endEl && startEl.value && endEl.value) load();
-  };
   const viewModeEl = document.getElementById('viewMode');
   const sortByEl = document.getElementById('sortBy');
   const showOnlyActiveEl = document.getElementById('showOnlyActive');
   if (viewModeEl) viewModeEl.addEventListener('change', updateContentBlockOnly);
   if (sortByEl) sortByEl.addEventListener('change', updateContentBlockOnly);
   if (showOnlyActiveEl) showOnlyActiveEl.addEventListener('change', updateContentBlockOnly);
-  document.body.addEventListener('click', copyTableFromButton);
 }
 
 if (document.readyState === 'loading') {

@@ -42,8 +42,12 @@ cursor-api-dashboard/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
+├── .env.example        # Шаблон переменных окружения
 ├── .gitignore
 ├── README.md           # Краткая инструкция по запуску (для GitHub)
+├── scripts/
+│   ├── deploy.sh           # Скрипт деплоя
+│   └── auto-deploy-check.sh  # Проверка состояния деплоя
 ├── docs/               # Документация
 │   ├── DOCUMENTATION.md    # Этот файл (API, БД, парсинг PDF, навигация)
 │   ├── PURPOSE-AND-VISION.md   # Цель и предназначение продукта
@@ -203,7 +207,7 @@ chmod +x scripts/deploy.sh
 |-------|------|----------|
 | GET | `/api/config` | Ответ: `{ apiKeyConfigured: boolean }`. |
 | POST | `/api/config` | Тело: `{ apiKey }`. Сохраняет ключ в БД (таблица `settings`). |
-| GET | `/api/proxy?path=...&startDate=...&endDate=...` | Прокси GET к Cursor API. `path` — например `/teams/members`, `/teams/audit-logs?...`. Требуется API key (заголовок `X-API-Key` или из файла/переменной). |
+| GET | `/api/proxy?path=...&startDate=...&endDate=...` | Прокси GET к Cursor API. `path` — например `/teams/members`, `/teams/audit-logs?...`. Требуется API key (заголовок `X-API-Key`, переменная `CURSOR_API_KEY` или из БД). |
 | POST | `/api/proxy` | Тело: `{ path, ...params }`. Прокси POST к Cursor API. |
 
 Допустимые префиксы `path`: `/teams/`, `/settings/`. На сервере действует rate limit (по умолчанию 120 запросов с одного IP в минуту) и соблюдаются лимиты Cursor API (20/60 запр/мин в зависимости от эндпоинта).
@@ -225,7 +229,7 @@ chmod +x scripts/deploy.sh
 | Метод | Путь | Описание |
 |-------|------|----------|
 | POST | `/api/invoices/upload` | Тело: `multipart/form-data`, поле `pdf` — файл PDF. Парсинг через OpenDataLoader; при успехе — сохранение в БД, ответ `{ ok, invoice_id, filename, items_count }`. При дубликате по хешу файла — 409 и `existing_invoice`. При ошибке парсинга (OPENDATALOADER_DISABLED, OPENDATALOADER_ERROR, OPENDATALOADER_EMPTY) — 400 с сообщением. |
-| GET | `/api/invoices` | Список счетов: `{ invoices: [ { id, filename, parsed_at, items_count }, ... ] }`. |
+| GET | `/api/invoices` | Список счетов: `{ invoices: [ { id, filename, file_path, file_hash, issue_date, parsed_at, items_count }, ... ] }`. |
 | GET | `/api/invoices/all-items` | Все позиции всех счетов для отчёта: `{ items: [ { issue_date, amount_cents, charge_type, model, description, ... }, ... ] }`. `charge_type`: token_usage, token_fee, monthly_subscription, proration_charge и др. |
 | GET | `/api/invoices/:id/items` | Позиции счёта: `{ items: [ { row_index, description, quantity, unit_price_cents, tax_pct, amount_cents, raw_columns, charge_type, model }, ... ] }`. 404 если счёт не найден. |
 | DELETE | `/api/invoices/:id` | Удаление счёта и всех его позиций; удаляется также лог в `INVOICE_LOGS_DIR` (имя файла счёта + `.log`). Ответ `{ ok: true }` или 404. |
@@ -243,7 +247,11 @@ chmod +x scripts/deploy.sh
 |-------|------|----------|
 | GET | `/api/analytics?endpoint=...&startDate=...&endDate=...` | Выборка из таблицы `analytics`. Ответ: `{ data: [ { endpoint, date, payload, updated_at }, ... ] }`. |
 | GET | `/api/analytics/coverage` | Ответ: `{ coverage: [ { endpoint, min_date, max_date, days }, ... ] }`. |
-| POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД: таблицы `analytics` и `jira_users`; при `clearSettings: true` — также `settings` (API key). Ответ: `{ ok, message }`. |
+| POST | `/api/clear-db` | Тело: `{ clearSettings?: boolean }`. Полная очистка БД: таблицы `analytics`, `jira_users`, `cursor_invoices`, `cursor_invoice_items`; при `clearSettings: true` — также `settings` (API key). Ответ: `{ ok, message }`. |
+| POST | `/api/clear-analytics` | Очистка только таблицы `analytics`. |
+| POST | `/api/clear-jira` | Очистка только таблицы `jira_users`. |
+| GET | `/api/teams/snapshot` | Снимок участников команды и расходов с Cursor API (прокси к `/teams/members` + `/teams/spend`). |
+| GET | `/api/audit-events?startDate=...&endDate=...` | Выборка событий аудита из БД за период. |
 | GET | `/api/users/activity-by-month?startDate=...&endDate=...` | Агрегация Daily Usage и Usage Events по пользователям и месяцам. Ответ: `{ users, months }`. У пользователя: `displayName`, `email`, `jiraStatus`, `jiraProject`, `jiraConnectedAt`, `jiraDisconnectedAt`, `monthlyActivity: [ { month, activeDays, requests, linesAdded, linesDeleted, applies, accepts, usageEventsCount, usageCostCents, usageCostByModel }, ... ]`. Пользователи — из Jira (CSV) и/или из Cursor по email. |
 | GET | `/api/jira-users` | Ответ: `{ users: [ ... ] }` — массив объектов из таблицы `jira_users`. |
 | POST | `/api/jira-users/upload` | Тело: `{ csv: "строка CSV" }`. Полная замена записей в `jira_users`. |
@@ -275,7 +283,15 @@ chmod +x scripts/deploy.sh
 
 При загрузке CSV таблица очищается и заполняется заново.
 
-### 7.3 Таблицы счетов Cursor
+### 7.3 Таблица `settings`
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| key | TEXT | PRIMARY KEY. Ключ настройки (например `cursor_api_key`). |
+| value | TEXT | Значение настройки. |
+| updated_at | TEXT | Время последнего обновления. |
+
+### 7.4 Таблицы счетов Cursor
 
 **`cursor_invoices`**
 
@@ -306,7 +322,7 @@ chmod +x scripts/deploy.sh
 
 Уникальность: `(invoice_id, row_index)`.
 
-### 7.4 Вспомогательные функции (db.js)
+### 7.5 Вспомогательные функции (db.js)
 
 - `getExistingDates(endpoint, startDate, endDate)` — массив дат (YYYY-MM-DD), по которым уже есть данные для эндпоинта в указанном диапазоне. Используется при синхронизации для построения недостающих диапазонов: запрашиваются только чанки по «дырам» (без повторной загрузки одних и тех же дней).
 - Для счетов: `getCursorInvoices`, `getCursorInvoiceById`, `getCursorInvoiceItems`, `getCursorInvoiceByFileHash`, `insertCursorInvoice` (с параметром issueDate), `insertCursorInvoiceItem` (с параметрами chargeType, model), `deleteCursorInvoice`, `clearCursorInvoicesOnly`. При полной очистке БД (`clearAllData`) удаляются также `cursor_invoices` и `cursor_invoice_items`.
@@ -316,7 +332,7 @@ chmod +x scripts/deploy.sh
 ## 8. Логика синхронизации (загрузка в БД)
 
 1. **Граница периода:** конечная дата на сервере ограничивается **вчера** (текущий день не загружается).
-2. **Начальная дата:** задаётся пользователем; по умолчанию на фронте — **01.09.2025**.
+2. **Начальная дата:** задаётся пользователем; по умолчанию на фронте — **01.06.2025**.
 3. **Чанки по 30 дней:** период от начальной даты до вчера разбивается на отрезки по 30 дней (лимит Cursor API).
 4. **Пропуск уже загруженных данных:** для каждого daterange-эндпоинта запрашивается множество дат из БД в этом периоде. Чанк пропускается, если для **всех** дней этого чанка уже есть записи. Иначе чанк запрашивается у Cursor API и сохраняется (upsert по дням).
 5. **Snapshot-эндпоинты** (members, spend) запрашиваются один раз за запуск синхронизации.
@@ -334,6 +350,7 @@ chmod +x scripts/deploy.sh
 | `CORS_ORIGIN` | Разрешённые origins через запятую. | все |
 | `PROXY_TIMEOUT_MS` | Таймаут запроса к Cursor API, мс. | 60000 |
 | `RATE_LIMIT_MAX` | Максимум запросов с одного IP в минуту к нашему серверу. | 120 |
+| `REQUEST_DELAY_MS` | Задержка между запросами к Cursor API при синхронизации, мс. | 150 |
 | `SYNC_LOG_FILE` | Путь к файлу лога синхронизации (append). | `data/sync.log` |
 | `SESSION_SECRET` | Секрет для подписи сессии (если не использовать файл `data/session_secret`). | генерируется в файл |
 | `USE_OPENDATALOADER` | Включить парсинг PDF-счетов через OpenDataLoader. Требуется **Java 11+** в PATH (в Docker-образе установлена Java 17). Отключить: `0` или `false`. | включено (если не `0`/`false`) |
