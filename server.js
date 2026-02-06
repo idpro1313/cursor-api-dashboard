@@ -2311,6 +2311,9 @@ app.get('/api/reconciliation', requireSettingsAuth, (req, res) => {
         if (!dateKey) continue;
         const periodKey = getBillingPeriodKey(dateKey);
         if (!periodKey) continue;
+        const kind = (e.kind || e.billingKind || '').toString().toLowerCase();
+        const isUsageBased = kind === 'usage-based' || kind === 'usage_based';
+        if (kind && !isUsageBased) continue;
         if (!byPeriodUsage[periodKey]) byPeriodUsage[periodKey] = { count: 0, cents: 0 };
         byPeriodUsage[periodKey].count += 1;
         const tu = e.tokenUsage || {};
