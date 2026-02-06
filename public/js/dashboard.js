@@ -827,7 +827,6 @@ async function load() {
     if (summaryStats) summaryStats.innerHTML = renderSummary(data, preparedUsers);
     if (summaryPanel) summaryPanel.style.display = 'block';
     if (contentPanel) contentPanel.style.display = 'block';
-    if (emptyState) emptyState.style.display = 'none';
     setupSummaryCostByModelSort();
 
     const inactiveCursorPanel = document.getElementById('inactiveCursorPanel');
