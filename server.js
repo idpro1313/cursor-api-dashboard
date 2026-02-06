@@ -2090,26 +2090,62 @@ async function parseCursorInvoicePdf(buffer) {
     return { rows: [], parser: null, pypdfText: null, error: 'OPENDATALOADER_DISABLED' };
   }
   try {
-    // В Alpine/Docker Java может быть в /usr/lib/jvm/...; задаём JAVA_HOME, если не задан
-    if (!process.env.JAVA_HOME && process.platform === 'linux') {
-      const candidates = ['/usr/lib/jvm/java-17-openjdk', '/usr/lib/jvm/java-11-openjdk', '/usr/lib/jvm/default-jvm'];
-      for (const dir of candidates) {
+    // Задаём JAVA_HOME, если не задан (иначе @opendataloader/pdf может передать undefined в path → "path argument... Received undefined")
+    if (!process.env.JAVA_HOME || typeof process.env.JAVA_HOME !== 'string' || !process.env.JAVA_HOME.trim()) {
+      if (process.platform === 'linux') {
+        const candidates = ['/usr/lib/jvm/java-17-openjdk', '/usr/lib/jvm/java-11-openjdk', '/usr/lib/jvm/default-jvm'];
+        for (const dir of candidates) {
+          try {
+            if (fs.existsSync(path.join(dir, 'bin', 'java'))) {
+              process.env.JAVA_HOME = dir;
+              process.env.PATH = path.join(dir, 'bin') + path.delimiter + (process.env.PATH || '');
+              break;
+            }
+          } catch (_) {}
+        }
+      } else if (process.platform === 'win32') {
+        const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+        const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+        const candidates = [];
         try {
-          if (fs.existsSync(path.join(dir, 'bin', 'java'))) {
+          const pf = path.join(programFiles, 'Java');
+          if (fs.existsSync(pf)) {
+            const entries = fs.readdirSync(pf, { withFileTypes: true });
+            for (const e of entries) {
+              if (e.isDirectory() && /^jdk-?\d+/i.test(e.name)) candidates.push(path.join(pf, e.name));
+            }
+          }
+          const pf86 = path.join(programFilesX86, 'Java');
+          if (fs.existsSync(pf86)) {
+            const entries = fs.readdirSync(pf86, { withFileTypes: true });
+            for (const e of entries) {
+              if (e.isDirectory() && /^jdk-?\d+/i.test(e.name)) candidates.push(path.join(pf86, e.name));
+            }
+          }
+        } catch (_) {}
+        candidates.sort((a, b) => b.localeCompare(a));
+        for (const dir of candidates) {
+          const javaExe = path.join(dir, 'bin', 'java.exe');
+          if (fs.existsSync(javaExe)) {
             process.env.JAVA_HOME = dir;
             process.env.PATH = path.join(dir, 'bin') + path.delimiter + (process.env.PATH || '');
             break;
           }
-        } catch (_) {}
+        }
       }
     }
     const { convert } = require('@opendataloader/pdf');
     const os = require('os');
-    const tmpDir = path.join(os.tmpdir(), 'cursor-invoice');
+    const baseTmp = (typeof os.tmpdir === 'function' && os.tmpdir()) || process.cwd();
+    const tmpDir = path.resolve(path.join(baseTmp, 'cursor-invoice'));
     fs.mkdirSync(tmpDir, { recursive: true });
-    const tmpPdf = path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf');
-    const tmpOut = path.join(tmpDir, 'out-' + Date.now());
+    const tmpPdf = path.resolve(path.join(tmpDir, 'invoice-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.pdf'));
+    const tmpOut = path.resolve(path.join(tmpDir, 'out-' + Date.now()));
+    if (typeof tmpPdf !== 'string' || !tmpPdf || typeof tmpOut !== 'string' || !tmpOut) {
+      throw new Error('Invalid temp paths: tmpPdf=' + tmpPdf + ', tmpOut=' + tmpOut);
+    }
     fs.writeFileSync(tmpPdf, buffer);
+    fs.mkdirSync(tmpOut, { recursive: true });
     const convertOptions = {
       outputDir: tmpOut,
       format: 'json',
@@ -2151,12 +2187,13 @@ async function parseCursorInvoicePdf(buffer) {
     }
     return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_EMPTY' };
   } catch (err) {
-    const msg = err && (err.message || String(err));
-    console.error('[OpenDataLoader]', msg || err);
-    if (msg && /java|JAVA|not found|ENOENT|spawn/i.test(msg)) {
+    const msg = err && (typeof err.message === 'string' ? err.message : (err.stack || String(err)));
+    const errStr = (msg && String(msg).trim()) ? String(msg).trim() : (err != null ? String(err) : 'Unknown error');
+    console.error('[OpenDataLoader]', errStr);
+    if (errStr && /java|JAVA|not found|ENOENT|spawn/i.test(errStr)) {
       console.error('[OpenDataLoader] Убедитесь, что Java 11+ установлена и в PATH (или задайте JAVA_HOME).');
     }
-    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR', errorMessage: msg || String(err) };
+    return { rows: [], parser: 'opendataloader', pypdfText: null, error: 'OPENDATALOADER_ERROR', errorMessage: errStr };
   }
 }
 
@@ -2201,9 +2238,13 @@ app.post('/api/invoices/upload', requireSettingsAuth, uploadPdf.single('pdf'), a
     if (parseResult.error) {
       const msg = parseResult.error === 'OPENDATALOADER_DISABLED' ? 'Парсер отключён (USE_OPENDATALOADER=0).'
         : parseResult.error === 'OPENDATALOADER_ERROR'
-          ? (parseResult.errorMessage ? 'Ошибка OpenDataLoader: ' + String(parseResult.errorMessage).slice(0, 200) : 'Ошибка OpenDataLoader (требуется Java 11+ в PATH).')
+          ? (parseResult.errorMessage ? 'Ошибка OpenDataLoader: ' + String(parseResult.errorMessage).slice(0, 300) : 'Ошибка OpenDataLoader (требуется Java 11+ в PATH).')
         : 'Таблица строк не распознана.';
-      return res.status(400).json({ error: msg, code: parseResult.error });
+      return res.status(400).json({
+        error: msg,
+        code: parseResult.error,
+        ...(parseResult.errorMessage && { error_message: String(parseResult.errorMessage).slice(0, 500) }),
+      });
     }
     const invoiceId = db.insertCursorInvoice(filename, null, fileHash);
     rows.forEach((r) => {
